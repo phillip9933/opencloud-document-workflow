@@ -27,6 +27,22 @@ jobs:
       - run: pnpm run package
       - run: pnpm run package:draft
       - run: pnpm run package:installer
+      - name: Build matching companion image
+        run: docker build --build-arg WORKFLOW_VERSION=0.14.5 -f deploy/container/Dockerfile -t document-workflow-ci:latest .
+      - name: Check bundled runtime without network access
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --tmpfs /tmp:rw,noexec,nosuid,size=256m --entrypoint /bin/sh \
+            document-workflow-ci:latest -ec '
+              cd /app/source
+              node --test --experimental-test-isolation=none tests/companion/*.test.mjs
+              node --test --experimental-test-isolation=none tests/packaging/*.test.mjs
+              pdftotext tests/fixtures/english.pdf /tmp/fixture.txt
+              grep -F SYNTHETIC /tmp/fixture.txt
+              tesseract --list-langs >/tmp/languages.txt
+              grep -x eng /tmp/languages.txt
+              grep -x jpn /tmp/languages.txt
+            '
       - uses: actions/upload-artifact@v4
         with:
           name: document-workflow-release
