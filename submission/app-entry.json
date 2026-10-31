@@ -26,7 +26,7 @@
     "productivity"
   ],
   "coverImage": {
-    "url": "https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.14.5/cover.svg",
+    "url": "https://raw.githubusercontent.com/phillip9933/opencloud-document-workflow/v0.14.5/deploy/cover.svg",
     "caption": "Document review and filing in OpenCloud"
   },
   "resources": [
