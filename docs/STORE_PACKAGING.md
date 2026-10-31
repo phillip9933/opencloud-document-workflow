@@ -17,9 +17,9 @@ Source excludes private operational history, user configuration, documents, cred
 
 ## Compatibility and validation
 
-The native app has been exercised with OpenCloud 9 and SDK 8.2.1; local Ollama is the accepted AI path. Automated tests cover UI/domain behavior, companion operations and installer planning/asset safeguards. Earlier coordinated-installer acceptance covered Linux/amd64 fresh installation, failed-route rollback and repeat installation. The 0.14.5 source packages require their own rebuild/checksum verification; prior acceptance is not a claim that every new image, server version or proxy layout has been tested.
+The native app has been exercised with OpenCloud 9 and SDK 8.2.1; local Ollama is the accepted AI path. Automated tests cover UI/domain behavior, companion operations and installer planning/asset safeguards. Earlier coordinated-installer acceptance covered Linux/amd64 fresh installation, failed-route rollback and repeat installation. The published 0.14.5 kit now has fresh full installation, restoration, PDF verification and no-restart repeat acceptance on Linux/amd64 with OpenCloud 9 and Traefik; see [the acceptance record](ACCEPTANCE_0.14.5.md). This does not establish every server version, architecture or proxy layout.
 
-Live hosted-provider, arm64 and broad OpenCloud-version acceptance remain open. A container build and fresh isolated installation of this exact release should be recorded before presenting it as a broadly supported stable store release.
+Live hosted-provider, arm64 and broad OpenCloud-version acceptance remain open. This remains an early public release with a specific tested baseline, rather than a broadly certified stable store release.
 
 ## Catalogue contribution
 

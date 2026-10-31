@@ -31,7 +31,7 @@ PDFs are the supported ingestion format. Google Docs, Word files, standalone ima
 
 Ambiguous or unsupported facts, missing dates, destination collisions and uncertain writes are held for review. Japanese-era printed dates are not yet interpreted automatically. Similar-looking scans are not automatically discarded; only verified byte-identical copies qualify for duplicate Trash. AI evidence matching is a guardrail, not proof that a model's interpretation is correct.
 
-Unattended work requires a valid user App Token and continued access to the chosen Spaces. Browser-session access alone expires. Hosted-provider adapters have automated tests; live acceptance has focused on local Ollama. The Docker installer has been exercised on Linux/amd64; arm64 and other deployment layouts are not certified.
+Unattended work requires a valid user App Token and continued access to the chosen Spaces. Browser-session access alone expires. Hosted-provider adapters have automated tests; live acceptance has focused on local Ollama. The published Docker installer has passed [fresh installation and restoration acceptance](docs/ACCEPTANCE_0.14.5.md) on Linux/amd64 with OpenCloud 9 and Traefik; arm64 and other deployment layouts are not certified.
 
 ## Build and contribute
 
