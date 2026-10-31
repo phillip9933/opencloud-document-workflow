@@ -1,0 +1,52 @@
+{
+  "id": "com.github.phillip9933.opencloud-document-workflow.document-workflow",
+  "name": "Document Workflow",
+  "subtitle": "Review and automatically file documents in OpenCloud.",
+  "description": "One Inbox, PDF review, fields, tags, local or explicitly configured cloud AI and automatic filing. Original files and permissions stay in OpenCloud. Requires the companion service: the coordinated installation kit includes the matching web app, Node, Poppler, Tesseract and initial OCR packs. An administrator installs it once per instance using Docker; the web ZIP alone cannot process documents. Connect your own OpenCloud App Token in Settings for unattended work.",
+  "license": "AGPL-3.0-only",
+  "versions": [
+    {
+      "version": "0.14.5",
+      "releaseDate": "2026-10-31",
+      "minOpenCloud": "9.0.0",
+      "url": "RELEASE_BASE_URL/document-workflow-0.14.5.zip",
+      "filename": "document-workflow-0.14.5.zip"
+    }
+  ],
+  "authors": [
+    {
+      "name": "Phil Rogers",
+      "url": "SOURCE_URL"
+    }
+  ],
+  "tags": [
+    "documents",
+    "ocr",
+    "automation",
+    "productivity"
+  ],
+  "coverImage": {
+    "url": "RELEASE_BASE_URL/cover.svg",
+    "caption": "Document review and filing in OpenCloud"
+  },
+  "resources": [
+    {
+      "label": "Source code",
+      "icon": "code",
+      "url": "SOURCE_URL"
+    },
+    {
+      "label": "Installation",
+      "icon": "book-open",
+      "url": "RELEASE_BASE_URL/QUICK_INSTALL.md"
+    },
+    {
+      "label": "Coordinated installation kit",
+      "url": "RELEASE_BASE_URL/document-workflow-0.14.5-install.tar.gz"
+    },
+    {
+      "label": "Checksums",
+      "url": "RELEASE_BASE_URL/SHA256SUMS"
+    }
+  ]
+}

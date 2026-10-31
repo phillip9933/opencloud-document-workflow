@@ -1,0 +1,6 @@
+{
+  "name": "Document Workflow",
+  "version": "0.14.5",
+  "description": "Document intake, OCR, configurable metadata and reviewed filing for OpenCloud.",
+  "license": "AGPL-3.0-only"
+}

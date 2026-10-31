@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
+ <rect width="1200" height="675" rx="24" fill="#1d2021"/>
+ <g fill="none" stroke="#7da89f" stroke-width="12" stroke-linejoin="round"><path d="M495 130h145l70 70v230H495z"/><path d="M640 130v70h70M535 255h130M535 300h130M535 345h80"/></g>
+ <text x="600" y="525" text-anchor="middle" font-family="sans-serif" font-size="54" fill="#e1e3e4">Document Workflow</text>
+ <text x="600" y="588" text-anchor="middle" font-family="sans-serif" font-size="26" fill="#aab4b1">Review · Organize · Automate</text>
+</svg>

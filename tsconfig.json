@@ -1,0 +1,23 @@
+{
+  "extends": "@opencloud-eu/tsconfig",
+  "compilerOptions": {
+    "types": [
+      "vitest/globals"
+    ],
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "tests/unit/**/*.ts",
+    "*.config.ts",
+    "companion/*.d.mts"
+  ],
+  "exclude": [
+    "node_modules",
+    "artifacts",
+    "dist",
+    "draft-dist"
+  ]
+}

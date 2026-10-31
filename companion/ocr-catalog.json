@@ -1,0 +1,818 @@
+{
+  "repository": "tesseract-ocr/tessdata_fast",
+  "revision": "87416418657359cb625c412a48b6e1d6d41c29bd",
+  "license": "Apache-2.0",
+  "packs": [
+    {
+      "code": "afr",
+      "blob": "09e69cf5478cd6a0fb3ec5e7e7fa95a04f5cafb3",
+      "bytes": 2652786
+    },
+    {
+      "code": "amh",
+      "blob": "7a302b2bf6306c34177f594e0824eafc48906965",
+      "bytes": 5470094
+    },
+    {
+      "code": "ara",
+      "blob": "c8d129c67821c1592cac46836686b057ecc203dc",
+      "bytes": 1432056
+    },
+    {
+      "code": "asm",
+      "blob": "086035c6eacd5788c1f06d58c250023cee2aeb28",
+      "bytes": 2045427
+    },
+    {
+      "code": "aze",
+      "blob": "27bc73edf08e5e5f0c3e43c315c5c6d965c2f075",
+      "bytes": 3524799
+    },
+    {
+      "code": "aze_cyrl",
+      "blob": "e2b1b953a5b8db9247c6ddfcb58f062dc0b3b574",
+      "bytes": 1943672
+    },
+    {
+      "code": "bel",
+      "blob": "65d83dad535f876de31847f5fa2ff1bdd57c7bab",
+      "bytes": 3692098
+    },
+    {
+      "code": "ben",
+      "blob": "7e9054d1de309714009a85555f5276168d41af9c",
+      "bytes": 855841
+    },
+    {
+      "code": "bod",
+      "blob": "7bb5029466eaef46aad59fc23b96648df0e4f176",
+      "bytes": 1966440
+    },
+    {
+      "code": "bos",
+      "blob": "95bed5c32e3759347db0471569303f06e3485f42",
+      "bytes": 2498242
+    },
+    {
+      "code": "bre",
+      "blob": "c01691329561938fb7d491ea7611c591202952dd",
+      "bytes": 6335007
+    },
+    {
+      "code": "bul",
+      "blob": "1e65588d127d918ef3ba95b785b446f15827d60f",
+      "bytes": 1675212
+    },
+    {
+      "code": "cat",
+      "blob": "3fcd350dd2bb76503de90249111fff4e3c6aa0f0",
+      "bytes": 1146012
+    },
+    {
+      "code": "ceb",
+      "blob": "5a1b96928e54b175db96f00d2aa84b5878d301b9",
+      "bytes": 716214
+    },
+    {
+      "code": "ces",
+      "blob": "dd6fc79a62f9fcd1c7c6da06b31bb4fdb10dc173",
+      "bytes": 3795684
+    },
+    {
+      "code": "chi_sim",
+      "blob": "388bac276d033d06e5ed5ba7a7ad14ae58f97dab",
+      "bytes": 2469156
+    },
+    {
+      "code": "chi_sim_vert",
+      "blob": "f9898e91068a9d04bcacf6d2a244da40e9f30c0c",
+      "bytes": 1927902
+    },
+    {
+      "code": "chi_tra",
+      "blob": "1955cd8b8d076b898616e9c2c1ace65b43105356",
+      "bytes": 2366642
+    },
+    {
+      "code": "chi_tra_vert",
+      "blob": "94bc5dbd7fa25dd89ac9c5bd18f3fc6d8409aa0e",
+      "bytes": 1824756
+    },
+    {
+      "code": "chr",
+      "blob": "e0799a2b888466e5bc2ca60f1f2fb4a7ff4c6990",
+      "bytes": 374944
+    },
+    {
+      "code": "cos",
+      "blob": "3105b7fb0cd6c26f4fb144ec5d594430e88927cb",
+      "bytes": 2299099
+    },
+    {
+      "code": "cym",
+      "blob": "900cf17f74514934f87e9a8df3b29cb16b5606fe",
+      "bytes": 2208919
+    },
+    {
+      "code": "dan",
+      "blob": "85501b582937493f9ae6a64ccd0a6bb0a2ea33d5",
+      "bytes": 2580059
+    },
+    {
+      "code": "deu",
+      "blob": "97ed7b2b60f2771c07040660ef0f6daf596dc7bf",
+      "bytes": 1525436
+    },
+    {
+      "code": "deu_latf",
+      "blob": "11a641044a93413454f75fbb8e05b085bd0b9d8d",
+      "bytes": 6423052
+    },
+    {
+      "code": "div",
+      "blob": "53b46df7d6ae94f75913d6377182867ea09d950b",
+      "bytes": 1774535
+    },
+    {
+      "code": "dzo",
+      "blob": "3c31175be56ab4db42af614f384ea52ce949082c",
+      "bytes": 449596
+    },
+    {
+      "code": "ell",
+      "blob": "ed98ae1a88d84414da316e6eeab3232f2c68639b",
+      "bytes": 1419514
+    },
+    {
+      "code": "eng",
+      "blob": "bbef4675053b5b468cdb477053e28b1c698ba08e",
+      "bytes": 4113088
+    },
+    {
+      "code": "enm",
+      "blob": "e49b5b86da60f2e728ff2b7f4357692ac32b6a6d",
+      "bytes": 3101551
+    },
+    {
+      "code": "epo",
+      "blob": "235fc67adf52f43d34b409d44d426d560aefc8e3",
+      "bytes": 4728393
+    },
+    {
+      "code": "equ",
+      "blob": "27b470378dc8718f1dc5a93931fefa3340336e4d",
+      "bytes": 2251950
+    },
+    {
+      "code": "est",
+      "blob": "a2b52c3388358e6dfc4eb8d64d8fc6afbb3630ea",
+      "bytes": 4458101
+    },
+    {
+      "code": "eus",
+      "blob": "6247f975443ec82c219c39e0b5ea76b4833c82fe",
+      "bytes": 5175921
+    },
+    {
+      "code": "fao",
+      "blob": "1b845e73759785908aef57161ae4c86a70cce622",
+      "bytes": 3439772
+    },
+    {
+      "code": "fas",
+      "blob": "1a17ee02076107e73abd15d2038389150c8f824f",
+      "bytes": 431500
+    },
+    {
+      "code": "fil",
+      "blob": "785f80decce6ddb6b50bd99f4840414359c806ff",
+      "bytes": 1841715
+    },
+    {
+      "code": "fin",
+      "blob": "73f92402f1891b9066e0e145f245145a2402105c",
+      "bytes": 7865732
+    },
+    {
+      "code": "fra",
+      "blob": "d9e2b2160be0d1ca3b8f1bf2730fae476ef3b4a6",
+      "bytes": 1130365
+    },
+    {
+      "code": "frk",
+      "blob": "11a641044a93413454f75fbb8e05b085bd0b9d8d",
+      "bytes": 6423052,
+      "downloadPath": "deu_latf.traineddata"
+    },
+    {
+      "code": "frm",
+      "blob": "ed06039efef821b78f22c86abb6c5aea7f02461e",
+      "bytes": 2024948
+    },
+    {
+      "code": "fry",
+      "blob": "17199d2c33e201d6ad4003a6c86db5f8f273ddc1",
+      "bytes": 1906018
+    },
+    {
+      "code": "gla",
+      "blob": "e8bae7f1863dd1872ab7d2b2e7f319874c480e60",
+      "bytes": 3068307
+    },
+    {
+      "code": "gle",
+      "blob": "a7abc7be9aadc862b31ab7c7bc672051cd0245fb",
+      "bytes": 1181824
+    },
+    {
+      "code": "glg",
+      "blob": "7bc00b38f40f8de1575397f7d05387e5fbbacca4",
+      "bytes": 2554555
+    },
+    {
+      "code": "grc",
+      "blob": "e94990006fc18e88ab120e7ca6681cc3b290269b",
+      "bytes": 2246328
+    },
+    {
+      "code": "guj",
+      "blob": "151b9aad2945e3103118e5d36eee288f631d985a",
+      "bytes": 1418394
+    },
+    {
+      "code": "hat",
+      "blob": "30d3baeaeef791781d782e58feb415b25921df3f",
+      "bytes": 1976902
+    },
+    {
+      "code": "heb",
+      "blob": "7356caf3cddc9c867fe6727e17726727b8284608",
+      "bytes": 961404
+    },
+    {
+      "code": "hin",
+      "blob": "a8f0aaec09378115b12a2c6287c57695d082aea2",
+      "bytes": 1122751
+    },
+    {
+      "code": "hrv",
+      "blob": "6dd4f8638a58eb0663e8f9a80a355c505dcf01a6",
+      "bytes": 4103348
+    },
+    {
+      "code": "hun",
+      "blob": "5d24fa8e922d6b57853dcb0cc490060c76643cab",
+      "bytes": 5296273
+    },
+    {
+      "code": "hye",
+      "blob": "ec2e2f3adea785e8964b9771871c44349a6e1b40",
+      "bytes": 3463717
+    },
+    {
+      "code": "iku",
+      "blob": "6eab87ffe818b5f89baa869c458cb0a6dbed6b2d",
+      "bytes": 2802266
+    },
+    {
+      "code": "ind",
+      "blob": "3013f50cd2af9aceca00e865ed889144865f0848",
+      "bytes": 1122661
+    },
+    {
+      "code": "isl",
+      "blob": "20d3bdf8cb8f2289a1f45aa9cdf4ddf2a22e7462",
+      "bytes": 2278973
+    },
+    {
+      "code": "ita",
+      "blob": "edbffbe0e51892b240630b5eeabededa7e7c9c4f",
+      "bytes": 2701314
+    },
+    {
+      "code": "ita_old",
+      "blob": "c8a2c3c3d8c82a2d953b0fc64b949c1aa0918c09",
+      "bytes": 3286123
+    },
+    {
+      "code": "jav",
+      "blob": "3155b8184d50af28dbf8dcbd972e26b388ab1581",
+      "bytes": 2982741
+    },
+    {
+      "code": "jpn",
+      "blob": "c4178f89991bde90b7fdc647e3e1901868423bd0",
+      "bytes": 2471260
+    },
+    {
+      "code": "jpn_vert",
+      "blob": "43f38defe4b83588876d0d7a6dee928be1b73af0",
+      "bytes": 3037480
+    },
+    {
+      "code": "kan",
+      "blob": "78252baeed24bcf327e62226c321c60242108a24",
+      "bytes": 3608331
+    },
+    {
+      "code": "kat",
+      "blob": "1a3ae11fdd248891dd3fc74f156a0ce246ec1a15",
+      "bytes": 2524769
+    },
+    {
+      "code": "kat_old",
+      "blob": "f4ae5ab4b3fe4bb3226639d9b23fa71513a40ec8",
+      "bytes": 423167
+    },
+    {
+      "code": "kaz",
+      "blob": "f889e2b8ffd093d4f2dff8ffca2fa0b73296c028",
+      "bytes": 4734644
+    },
+    {
+      "code": "khm",
+      "blob": "d466dc2a7e35bf90cb7b54364985703728398687",
+      "bytes": 1446926
+    },
+    {
+      "code": "kir",
+      "blob": "3e04f2954f33dd021b95de4befffb68904d9e142",
+      "bytes": 9928497
+    },
+    {
+      "code": "kmr",
+      "blob": "d1afefb7c5a67e273c6612aba77753021506b557",
+      "bytes": 3568615
+    },
+    {
+      "code": "kor",
+      "blob": "60986d44497689f3abace0b148199476d93292e1",
+      "bytes": 1677415
+    },
+    {
+      "code": "kor_vert",
+      "blob": "ea0a4963591f153a21c8f237de2a1c644b57f2b9",
+      "bytes": 1113715
+    },
+    {
+      "code": "lao",
+      "blob": "10bd41ae9352889f85a489eb3183eb0cbebc2516",
+      "bytes": 6386744
+    },
+    {
+      "code": "lat",
+      "blob": "30dab6a24339f262d1eb21a3ee272d16c46aeba3",
+      "bytes": 3187463
+    },
+    {
+      "code": "lav",
+      "blob": "71d925c8b6c73980157fd0128412b46e6e8396b5",
+      "bytes": 2717247
+    },
+    {
+      "code": "lit",
+      "blob": "af9e2b3cd6a65650206b7d89f1b93b51683b9692",
+      "bytes": 3154896
+    },
+    {
+      "code": "ltz",
+      "blob": "c1ac5b922bbcad34b2654ba471c0a752c0397404",
+      "bytes": 2606426
+    },
+    {
+      "code": "mal",
+      "blob": "70e96f02cbc2f26630225112cd323a7f0b6ccdf3",
+      "bytes": 5275996
+    },
+    {
+      "code": "mar",
+      "blob": "79138fadcdb256ec7b59e3bf9df18bd5fb492bee",
+      "bytes": 2118233
+    },
+    {
+      "code": "mkd",
+      "blob": "fb0b245fb9ec61696e818887a70d8413b2914905",
+      "bytes": 1600188
+    },
+    {
+      "code": "mlt",
+      "blob": "4242f9cd016987f16feb06973e988eced9604787",
+      "bytes": 2308796
+    },
+    {
+      "code": "mon",
+      "blob": "2ef212c519edc66ff2508f48dbe1bb836a4ea274",
+      "bytes": 2137042
+    },
+    {
+      "code": "mri",
+      "blob": "eab6b1a98e4b6ed510d6443a5e3d14519da3b338",
+      "bytes": 862973
+    },
+    {
+      "code": "msa",
+      "blob": "f0e2b8bef0a681f09baac99a418529205ee80201",
+      "bytes": 1747801
+    },
+    {
+      "code": "mya",
+      "blob": "cf28ddca604dc7f46bc34f2f4c6a193a0706c03b",
+      "bytes": 4640561
+    },
+    {
+      "code": "nep",
+      "blob": "948e365b55f9fe8179dde2ff0134feffb210496e",
+      "bytes": 1002911
+    },
+    {
+      "code": "nld",
+      "blob": "53ce95a9c2488a9a0228939944a184157373d0ae",
+      "bytes": 6050296
+    },
+    {
+      "code": "nor",
+      "blob": "9209df2c9904c127437c07e16c287cdefd024e7c",
+      "bytes": 3610079
+    },
+    {
+      "code": "oci",
+      "blob": "4017d4405b09333f22a3de2a4d30cf009bdb4a9b",
+      "bytes": 6322087
+    },
+    {
+      "code": "ori",
+      "blob": "ae0f9ed13d5c9ad4a4de57c7266c434b83a9f583",
+      "bytes": 1480066
+    },
+    {
+      "code": "pan",
+      "blob": "d4f00533a6c76ce4045aa6ad40b39f47eeaa333f",
+      "bytes": 497721
+    },
+    {
+      "code": "pol",
+      "blob": "2382f568f0ce0c4c0a7f4380a291255514e5e97f",
+      "bytes": 4765518
+    },
+    {
+      "code": "por",
+      "blob": "e9f373e95c66b4bf557c263721ef31f78e5bc301",
+      "bytes": 1982756
+    },
+    {
+      "code": "pus",
+      "blob": "220cdf92efdc76a227439c0b8734196af9743b98",
+      "bytes": 1772087
+    },
+    {
+      "code": "que",
+      "blob": "d80c1f308973b3129183843759f23fdcb1c5c2be",
+      "bytes": 5026336
+    },
+    {
+      "code": "ron",
+      "blob": "04cd2bc7b471431354e9446e973f3472f442e189",
+      "bytes": 2376323
+    },
+    {
+      "code": "rus",
+      "blob": "b146cb2263acbc6383f8e92ea0ce759537687bb8",
+      "bytes": 3861738
+    },
+    {
+      "code": "san",
+      "blob": "3df043f3247fd41a21ac47c3b199bc87643e984b",
+      "bytes": 12404677
+    },
+    {
+      "code": "script/Arabic",
+      "blob": "4d4bac05b8be69aafb537d3a753efec6be473953",
+      "bytes": 9311038
+    },
+    {
+      "code": "script/Armenian",
+      "blob": "7e4cf10f1fb571dbce0afea837db15cd11b44f39",
+      "bytes": 7879909
+    },
+    {
+      "code": "script/Bengali",
+      "blob": "a1b888e492320fb9b941dbf0d7fe9d767e5f6a42",
+      "bytes": 5712242
+    },
+    {
+      "code": "script/Canadian_Aboriginal",
+      "blob": "9ba41b35b6b06892657a61dd33003bc8a0a9483a",
+      "bytes": 7180795
+    },
+    {
+      "code": "script/Cherokee",
+      "blob": "94834e6e395e97209c59846dc78320e830f67a12",
+      "bytes": 4231619
+    },
+    {
+      "code": "script/Cyrillic",
+      "blob": "1901a7483cccad6c43d1052bb40d754ae53694b4",
+      "bytes": 29252466
+    },
+    {
+      "code": "script/Devanagari",
+      "blob": "3c33bd676b0ae7a480ec1c1f5ebdd13513aa5433",
+      "bytes": 17943870
+    },
+    {
+      "code": "script/Ethiopic",
+      "blob": "e6c0944e630c580f4a9d6d4a8ebeaeaca3583164",
+      "bytes": 9074416
+    },
+    {
+      "code": "script/Fraktur",
+      "blob": "28262227524b894a1f283e8edd2245f11d9e3e9f",
+      "bytes": 10915632
+    },
+    {
+      "code": "script/Georgian",
+      "blob": "77511502fa8dd8d1aec6700b697bdd3cc501a78d",
+      "bytes": 6949865
+    },
+    {
+      "code": "script/Greek",
+      "blob": "0fdbf7f0eb07e1c4a72f580afba84cd85cafc177",
+      "bytes": 3041556
+    },
+    {
+      "code": "script/Gujarati",
+      "blob": "9f203b6620b479149fe022553278a48032c87f21",
+      "bytes": 5017100
+    },
+    {
+      "code": "script/Gurmukhi",
+      "blob": "36e1161b20dac2826f80c7e27f753670177116a2",
+      "bytes": 4213597
+    },
+    {
+      "code": "script/HanS",
+      "blob": "41d7386cacc0faf19b381f9bba035cb3bcc7f8f9",
+      "bytes": 5972903
+    },
+    {
+      "code": "script/HanS_vert",
+      "blob": "a0464cb0478f089f00cbfa715a15ba5aba5d0e37",
+      "bytes": 5429738
+    },
+    {
+      "code": "script/HanT",
+      "blob": "ac8c8e97a2e75db8afd1a843527f350737973435",
+      "bytes": 5448070
+    },
+    {
+      "code": "script/HanT_vert",
+      "blob": "99757fde125138e5d889784d0d9f2edd659defac",
+      "bytes": 5448267
+    },
+    {
+      "code": "script/Hangul",
+      "blob": "977fd63d7430853e04f49c43400dc576144cfe0e",
+      "bytes": 4845849
+    },
+    {
+      "code": "script/Hangul_vert",
+      "blob": "4e421ca8baa936ffad67b6bd78df848bbfb4fa03",
+      "bytes": 4725034
+    },
+    {
+      "code": "script/Hebrew",
+      "blob": "590055a3db20484eb90e6bd1a9223f36b69ea907",
+      "bytes": 4866337
+    },
+    {
+      "code": "script/Japanese",
+      "blob": "89481f2c257019f1ea58c82b7daaac9688f7b172",
+      "bytes": 5877645
+    },
+    {
+      "code": "script/Japanese_vert",
+      "blob": "5c211c42046ada01847b1628a6f1766826c2a371",
+      "bytes": 6445356
+    },
+    {
+      "code": "script/Kannada",
+      "blob": "238f7a104e604a27b14ca956df2f346f7750099b",
+      "bytes": 6777791
+    },
+    {
+      "code": "script/Khmer",
+      "blob": "635b310e6a79c3aac2fe5aa12dd5bcb7718c2e15",
+      "bytes": 4476365
+    },
+    {
+      "code": "script/Lao",
+      "blob": "0bdf44f32650e6f15ef0491f88dee430994dca62",
+      "bytes": 10103937
+    },
+    {
+      "code": "script/Latin",
+      "blob": "8b6e3a3ae06e6b623b587e9f87c988e169fa1c6b",
+      "bytes": 89384811
+    },
+    {
+      "code": "script/Malayalam",
+      "blob": "9e639ea78e5040c75bce36e1231755901448e4ef",
+      "bytes": 9007302
+    },
+    {
+      "code": "script/Myanmar",
+      "blob": "733ebd14f67a5a52211abfc6f66b485a23a8b955",
+      "bytes": 7840489
+    },
+    {
+      "code": "script/Oriya",
+      "blob": "d9ef97617c0914028360f703d810564013542421",
+      "bytes": 5744929
+    },
+    {
+      "code": "script/Sinhala",
+      "blob": "98d26bd5f71305d96f947e29d3fcb455ff26bc9f",
+      "bytes": 4782577
+    },
+    {
+      "code": "script/Syriac",
+      "blob": "b97923946987070b6ee69ab41d4bc4c87b739001",
+      "bytes": 5803220
+    },
+    {
+      "code": "script/Tamil",
+      "blob": "48fede126ba6e563a69ca10eae3604e42143039f",
+      "bytes": 7089032
+    },
+    {
+      "code": "script/Telugu",
+      "blob": "0468e5dc1eee3059191b4ac2d7109a9431ce42c1",
+      "bytes": 6485174
+    },
+    {
+      "code": "script/Thaana",
+      "blob": "b13feb9f2af4762a80431e93de11e2e61ae40068",
+      "bytes": 6048323
+    },
+    {
+      "code": "script/Thai",
+      "blob": "62acc3de815e28c43f764dc7e10e5c8afdfefb20",
+      "bytes": 4249016
+    },
+    {
+      "code": "script/Tibetan",
+      "blob": "223459ad4ee20b85075e423975aa44edbed190dd",
+      "bytes": 5699531
+    },
+    {
+      "code": "script/Vietnamese",
+      "blob": "92c69d17eab37670c3ffc0efce3f7918ef1d9468",
+      "bytes": 1667794
+    },
+    {
+      "code": "sin",
+      "blob": "d0c8584e78c44666efcd7fbd47940a8a1121550d",
+      "bytes": 1727413
+    },
+    {
+      "code": "slk",
+      "blob": "ca99e3e82f69a0e16b48cdfec3c4e706758269f2",
+      "bytes": 4427661
+    },
+    {
+      "code": "slv",
+      "blob": "835954e891897d3c8b63db48cb5c2712ef2e6b11",
+      "bytes": 3003829
+    },
+    {
+      "code": "snd",
+      "blob": "1ef6548d22977dc1f236be879dce3a62ac6a47ed",
+      "bytes": 1694035
+    },
+    {
+      "code": "spa",
+      "blob": "72e901f13ca52cfe34cf239a368b9ed3c0ddaf26",
+      "bytes": 2294433
+    },
+    {
+      "code": "spa_old",
+      "blob": "42b281f55736b2f714598accfc2a78f409db1f0c",
+      "bytes": 2894755
+    },
+    {
+      "code": "sqi",
+      "blob": "9624fbf33452a95dd5a0a3a93fe9876108104895",
+      "bytes": 1874705
+    },
+    {
+      "code": "srp",
+      "blob": "530fb4b1cb27f369bbee7eb0add89bfd73d6f15c",
+      "bytes": 2149931
+    },
+    {
+      "code": "srp_latn",
+      "blob": "5f81e591adad58a179a2d371aacccaf0801f93a2",
+      "bytes": 3281787
+    },
+    {
+      "code": "sun",
+      "blob": "894891425c1fe302ce1d8f115a3c00967c6c2832",
+      "bytes": 1369500
+    },
+    {
+      "code": "swa",
+      "blob": "633d73b35869600452eec58dcd9036cc702c3e48",
+      "bytes": 2167651
+    },
+    {
+      "code": "swe",
+      "blob": "684e1fa66e4a55b983febf5f9ed04f26ad946e59",
+      "bytes": 4167034
+    },
+    {
+      "code": "syr",
+      "blob": "462aefc8a1485ae4c38db82f7f50fd105bf30195",
+      "bytes": 2207208
+    },
+    {
+      "code": "tam",
+      "blob": "fa1793d68f9aba8bf191e8ff1036e2271d288e44",
+      "bytes": 3237963
+    },
+    {
+      "code": "tat",
+      "blob": "9485ca27d48bb161a47584f8381420462ef6fa27",
+      "bytes": 1072896
+    },
+    {
+      "code": "tel",
+      "blob": "ee8a33b0f658fc75b8cbfe8c10413eac4f41e6ad",
+      "bytes": 2769654
+    },
+    {
+      "code": "tgk",
+      "blob": "044766728ce9cb2cc73976175b970a4cea9a870a",
+      "bytes": 2602685
+    },
+    {
+      "code": "tha",
+      "blob": "ea28de3985668cac00d261c5b91f023ea66e19cd",
+      "bytes": 1072600
+    },
+    {
+      "code": "tir",
+      "blob": "55e62eb0297e07360db5e9dc5dd86aab8e0a1e9c",
+      "bytes": 378822
+    },
+    {
+      "code": "ton",
+      "blob": "9eff0fd002798089f5f7d8307be968a36f1ce433",
+      "bytes": 947249
+    },
+    {
+      "code": "tur",
+      "blob": "1f0b331ef29f50ceb7c44da58e38c7ec42314d0a",
+      "bytes": 4550554
+    },
+    {
+      "code": "uig",
+      "blob": "36124d6b0ed1c2654a13551203c25b44b4013978",
+      "bytes": 2794272
+    },
+    {
+      "code": "ukr",
+      "blob": "d02cf90b2911a3da66dac6ae380bcefb18dd7663",
+      "bytes": 3825102
+    },
+    {
+      "code": "urd",
+      "blob": "715a159d4abea25294c82971be28be215b3d1c4a",
+      "bytes": 1398718
+    },
+    {
+      "code": "uzb",
+      "blob": "109abc765273b2c9eabd55781f0a619320c80007",
+      "bytes": 6470703
+    },
+    {
+      "code": "uzb_cyrl",
+      "blob": "c2ff8b9c282a9712b5f24970927377bc18dea7cf",
+      "bytes": 1563501
+    },
+    {
+      "code": "vie",
+      "blob": "e54a5912fb634c581c4a45ae9f37cbc021ec7140",
+      "bytes": 531275
+    },
+    {
+      "code": "yid",
+      "blob": "6349588bbabf99f8a812e8231c98c015ea7b60c6",
+      "bytes": 545606
+    },
+    {
+      "code": "yor",
+      "blob": "3e0cd582f65f17844039173057dfc015bf19f61d",
+      "bytes": 963400
+    }
+  ]
+}

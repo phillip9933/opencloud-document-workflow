@@ -1,0 +1,217 @@
+[
+  {
+    "id": "und",
+    "version": 1,
+    "name": "Language-neutral formats",
+    "dates": [
+      "{year}-{month}-{day}",
+      "{day}/{month}/{year}",
+      "{month}/{day}/{year}"
+    ],
+    "months": {},
+    "terms": {},
+    "examples": []
+  },
+  {
+    "id": "en",
+    "version": 2,
+    "name": "English",
+    "dates": [
+      "{day} {monthName} {year}",
+      "{monthName} {day}, {year}"
+    ],
+    "months": {
+      "January": 1,
+      "February": 2,
+      "March": 3,
+      "April": 4,
+      "May": 5,
+      "June": 6,
+      "July": 7,
+      "August": 8,
+      "September": 9,
+      "October": 10,
+      "November": 11,
+      "December": 12
+    },
+    "terms": {
+      "Utilities/Electricity": [
+        "electricity",
+        "electric"
+      ],
+      "Utilities/Water": [
+        "water"
+      ],
+      "Finance": [
+        "finance",
+        "bank",
+        "payment"
+      ],
+      "Correspondence": [
+        "letter",
+        "email"
+      ],
+      "Electricity": [
+        "electricity",
+        "electric"
+      ],
+      "Water": [
+        "water"
+      ],
+      "Invoice": [
+        "invoice"
+      ],
+      "Synthetic": [
+        "synthetic"
+      ]
+    },
+    "examples": [
+      {
+        "field": "issuer",
+        "quote": "Issuer: Example Company",
+        "value": "Example Company"
+      },
+      {
+        "field": "folder",
+        "quote": "Electricity invoice",
+        "value": "Utilities/Electricity"
+      }
+    ]
+  },
+  {
+    "id": "ja",
+    "version": 2,
+    "name": "Japanese",
+    "dates": [
+      "{year}年{month}月{day}日"
+    ],
+    "months": {},
+    "terms": {
+      "Utilities/Electricity": [
+        "電気",
+        "電力"
+      ],
+      "Utilities/Water": [
+        "水道"
+      ],
+      "Finance": [
+        "請求",
+        "支払"
+      ],
+      "Correspondence": [
+        "通知",
+        "案内"
+      ],
+      "Electricity": [
+        "電気",
+        "電力"
+      ],
+      "Water": [
+        "水道"
+      ],
+      "Invoice": [
+        "請求"
+      ],
+      "Synthetic": [
+        "合成"
+      ]
+    },
+    "examples": [
+      {
+        "field": "issuer",
+        "quote": "発行者：飯山市上下水道事業",
+        "value": "飯山市上下水道事業"
+      },
+      {
+        "field": "date",
+        "quote": "発行日：2026年10月29日",
+        "value": "2026年10月29日"
+      },
+      {
+        "field": "kind",
+        "quote": "書類種類：水道料金請求書",
+        "value": "水道料金請求書"
+      },
+      {
+        "field": "folder",
+        "quote": "水道料金請求書",
+        "value": "Utilities/Water"
+      }
+    ],
+    "termMatch": "substring"
+  },
+  {
+    "id": "fr",
+    "version": 2,
+    "name": "French",
+    "dates": [
+      "{day} {monthName} {year}"
+    ],
+    "months": {
+      "janvier": 1,
+      "février": 2,
+      "mars": 3,
+      "avril": 4,
+      "mai": 5,
+      "juin": 6,
+      "juillet": 7,
+      "août": 8,
+      "septembre": 9,
+      "octobre": 10,
+      "novembre": 11,
+      "décembre": 12
+    },
+    "terms": {
+      "Utilities/Electricity": [
+        "électricité",
+        "électrique"
+      ],
+      "Utilities/Water": [
+        "eau"
+      ],
+      "Finance": [
+        "banque",
+        "paiement"
+      ],
+      "Correspondence": [
+        "lettre",
+        "courriel"
+      ],
+      "Electricity": [
+        "électricité",
+        "électrique"
+      ],
+      "Water": [
+        "eau"
+      ],
+      "Invoice": [
+        "facture"
+      ],
+      "Synthetic": [
+        "synthétique"
+      ]
+    },
+    "examples": [
+      {
+        "field": "issuer",
+        "quote": "Émetteur : Société Exemple",
+        "value": "Société Exemple"
+      },
+      {
+        "field": "date",
+        "quote": "Date : 29 octobre 2026",
+        "value": "29 octobre 2026"
+      },
+      {
+        "field": "kind",
+        "quote": "Type : Facture d’électricité",
+        "value": "Facture d’électricité"
+      },
+      {
+        "field": "folder",
+        "quote": "Facture d’électricité",
+        "value": "Utilities/Electricity"
+      }
+    ]
+  }
+]

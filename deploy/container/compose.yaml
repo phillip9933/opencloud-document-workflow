@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# This starts only the companion. Install the matching web ZIP through OpenCloud's apps directory.
+services:
+  document-workflow:
+    image: document-workflow-companion:0.14.5
+    build:
+      context: ../..
+      dockerfile: deploy/container/Dockerfile
+    restart: unless-stopped
+    read_only: true
+    user: "65534:65534"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 96
+    mem_limit: 2g
+    cpus: 2
+    stop_grace_period: 180s
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    volumes:
+      - workflow-state:/state
+      - workflow-credentials:/credentials
+      - workflow-backup-staging:/backups
+      - workflow-ocr:/workflow-tessdata
+    environment:
+      WORKFLOW_APP_ORIGIN: ${OPENCLOUD_ORIGIN:?Set the existing HTTPS OpenCloud origin}
+      WORKFLOW_OPENCLOUD_ORIGIN: ${OPENCLOUD_ORIGIN:?Set the existing HTTPS OpenCloud origin}
+      WORKFLOW_OLLAMA_URL: ${OLLAMA_URL:-}
+      WORKFLOW_SPACE_ID: ${WORKFLOW_SPACE_ID:-}
+    networks: [opencloud]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${OPENCLOUD_NETWORK:?Set the existing proxy network}
+      traefik.http.routers.document-workflow.rule: Host(`${OPENCLOUD_HOST:?Set the existing hostname}`) && PathPrefix(`/_workflow/api/`)
+      traefik.http.routers.document-workflow.entrypoints: ${TRAEFIK_HTTPS_ENTRYPOINT:-websecure}
+      traefik.http.routers.document-workflow.tls: "true"
+      traefik.http.routers.document-workflow.priority: "200"
+      traefik.http.services.document-workflow.loadbalancer.server.port: "5175"
+networks:
+  opencloud:
+    external: true
+    name: ${OPENCLOUD_NETWORK:?Set the existing proxy network}
+volumes:
+  workflow-state:
+  workflow-credentials:
+  workflow-backup-staging:
+  workflow-ocr:

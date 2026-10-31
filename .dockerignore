@@ -1,0 +1,15 @@
+**
+!Dockerfile
+!artifacts/
+!artifacts/draft-stage/
+!artifacts/draft-stage/**
+!artifacts/native-web/
+!artifacts/native-web/**
+!artifacts/document-workflow-*-local.zip
+!artifacts/release.json
+!artifacts/known-web-releases.json
+!deploy/
+!deploy/container/
+!deploy/container/Dockerfile
+!deploy/installer/
+!deploy/installer/*.mjs

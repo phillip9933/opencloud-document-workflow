@@ -1,0 +1,47 @@
+{
+  "name": "opencloud-doc-manager",
+  "version": "0.14.5",
+  "description": "Evidence-backed document review for OpenCloud",
+  "license": "AGPL-3.0-only",
+  "author": "Phil Rogers",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm assets:pdf && vite build",
+    "check:types": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "package": "python3 scripts/package.py",
+    "sbom": "python3 scripts/sbom.py",
+    "preview:local": "vite --config preview.vite.config.ts",
+    "test:companion": "node --test --experimental-test-isolation=none --test-reporter=spec tests/companion/*.test.mjs",
+    "build:draft": "pnpm assets:pdf && vite build --config draft.vite.config.ts",
+    "draft": "node companion/server.mjs",
+    "assets:pdf": "python3 scripts/pdf_assets.py",
+    "package:draft": "python3 scripts/package_draft.py",
+    "package:installer": "python3 scripts/package_installer.py",
+    "test:packaging": "node --test --experimental-test-isolation=none --test-reporter=spec tests/packaging/*.test.mjs"
+  },
+  "devDependencies": {
+    "@opencloud-eu/design-system": "8.2.1",
+    "@opencloud-eu/extension-sdk": "8.2.1",
+    "@opencloud-eu/tsconfig": "8.2.1",
+    "@opencloud-eu/web-client": "8.2.1",
+    "@opencloud-eu/web-pkg": "8.2.1",
+    "@vitejs/plugin-vue": "6.0.5",
+    "@vue/test-utils": "2.5.1",
+    "happy-dom": "21.0.4",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "vite": "8.3.5",
+    "vitest": "5.0.5",
+    "vue": "3.5.44",
+    "vue-router": "5.4.0",
+    "vue-tsc": "3.3.13",
+    "vue3-gettext": "4.0.1"
+  },
+  "packageManager": "pnpm@11.25.0",
+  "dependencies": {
+    "fast-xml-parser": "5.11.2",
+    "pdfjs-dist": "6.4.299"
+  }
+}

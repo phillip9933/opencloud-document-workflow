@@ -1,0 +1,13 @@
+# Document Workflow companion
+
+This Node companion implements folder intake, local OCR, selected local/cloud AI task routing, durable review and exact approval, conditional filing, custom metadata, additive tags and read-only uncertain-outcome recovery. Read [WORKFLOW.md](../docs/WORKFLOW.md) for behavior, limits, credentials and the distinction between local verification and live acceptance.
+
+The standalone ZIP vendors its resolved JavaScript runtime modules, frontend, PDF.js assets/licenses, corresponding source and synthetic fixtures. Runtime requirements: Node with native TypeScript/SQLite support (NAS 22.18.0 / SQLite 3.50.2 and development 26.12.1 tested); Poppler `pdftotext`; for OCR, `pdftoppm`, Tesseract and the selected installed language data. No npm install is required for the packaged runtime.
+
+`server.mjs` defaults to loopback. Explicit live/private-network flags permit the approved isolated container listener, with no published host port. Demo mode uses private local fixture copies in SQLite. Live mode uses supported OpenCloud DAV/Graph calls within one configured Space. No raw storage writes or production installation are performed by starting the demo. The approved native frontend 0.2.3 and companion 0.2.1/API route are now installed for Document Workflow Trial; see LIVE_DEPLOYMENT.md for current live checks and remaining human filing acceptance. Server credentials stay out of stored preferences and journal configurations.
+
+Modules: `intake.mjs` (discovery/queue/retries), `extract.mjs`/`ocr.mjs` (bounded extraction), `providers.mjs`/`ollama.mjs` (task routing), `journal.mjs` (proposal journal), `workflow.mjs` (approval/filing), `metadata.mjs` (typed fields/schema/versioned tag saves), `opencloud.mjs` (scoped transport), `demo.mjs` (isolated fixtures), `draft-api.mjs` (authenticated same-origin API). `server.mjs` starts/stops background intake; the dev Vite plugin does likewise. Do not expose a dev Vite server as a production endpoint.
+
+The earlier `cli.mjs models` and `cli.mjs prepare input.json review.json` commands remain local one-shot engineering tools. Their caller-supplied identities do not authenticate a live user; CLI review exports cannot apply OpenCloud changes. The synthetic-only dev model bridge is separate from the workflow API.
+
+Local0.6 adds an account-pinned private session supervisor and scheduled journal snapshots. See `../docs/UNATTENDED.md`, `../docs/BACKUPS.md` and `../docs/PRODUCT_0.6.md`. Existing grants/configuration remain operator-owned; these features were tested locally and are not installed on the NAS. The backup CLI only restores to a new paused target.

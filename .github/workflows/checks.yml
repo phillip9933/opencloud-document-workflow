@@ -1,0 +1,33 @@
+name: Checks and packages
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.4'
+      - name: Install locked tooling
+        run: npm install --global pnpm@11.25.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run check:types
+      - run: pnpm run test
+      - run: pnpm run test:companion
+      - run: pnpm run test:packaging
+      - run: pnpm run build
+      - run: pnpm run build:draft
+      - run: pnpm run sbom
+      - run: python3 scripts/notices.py
+      - run: pnpm run package
+      - run: pnpm run package:draft
+      - run: pnpm run package:installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: document-workflow-release
+          path: artifacts/releases/*/

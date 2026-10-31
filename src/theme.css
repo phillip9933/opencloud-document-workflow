@@ -1,0 +1,25 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+.dw-shell{
+ --ink:#191c1d;--muted:#40484c;--line:#dce2e5;--accent:#21665b;--accent-text:#21665b;--primary-border:#21665b;--page:#f8f9fa;--surface:#ffffff;--raised:#f0f2f3;--subtle:#eef0f2;--input-border:#bfc8cc;--focus:#43896d;--primary-hover:#174f46;--on-primary:#ffffff;--success-ink:#295a44;--success-bg:#e8f2ec;--success-border:#91b5a0;--warning-ink:#75571d;--warning-bg:#fcf5e8;--warning-border:#bd9b59;--danger-ink:#923c32;--danger-bg:#fbe8e6;--pdf-stage:#eef1f3;color-scheme:light
+}
+/* Neutral fallback for standalone dark mode and explicit Dark in a light host. */
+.dw-shell[data-theme="dark"]{
+ --ink:#e1e3e4;--muted:#bfc8cc;--line:#323537;--accent:#21665b;--accent-text:#6caf98;--primary-border:#438b74;--page:#191c1d;--surface:#1d2021;--raised:#272a2c;--subtle:#272a2c;--input-border:#40484c;--focus:#65a78f;--primary-hover:#287b6c;--on-primary:#ffffff;--success-ink:#b5e2c7;--success-bg:#24352c;--success-border:#6b9b80;--warning-ink:#f0d391;--warning-bg:#373022;--warning-border:#b79650;--danger-ink:#ffb4ab;--danger-bg:#3c2525;--pdf-stage:#0c0f10;color-scheme:dark
+}
+/* OpenCloud 9 exposes its active Material roles on the root element.
+   Apply the active roles when host and app modes match. Opposite explicit modes
+   keep their neutral fallback, never inheriting colors for the wrong scheme. */
+:root:is([data-theme="Dark Theme"],[style*="color-scheme: dark"]) .dw-shell[data-theme="dark"]{
+ --ink:var(--oc-role-on-surface,#e1e3e4);--muted:var(--oc-role-on-surface-variant,#bfc8cc);--line:var(--oc-role-surface-container-highest,#323537);--page:var(--oc-role-surface,#191c1d);--surface:var(--oc-role-surface-container,#1d2021);--raised:var(--oc-role-surface-container-high,#272a2c);--subtle:var(--oc-role-surface-container-high,#272a2c);--input-border:var(--oc-role-outline-variant,#40484c);--danger-ink:var(--oc-role-error,#ffb4ab);--pdf-stage:var(--oc-role-surface-container-lowest,#0c0f10)
+}
+:root:is([data-theme="Light Theme"],[style*="color-scheme: light"]) .dw-shell[data-theme="light"]{
+ --ink:var(--oc-role-on-surface,#191c1d);--muted:var(--oc-role-on-surface-variant,#40484c);--line:var(--oc-role-surface-container-highest,#dce2e5);--page:var(--oc-role-surface,#f8f9fa);--surface:var(--oc-role-surface-container,#ffffff);--raised:var(--oc-role-surface-container-high,#f0f2f3);--subtle:var(--oc-role-surface-container-high,#eef0f2);--input-border:var(--oc-role-outline-variant,#bfc8cc);--danger-ink:var(--oc-role-error,#923c32);--pdf-stage:var(--oc-role-surface-container-lowest,#eef1f3)
+}
+.dw-shell .brand-icon{background:var(--accent);color:var(--on-primary)}.dw-shell .button.primary{color:var(--on-primary);border-color:var(--primary-border)}
+.dw-shell .appearance-control{display:flex;flex-direction:column;gap:7px;margin:20px 10px 0;font-size:11px;color:var(--muted)}
+.dw-shell .appearance-control select{width:100%;background:var(--surface);color:var(--ink);border:1px solid var(--input-border);border-radius:6px;padding:7px;font:inherit}
+.dw-shell .appearance-control select:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.dw-shell .appearance-settings label{display:block;font-size:13px;font-weight:600;margin:24px 0 8px}
+.dw-shell .appearance-settings select{min-width:180px}.dw-shell .tag{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+@media(max-width:700px){.dw-shell .appearance-control{position:absolute;top:17px;right:18px;margin:0;display:block}.dw-shell .appearance-control>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.dw-shell .appearance-control select{width:90px;font-size:11px;padding:5px}.dw-shell .dw-sidebar{position:relative}.dw-shell .brand{padding-right:100px}.dw-shell .dw-sidebar nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;overflow:visible;padding-bottom:0}.dw-shell .dw-sidebar nav a{display:flex;flex-direction:column;gap:4px;padding:7px 1px;font-size:10px;min-width:0;text-align:center;white-space:normal}.dw-shell .dw-sidebar nav a span{width:auto;font-size:16px}.dw-shell .settings-tabs{gap:14px}}
+@media(prefers-reduced-motion:reduce){.dw-shell *{scroll-behavior:auto!important}}

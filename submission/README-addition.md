@@ -1,0 +1,1 @@
+- [Document Workflow](https://github.com/phillip9933/opencloud-document-workflow) - PDF Inbox, OCR, review and automatic filing with configurable fields/tags and local or explicitly configured cloud AI. Requires the companion service; matching Docker installation kit provided.
