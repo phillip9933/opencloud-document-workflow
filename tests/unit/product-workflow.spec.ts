@@ -65,9 +65,24 @@ it('opens a completed filing directly from intake history even when it is outsid
 })
 
 it('offers reprocessing for a filed review and pins its current location without reusing approval',async()=>{
- const{store,job,bundle}=fixture();store.jobs.value=[job];store.reviews.value=[validateBundle(bundle)];vi.spyOn(store,'jobFor').mockReturnValue(job);vi.spyOn(store,'refresh').mockResolvedValue();const prepare=vi.spyOn(store,'prepareDocument').mockResolvedValue({id:'new-review',bundle}),request=vi.spyOn(store,'request').mockImplementation(async op=>op==='document-location'?{path:'Filed/checked.pdf',space:'destination',resourceId:'current-resource',etag:'current-version'}:op==='preview'?new Blob(['pdf']):{files:[]})
+ const {store,job,bundle}=fixture()
+ store.jobs.value=[job];store.reviews.value=[validateBundle(bundle)]
+ vi.spyOn(store,'jobFor').mockReturnValue(job)
+ vi.spyOn(store,'refresh').mockResolvedValue()
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({job})))
- const{wrapper:w}=await mounted(ReviewInbox,store,'/document-workflow/documents?job=older-job');try{await vi.waitFor(()=>expect(w.findAll('button').find(b=>b.text()==='Reprocess')!.attributes('disabled')).toBeUndefined());await w.findAll('button').find(b=>b.text()==='Reprocess')!.trigger('click');await vi.waitFor(()=>expect(prepare).toHaveBeenCalledWith('Filed/checked.pdf',{newReview:true,retry:true,resourceId:'current-resource',etag:'current-version',documentSpace:'destination',cloudConsent:false});expect(request.mock.calls.some(([op])=>['approve','apply','metadata-save','reject'].includes(op))).toBe(false)}finally{w.unmount()}
+ const prepare=vi.spyOn(store,'prepareDocument').mockResolvedValue({id:'new-review',bundle})
+ const request=vi.spyOn(store,'request').mockImplementation(async op=>op==='document-location'
+  ?{path:'Filed/checked.pdf',space:'destination',resourceId:'current-resource',etag:'current-version'}
+  :op==='preview'?new Blob(['pdf']):{files:[]})
+ const {wrapper:w}=await mounted(ReviewInbox,store,'/document-workflow/documents?job=older-job')
+ try{
+  await vi.waitFor(()=>expect(w.findAll('button').find(b=>b.text()==='Reprocess')!.attributes('disabled')).toBeUndefined())
+  await w.findAll('button').find(b=>b.text()==='Reprocess')!.trigger('click')
+  await vi.waitFor(()=>expect(prepare).toHaveBeenCalledWith('Filed/checked.pdf',{
+   newReview:true,retry:true,resourceId:'current-resource',etag:'current-version',documentSpace:'destination',cloudConsent:false
+  }))
+  expect(request.mock.calls.some(([op])=>['approve','apply','metadata-save','reject'].includes(op))).toBe(false)
+ }finally{w.unmount()}
 })
 
 it('reprocesses a PDF opened directly from the library with its current identity and Space',async()=>{
