@@ -46,6 +46,19 @@ jobs:
               grep -x eng /tmp/languages.txt
               grep -x jpn /tmp/languages.txt
             '
+      - name: Fresh OpenCloud 9 and Caddy installation acceptance
+        run: |
+          docker pull opencloudeu/opencloud-rolling:9.0.0
+          workflow_beta_version=$(node -p 'require("./package.json").version')
+          workflow_beta_release="$PWD/artifacts/releases/$workflow_beta_version"
+          workflow_beta_kit="$workflow_beta_release/document-workflow-$workflow_beta_version-install.tar.gz"
+          workflow_beta_sha=$(sha256sum "$workflow_beta_kit" | cut -d ' ' -f 1)
+          sudo bash scripts/accept_fresh_install.sh "$workflow_beta_kit" "$workflow_beta_sha" "$RUNNER_TEMP/document-workflow-fresh"
+          sudo cat "$RUNNER_TEMP/document-workflow-fresh/RESULT.txt" > "$workflow_beta_release/INSTALL-ACCEPTANCE.txt"
+          sudo cat "$RUNNER_TEMP/document-workflow-fresh/image-ids.txt" > "$workflow_beta_release/IMAGE-IDS.txt"
+          cd "$workflow_beta_release"
+          sha256sum INSTALL-ACCEPTANCE.txt IMAGE-IDS.txt >> SHA256SUMS
+      - run: python3 scripts/validate_release.py
       - uses: actions/upload-artifact@v4
         with:
           name: document-workflow-release
