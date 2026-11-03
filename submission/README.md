@@ -1,9 +1,13 @@
-# Prepared beta catalogue contribution
+# OpenCloud catalogue submission — 0.20.0 Beta
 
-Candidate: **0.20.0 Beta**. Nothing from this candidate has been published or submitted.
+The [GitHub beta](https://github.com/phillip9933/opencloud-document-workflow/releases/tag/v0.20.0) is published. The OpenCloud catalogue contribution is prepared; no upstream pull request has been sent.
 
-`app-entry.json` and `awesome-apps.patch` prepare the catalogue and README additions against the upstream snapshots identified by `upstream-files.json`. Screenshot URLs target the future v0.20.0 tag; they are not verified public downloads yet. The six fictional 3:2 screenshots live in ../deploy/screenshots with redistribution terms.
+- `app-entry.json`: ready catalogue entry with public download, installation, artwork and screenshot URLs.
+- `awesome-apps.patch`: minimal additions to `webApps/apps.json` and the upstream README; existing entries are preserved.
+- `PR-BODY.md`: proposed pull-request description with release and validation links.
+- `upstream-files.json`: exact upstream snapshots used for the patch.
+- `VALIDATION.md`: tested baseline and remaining compatibility boundaries.
 
-Review VALIDATION.md and ../docs/RELEASE_NOTES_0.20.0.md, then follow ../docs/STORE_PACKAGING.md. Run `git apply --check` against a fresh awesome-apps checkout before submitting. New hosted CI, public download verification and exact-release fresh-install acceptance must be recorded separately; earlier releases' evidence does not establish those checks for 0.20.0.
+[Hosted CI](https://github.com/phillip9933/opencloud-document-workflow/actions/runs/41740899849) passed for the tagged application commit, including the exact packaged kit's fresh OpenCloud 9/Caddy installation. [Public download verification](https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.0/PUBLICATION-RECEIPT.json) records asset SHA256 and catalogue link/content-type checks. Screenshots contain fictional data, use 3:2 JPEG images and include redistribution terms in ../deploy/screenshots/LICENSE.md.
 
-The entry explicitly requires an administrator-installed companion. The catalogue ZIP installs only the Web frontend. This is an independent community beta.
+Apply-check the patch against a fresh opencloud-eu/awesome-apps checkout before opening the PR. If upstream changed, rebase this small addition without reformatting other entries. The listing prominently requires an administrator-installed companion; the store ZIP installs only the Web frontend. This is an independent community beta, not an approved or certified listing.
