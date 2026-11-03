@@ -15,7 +15,7 @@ for folder in ('companion','src/domain','tests/fixtures','draft-dist','LICENSES'
     source=root/folder
     if folder=='companion':
         for file in source.iterdir():
-            if file.is_file() and (file.suffix in ('.mjs','.md') or file.name=='ocr-catalog.json'):
+            if file.is_file() and (file.suffix in ('.mjs','.md','.py') or file.name=='ocr-catalog.json'):
                 target=stage/folder/file.name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(file,target)
     elif folder=='src/domain':
         for file in source.rglob('*'):

@@ -53,7 +53,7 @@ export class OpenCloudAdapter {
    next=data['@odata.nextLink']??null;if(next!==null&&typeof next!=='string')throw new Error('Invalid Space listing continuation')
   }return [...found.values()]
  }
- async accountIdentity(){const value=JSON.parse((await this.request('GET',`${this.origin}/graph/v1.0/me`,{max:64_000})).toString());if(typeof value.id!=='string'||!value.id)throw new Error('Invalid authenticated identity');this.account=value.id;return{account:value.id,name:value.displayName??value.id,server:this.origin,space:this.space,mode:'live'}}
+ async accountIdentity(){const value=JSON.parse((await this.request('GET',`${this.origin}/graph/v1.0/me`,{max:64_000})).toString());if(typeof value.id!=='string'||!value.id)throw new Error('Invalid authenticated identity');this.account=value.id;return{account:value.id,name:value.displayName??value.id,...(typeof value.onPremisesSamAccountName==='string'&&value.onPremisesSamAccountName.trim()&&value.onPremisesSamAccountName.length<=400&&!/[\x00-\x1f\x7f:]/.test(value.onPremisesSamAccountName)?{username:value.onPremisesSamAccountName}:{}),server:this.origin,space:this.space,mode:'live'}}
  async identity(){const actor=await this.accountIdentity(),root=await this.stat('');if(!root?.folder)throw new RemoteError(403);return{...actor,...(root.displayName?{spaceName:root.displayName}:{})}}
  async isAdministrator(){
   if(!this.account)await this.accountIdentity()
@@ -65,6 +65,11 @@ export class OpenCloudAdapter {
   const response=await this.fetcher(this.url(path),{method:'PUT',body:bytes,redirect:'error',signal:AbortSignal.timeout(120000),headers:{Authorization:this.auth,'If-None-Match':'*','Content-Type':contentType}})
   if(response.status!==201){await response.body?.cancel();throw new RemoteError(response.status)}
   await response.body?.cancel();const resourceId=response.headers.get('OC-FileId');if(!resourceId)throw new Error('Transfer response needs verification');return{resourceId}
+ }
+ async replacePDF(path,bytes,etag){
+  if(typeof etag!=='string'||!etag||/[\r\n]/.test(etag))throw new Error('A current PDF version is required')
+  const response=await this.fetcher(this.url(path),{method:'PUT',body:bytes,redirect:'error',signal:AbortSignal.timeout(120000),headers:{Authorization:this.auth,'If-Match':etag,'Content-Type':'application/pdf'}})
+  await response.body?.cancel();if(![200,204].includes(response.status))throw new RemoteError(response.status)
  }
  async putFile(path,file,{contentType}={}){
   if(!['application/vnd.sqlite3','application/json'].includes(contentType))throw new Error('Unsupported backup type')
@@ -87,6 +92,8 @@ export class OpenCloudAdapter {
   return parseTrash((await this.request('PROPFIND',this.trashBase,{body,headers:{Depth:'1','Content-Type':'application/xml'},max:16*1024*1024})).toString(),this.trashBase)
  }
  async trash(path,etag){if(!path||!etag)throw new Error('A file identity is required for Trash');await this.request('DELETE',this.url(path),{headers:{'If-Match':etag}})}
+ async removeTags(resourceId,tags){if(!tags.length)return;await this.request('DELETE',`${this.origin}/graph/v1.0/extensions/org.libregraph/tags`,{body:JSON.stringify({resourceId:resourceId.includes('!')?resourceId:`${this.space}!${resourceId}`,tags}),headers:{'Content-Type':'application/json'}})}
+ async listTags(){const value=JSON.parse((await this.request('GET',`${this.origin}/graph/v1.0/extensions/org.libregraph/tags`,{max:4*1024*1024})).toString()).value;if(!Array.isArray(value)||value.some(tag=>typeof tag!=='string'))throw new Error('Invalid tag directory');return value}
  async addTags(resourceId,tags){if(!tags.length)return;await this.request('PUT',`${this.origin}/graph/v1.0/extensions/org.libregraph/tags`,{body:JSON.stringify({resourceId:resourceId.includes('!')?resourceId:`${this.space}!${resourceId}`,tags}),headers:{'Content-Type':'application/json'}})}
 }
 

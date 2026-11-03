@@ -60,3 +60,7 @@ it('rejects unsafe category patterns, absent tax labels and tag pattern options'
  }
  const rules=defaultFilingRules();Object.assign(rules.tags[0]!,{folderTemplate:'{category}/{year}'});expect(()=>validateFilingRules(rules)).toThrow('classification rule')
 })
+it('recognizes spaced CJK headings with exact source evidence, without joining English words, digits or separate lines',async()=>{
+ const {ruleSupported}=await import('../../src/domain/filing'),rules=defaultFilingRules();rules.folders=[{value:'Vehicles',terms:['自動車検査証'],match:'substring'},{value:'Other',terms:[],match:'word'}];const printed='自 動 車 検 査 証 記 録 事 項';expect(ruleSupported('Vehicles',[printed],rules.folders,rules)).toBe(true);expect(ruleSupported('Vehicles',['自動車\n検査証'],rules.folders,rules)).toBe(false);expect(ruleSupported('Vehicles',['自動車','検査証'],rules.folders,rules)).toBe(false);expect(ruleSupported('Vehicles',['目 動 車 検 査 証'],rules.folders,rules)).toBe(false);rules.folders[0]!.terms=['gas'];expect(ruleSupported('Vehicles',['getting a sample'],rules.folders,rules)).toBe(false)
+ rules.folders[0]!.terms=['自動車検査証'];const bundle={...samples()[0]!,rules};bundle.pages[0]+='\n'+printed;bundle.proposal=structuredClone(bundle.proposal!);bundle.proposal.folder={value:'Vehicles',evidence:[{page:1,quote:printed}]};bundle.proposal.tags=[];expect(validateBundle(bundle).proposal!.folder.evidence[0]!.quote).toBe(printed)
+})

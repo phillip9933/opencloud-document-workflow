@@ -3,6 +3,7 @@
 import {computed,ref,watch,onMounted,onBeforeUnmount} from 'vue'
 import {useLocale} from '../state/locale'
 import BulkActions from './BulkActions.vue'
+import PendingTrash from './PendingTrash.vue'
 import {useWorkspace} from '../state/workspace'
 import type {FiledDocument} from '../state/workspace'
 import {useRouter} from '../state/navigation'
@@ -34,13 +35,15 @@ async function next(){if(loading.value||!nextCursor.value)return;const before=cu
 async function back(){if(loading.value||!previous.length)return;if(await load(previous.at(-1))){previous.pop();page.value--}}
 async function open(document:FiledDocument){
  if(opening.value)return;opening.value=document.id;error.value=''
- try{await store.openJob(document.id);if(alive)await router.push({path:'/document-workflow/documents',query:{job:document.id,from:'filed'}})}
+ try{await store.openJob(document.id);if(alive)await router.push({path:'/document-workflow/documents',query:{job:document.id,from:'history'}})}
  catch(e){if(alive)error.value=e instanceof Error?e.message:'Could not open the saved review'}finally{if(alive)opening.value=''}
 }
-onMounted(():void=>{void load();void loadViews()});onBeforeUnmount(()=>{alive=false;generation++;clearTimeout(searchTimer)})
+function refreshVisible(){if(document.visibilityState!=='hidden'&&!loading.value&&!opening.value&&!selection.value.length)void load(currentCursor)}
+let refreshTimer:ReturnType<typeof setInterval>|undefined
+onMounted(():void=>{void load();void loadViews();window.addEventListener('focus',refreshVisible);document.addEventListener('visibilitychange',refreshVisible);refreshTimer=setInterval(refreshVisible,60000)});onBeforeUnmount(()=>{alive=false;generation++;clearTimeout(searchTimer);clearInterval(refreshTimer);window.removeEventListener('focus',refreshVisible);document.removeEventListener('visibilitychange',refreshVisible)})
 </script>
 <template>
- <section class="filed-library" :aria-label="t('Documents')">
+ <section class="filed-library" :aria-label="t('Documents')"><PendingTrash />
   <div class="library-toolbar"><input v-model="search" type="search" maxlength="200" :aria-label="t('Search documents')" :placeholder="t('Search')" /><details class="saved-views"><summary>{{ t('Saved searches') }}</summary><label>{{ t('Open') }}<select v-model="selectedView" @change="chooseView"><option value="">—</option><option v-for="view in views" :key="view.id" :value="view.id">{{ view.name }}</option></select></label><form @submit.prevent="saveView"><input v-model="viewName" :aria-label="t('Search name')" :placeholder="t('Name')" maxlength="100" required /><button class="button">{{ t('Save') }}</button><button v-if="selectedView" type="button" class="icon-button" :aria-label="t('Delete saved search')" @click="deleteView">×</button></form></details></div>
   <p v-if="error" role="alert" class="error">{{ t(error) }}</p><p v-if="loading" role="status">{{ t('Loading…') }}</p>
   <BulkActions :documents="bulkDocuments" @changed="load()" />

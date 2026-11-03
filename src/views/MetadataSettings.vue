@@ -1,63 +1,85 @@
 <script setup lang="ts">
 // SPDX-License-Identifier: AGPL-3.0-only
-import {ref,onMounted} from 'vue'
+import {ref,onMounted,nextTick,onBeforeUnmount,watch,useId} from 'vue'
 import {useLocale} from '../state/locale'
 import {useWorkspace} from '../state/workspace'
 import {defaultMetadataSchema,validateMetadataSchema} from '../domain/metadata'
+import type {MetadataUsage} from '../domain/metadata-usage'
 import type {MetadataSchema,TagRule} from '../domain/metadata'
+const tab=ref<'fields'|'tags'>('fields'),fieldTab=ref<HTMLButtonElement>(),tagTab=ref<HTMLButtonElement>(),editingField=ref<MetadataSchema['fields'][number]|null>(null),editingTag=ref<TagRule|null>(null),busy=ref(true)
+async function switchTab(value:'fields'|'tags',focus=false){tab.value=value;if(focus){await nextTick();(value==='fields'?fieldTab.value:tagTab.value)?.focus()}}
+const removalDialog=ref<HTMLDialogElement|null>(null),removalTitle=useId(),removal=ref<{kind:'field'|'tag';item:MetadataSchema['fields'][number]|TagRule;name:string;count:number|null}|null>(null),checkingRemoval=ref(false)
+const definitionKeys=new WeakMap<object,string>()
+function rememberDefinitions(){for(const field of schema.value.fields)definitionKeys.set(field,field.id);for(const tag of schema.value.tags)definitionKeys.set(tag,tag.tag)}
+const usage=ref<MetadataUsage|null>(null),usageLoading=ref(false),usageError=ref(false);let alive=true,usageGeneration=0
 const store=useWorkspace(),{t}=useLocale(),schema=ref<MetadataSchema>(defaultMetadataSchema()),error=ref(''),message=ref('')
-onMounted(async()=>{try{if(!store.connection.value)await store.connect();schema.value=await store.request('metadata-schema')}catch(e){error.value=e instanceof Error?e.message:'Connection failed'}})
-function addField(){let n=schema.value.fields.length+1;while(schema.value.fields.some(f=>f.id===`field_${n}`))n++;schema.value.fields.push({id:`field_${n}`,label:'',type:'text',aliases:[],choices:[]})}
+onMounted(async()=>{try{if(!store.connection.value)await store.connect();schema.value=await store.request('metadata-schema');rememberDefinitions();void loadUsage()}catch(e){error.value=e instanceof Error?e.message:'Connection failed'}finally{busy.value=false}})
+async function loadUsage(){const generation=++usageGeneration,pin=JSON.stringify(store.connection.value);usage.value=null;usageLoading.value=true;usageError.value=false;try{const result=await store.request('metadata-usage');if(!result||!['fields','tags'].every(key=>result[key]&&typeof result[key]==='object'&&!Array.isArray(result[key])&&Object.values(result[key]).every(value=>Number.isSafeInteger(value)&&Number(value)>=0)))throw new Error('Counts unavailable');if(alive&&generation===usageGeneration&&pin===JSON.stringify(store.connection.value))usage.value=result}catch{if(alive&&generation===usageGeneration)usageError.value=true}finally{if(alive&&generation===usageGeneration)usageLoading.value=false}}
+watch(()=>JSON.stringify([store.connection.value?.server,store.connection.value?.account,store.connection.value?.space]),()=>{usageGeneration++;usage.value=null;usageLoading.value=false;removalDialog.value?.close();removal.value=null})
+onBeforeUnmount(()=>{alive=false;usageGeneration++})
+function usageLabel(count:number|undefined){return usage.value?t(count===1?'1 document':'{count} documents',{count:count??0}):t(usageLoading.value?'Loading…':'Counts unavailable')}
+function addField(){let n=schema.value.fields.length+1;while(schema.value.fields.some(f=>f.id===`field_${n}`))n++;const field:MetadataSchema['fields'][number]={id:`field_${n}`,label:'',type:'text' as const,aliases:[],choices:[]};schema.value.fields.push(field);editingField.value=schema.value.fields.at(-1)!}
+function addTag(){schema.value.tags.push({tag:'',terms:[]});editingTag.value=schema.value.tags.at(-1)!}
+async function removeDefinition(kind:'field'|'tag',item:MetadataSchema['fields'][number]|TagRule){if(busy.value||checkingRemoval.value)return;checkingRemoval.value=true;const pin=JSON.stringify(store.connection.value);await loadUsage();checkingRemoval.value=false;if(!alive||pin!==JSON.stringify(store.connection.value))return;const key=definitionKeys.get(item)??(kind==='field'?(item as MetadataSchema['fields'][number]).id:(item as TagRule).tag),count=usage.value?(kind==='field'?usage.value.fields[key]??0:usage.value.tags[key]??0):null;removal.value={kind,item,name:kind==='field'?(item as MetadataSchema['fields'][number]).label||key:key,count};if(count===0){confirmRemoval();return}await nextTick();removalDialog.value?.showModal()}
+function cancelRemoval(){removalDialog.value?.close();removal.value=null}
+function confirmRemoval(){if(!removal.value)return;const {kind,item}=removal.value;if(kind==='field'){const at=schema.value.fields.indexOf(item as MetadataSchema['fields'][number]);if(at>=0)schema.value.fields.splice(at,1)}else{const at=schema.value.tags.indexOf(item as TagRule);if(at>=0)schema.value.tags.splice(at,1)}cancelRemoval()}
 function split(value:string){return value.split(',').map(v=>v.trim()).filter(Boolean)}
 function setTagMatch(rule:TagRule,event:Event){if((event.target as HTMLSelectElement).value==='name')rule.match='name';else delete rule.match}
-async function save(){try{schema.value=await store.request('metadata-schema-save',{schema:validateMetadataSchema(JSON.parse(JSON.stringify(schema.value)))});message.value='Saved';error.value=''}catch(e){error.value=e instanceof Error?e.message:'Save failed'}}
+async function save(){if(busy.value)return;busy.value=true;try{schema.value=await store.request('metadata-schema-save',{schema:validateMetadataSchema(JSON.parse(JSON.stringify(schema.value)))});rememberDefinitions();message.value='Saved';error.value='';editingField.value=null;editingTag.value=null;void loadUsage()}catch(e){error.value=e instanceof Error?e.message:'Save failed'}finally{busy.value=false}}
 </script>
 <template>
  <p v-if="error" class="error" role="alert">{{ t(error) }}</p>
  <p v-if="message" class="message" role="status">{{ t(message) }}</p>
- <section class="panel metadata-panel">
-  <h2>{{ t('Custom fields') }}</h2>
+ <div class="metadata-tabs" role="tablist" :aria-label="t('Fields & tags')"><button id="metadata-fields-tab" ref="fieldTab" type="button" role="tab" :aria-selected="tab==='fields'" aria-controls="metadata-fields-panel" :tabindex="tab==='fields'?0:-1" @click="switchTab('fields')" @keydown.right.prevent="switchTab('tags',true)" @keydown.left.prevent="switchTab('tags',true)" @keydown.home.prevent="switchTab('fields',true)" @keydown.end.prevent="switchTab('tags',true)">{{ t('Fields') }}</button><button id="metadata-tags-tab" ref="tagTab" type="button" role="tab" :aria-selected="tab==='tags'" aria-controls="metadata-tags-panel" :tabindex="tab==='tags'?0:-1" @click="switchTab('tags')" @keydown.right.prevent="switchTab('fields',true)" @keydown.left.prevent="switchTab('fields',true)" @keydown.home.prevent="switchTab('fields',true)" @keydown.end.prevent="switchTab('tags',true)">{{ t('Tags') }}</button></div>
+ <p class="usage-help">{{ t('Counts show saved usage in Inbox and Documents.') }} <span v-if="usageError">{{ t('Counts unavailable') }} <button type="button" class="button subtle" @click="loadUsage">{{ t('Retry') }}</button></span></p>
+ <fieldset :disabled="busy||checkingRemoval" class="metadata-editor">
+ <section v-show="tab==='fields'" id="metadata-fields-panel" class="panel metadata-panel" role="tabpanel" aria-labelledby="metadata-fields-tab">
+  <div class="metadata-heading"><h2>{{ t('Custom fields') }}</h2><button type="button" class="button" @click="addField">{{ t('Add field') }}</button></div>
   <p class="section-description">{{ t('Add details such as invoice number or due date. Enter them on documents, or match printed labels to extract values automatically.') }}</p>
-  <p class="field-hint">{{ t('Printed labels match text such as Invoice number: 123. Keep a field’s ID unchanged after saving document values.') }}</p>
-  <div v-for="(field,i) in schema.fields" :key="i" class="definition-card" role="group" :aria-label="field.label||field.id">
-   <div class="definition-fields">
+
+  <details v-for="(field,i) in schema.fields" :key="i" class="definition-card" :open="editingField===field">
+   <summary @click.prevent="editingField=editingField===field?null:field"><span class="definition-title">{{ field.label||field.id }}</span><span class="definition-summary">{{ t(({text:'Text',number:'Number',date:'Date',choice:'Choice'} as const)[field.type]) }}</span><span class="usage-count" :aria-label="usageLabel(usage?.fields[field.id])" :title="usageLabel(usage?.fields[field.id])">{{ usage?usage.fields[field.id]??0:usageLoading?'…':'—' }}</span></summary>
+   <div class="definition-body"><div class="definition-fields">
     <label>{{ t('Stable ID') }}<input v-model="field.id" placeholder="invoice_number" /></label>
     <label>{{ t('Label') }}<input v-model="field.label" /></label>
     <label>{{ t('Type') }}<select v-model="field.type"><option value="text">{{ t('Text') }}</option><option value="number">{{ t('Number') }}</option><option value="date">{{ t('Date') }}</option><option value="choice">{{ t('Choice') }}</option></select></label>
     <label>{{ t('Printed labels, separated by commas') }}<input :value="field.aliases.join(', ')" @change="field.aliases=split(($event.target as HTMLInputElement).value)" /></label>
     <label v-if="field.type==='choice'" class="definition-wide">{{ t('Choices, separated by commas') }}<input :value="field.choices.join(', ')" @change="field.choices=split(($event.target as HTMLInputElement).value)" /></label>
    </div>
-   <div class="definition-actions"><button type="button" class="icon-button" :aria-label="t('Remove field')" @click="schema.fields.splice(i,1)">×</button></div>
-  </div>
-  <button type="button" class="button" @click="addField">{{ t('Add field') }}</button>
+   <p class="field-hint">{{ t('Printed labels match text such as Invoice number: 123. Keep a field’s ID unchanged after saving document values.') }}</p><div class="definition-actions"><button type="button" class="icon-button" :aria-label="t('Remove field')" @click="removeDefinition('field',field)">×</button></div></div>
+  </details>
  </section>
- <section class="panel metadata-panel">
-  <h2>{{ t('Saved tags') }}</h2>
+ <section v-show="tab==='tags'" id="metadata-tags-panel" class="panel metadata-panel" role="tabpanel" aria-labelledby="metadata-tags-tab">
+  <div class="metadata-heading"><h2>{{ t('Saved tags') }}</h2><button type="button" class="button" @click="addTag">{{ t('Add tag') }}</button></div>
   <p id="saved-tags-help" class="section-description">{{ t('Reusable tags for manual selection or keyword matching, without AI. Leave terms blank for manual use. Example: “guarantee” → Warranty.') }}</p>
-  <div v-for="(rule,i) in schema.tags" :key="i" class="definition-card" role="group" :aria-label="rule.tag||t('Tag')">
-   <div class="definition-fields">
+  <details v-for="(rule,i) in schema.tags" :key="i" class="definition-card" :open="editingTag===rule">
+   <summary @click.prevent="editingTag=editingTag===rule?null:rule"><span class="definition-title">{{ rule.tag||t('Tag') }}</span><span class="definition-summary">{{ rule.terms.length?t(rule.match==='name'?'Name aliases':'Contains text'):t('Manual selection') }}</span><span class="usage-count" :aria-label="usageLabel(usage?.tags[rule.tag])" :title="usageLabel(usage?.tags[rule.tag])">{{ usage?usage.tags[rule.tag]??0:usageLoading?'…':'—' }}</span><span v-if="rule.terms.length" class="definition-preview">{{ rule.terms.join(', ') }}</span></summary>
+   <div class="definition-body"><div class="definition-fields">
     <label>{{ t('Tag') }}<input v-model="rule.tag" /></label>
     <label>{{ t('Matching') }}<select :value="rule.match??'substring'" @change="setTagMatch(rule,$event)"><option value="substring">{{ t('Contains text') }}</option><option value="name">{{ t('Name aliases') }}</option></select><small v-if="rule.match==='name'">{{ t('Name aliases ignore letter case and character width.') }}</small></label>
     <label class="definition-wide">{{ t('Matching terms, separated by commas (optional)') }}<input :value="rule.terms.join(', ')" aria-describedby="saved-tags-help" @change="rule.terms=split(($event.target as HTMLInputElement).value)" /></label>
    </div>
-   <div class="definition-actions"><button type="button" class="icon-button" :aria-label="t('Remove tag')" @click="schema.tags.splice(i,1)">×</button></div>
-  </div>
-  <button type="button" class="button" @click="schema.tags.push({tag:'',terms:[]})">{{ t('Add tag') }}</button>
+   <div class="definition-actions"><button type="button" class="icon-button" :aria-label="t('Remove tag')" @click="removeDefinition('tag',rule)">×</button></div></div>
+  </details>
  </section>
- <button type="button" class="button primary" @click="save">{{ t('Save') }}</button>
+ </fieldset><button type="button" class="button primary" :disabled="busy||checkingRemoval" @click="save">{{ t('Save') }}</button>
+ <dialog ref="removalDialog" class="remove-definition-dialog" :aria-labelledby="removalTitle" @cancel="cancelRemoval"><h2 :id="removalTitle">{{ t(removal?.kind==='field'?'Remove field?':'Remove tag?') }}</h2><p class="removal-name">{{ removal?.name }}</p><p>{{ removal?.count===null?t('Usage could not be checked. This item may be used by documents.'):t(removal?.count===1?'Used by 1 document.':'Used by {count} documents.',{count:removal?.count??0}) }}</p><p>{{ t('This removes the definition from settings. Existing document tags and saved field values are kept.') }}</p><footer><button type="button" class="button danger" @click="confirmRemoval">{{ t('Remove') }}</button><button type="button" class="button subtle" autofocus @click="cancelRemoval">{{ t('Cancel') }}</button></footer></dialog>
 </template>
 
 <style scoped>
-.metadata-panel.panel>h2{margin-bottom:0}
+.remove-definition-dialog{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:24px;max-width:440px;width:calc(100% - 40px);box-sizing:border-box}.remove-definition-dialog::backdrop{background:#0008}.remove-definition-dialog h2{font-size:18px;margin:0 0 16px}.remove-definition-dialog p{font-size:13px;line-height:1.6}.removal-name{font-weight:600;overflow-wrap:anywhere}.remove-definition-dialog footer{display:flex;gap:10px;margin-top:20px}.button.danger{color:var(--danger-ink);border-color:var(--danger-ink);background:var(--danger-bg)}
+
+.metadata-panel{padding:24px;margin-bottom:22px}.metadata-tabs{display:flex;gap:4px;margin:0 0 20px;border-bottom:1px solid var(--line)}.metadata-tabs button{border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);font:inherit;padding:12px 16px;cursor:pointer}.metadata-tabs button[aria-selected=true]{color:var(--ink);border-color:var(--accent-text);font-weight:600}.metadata-tabs span{margin-left:8px;font-size:12px;color:var(--muted)}.metadata-editor{border:0;padding:0;margin:0;min-width:0}.metadata-heading{display:flex;justify-content:space-between;align-items:center;gap:16px}.metadata-heading h2{margin:0}.metadata-heading .button{flex:none}
+.metadata-panel .definition-card summary{display:grid;grid-template-columns:14px minmax(0,1fr) auto 32px;gap:6px 10px;align-items:baseline;cursor:pointer;padding:14px 16px;list-style:none;color:var(--ink)}.metadata-panel .definition-card summary::-webkit-details-marker{display:none}.metadata-panel .definition-card summary:before{content:'›';grid-column:1;grid-row:1;align-self:center}.metadata-panel .definition-card[open]>summary:before{transform:rotate(90deg)}.definition-title{grid-column:2;font-weight:600;overflow-wrap:anywhere}.usage-help{font-size:12px;color:var(--muted);margin:-8px 0 20px}.usage-count{grid-column:4;font-size:12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}.definition-summary{grid-column:3;font-size:12px;color:var(--muted)}.definition-preview{grid-column:2/-1;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metadata-panel .definition-body{position:relative;padding:16px 64px 16px 16px;border-top:1px solid var(--line)}
 .metadata-panel>.section-description{font-size:13px;max-width:780px;margin:8px 0 20px}
-.metadata-panel>.field-hint{font-size:12px;color:var(--muted);margin:-8px 0 22px;max-width:780px}
-.metadata-panel .definition-card{display:grid;grid-template-columns:minmax(0,1fr) 36px;align-items:start;gap:16px;margin:16px 0;padding:16px;border:1px solid var(--line);border-radius:6px}
+.field-hint{font-size:12px;color:var(--muted);margin:12px 0 0;max-width:780px}
+.metadata-panel .definition-card{margin:10px 0;padding:0;border:1px solid var(--line);border-radius:6px}
 .metadata-panel .definition-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:16px;min-width:0}
 .metadata-panel .definition-fields>label{display:flex;flex-direction:column;gap:6px;min-width:0;margin:0;font-size:13px}
 .metadata-panel .definition-fields input,.metadata-panel .definition-fields select{width:100%;min-width:0}
 .metadata-panel .definition-fields small{font-size:12px;color:var(--muted);line-height:1.5}
 .metadata-panel .definition-wide{grid-column:1/-1}
-.metadata-panel .definition-actions{display:flex;align-items:flex-start;justify-content:flex-end}
+.metadata-panel .definition-actions{position:absolute;right:16px;top:16px;display:flex;align-items:flex-start;justify-content:flex-end}
 .metadata-panel .definition-actions>.icon-button{align-self:flex-start;flex:none;margin:0}
-@media(max-width:700px){.metadata-panel .definition-fields{grid-template-columns:minmax(0,1fr)}.metadata-panel .definition-card{gap:12px}}
+@media(max-width:700px){.metadata-panel{padding:20px}.metadata-panel .definition-fields{grid-template-columns:minmax(0,1fr)}.metadata-panel .definition-card{gap:12px}.metadata-panel .definition-card summary{grid-template-columns:14px minmax(0,1fr) 32px}.definition-summary{grid-column:2;grid-row:2}.usage-count{grid-column:3;grid-row:1}.definition-preview{grid-column:2/-1}}
 </style>

@@ -6,6 +6,7 @@ export const aiTasks = [
 ] as const
 export type AITask = typeof aiTasks[number]['id']
 export interface AIConfig {
+  tagDiscovery?: 'off' | 'existing' | 'create'
   local: { endpoint: string; model: string }
   cloud: { endpoint: string; model: string }
   tasks: Record<AITask, 'off' | 'local' | 'cloud'>
@@ -16,7 +17,8 @@ export function defaultAIConfig(): AIConfig {
 }
 export function validateAIConfig(config: AIConfig): AIConfig {
   const exact=(value: unknown, keys: string[])=>{if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).sort().join(',')!==[...keys].sort().join(','))throw new Error('Unexpected AI configuration fields.')}
-  exact(config,['local','cloud','tasks','modelOverrides'])
+  exact(config,['local','cloud','tasks','modelOverrides',...('tagDiscovery' in config?['tagDiscovery']:[])])
+  if('tagDiscovery' in config&&!['off','existing','create'].includes(config.tagDiscovery!))throw new Error('Invalid tag discovery mode.')
   exact(config.tasks,aiTasks.map(t=>t.id));exact(config.modelOverrides,aiTasks.map(t=>t.id))
   for(const key of ['local','cloud'] as const){exact(config[key],['endpoint','model']);if(typeof config[key].endpoint!=='string'||typeof config[key].model!=='string')throw new Error('Invalid provider configuration.')}
   const normalized=structuredClone(config)
@@ -38,13 +40,14 @@ export function validateAIConfig(config: AIConfig): AIConfig {
     if (!['off', 'local', 'cloud'].includes(target)) throw new Error('Unknown AI task destination.')
     if (target !== 'off' && (!config[target].endpoint.trim() || !(override.trim() || config[target].model.trim()))) throw new Error('Set an endpoint and model before assigning a task to that provider.')
   }
+  if(config.tagDiscovery&&config.tagDiscovery!=='off'&&config.tasks.tags==='off')throw new Error('Choose a provider for AI tags before enabling semantic tag review.')
   return normalized
 }
 
 // This is a UI readiness check; the companion independently validates execution.
 export function preparationProblem(preferences:{ai:AIConfig;policy:{aiInput:string;aiOutput:string}}|null,cloudEnabled=false):string {
   if(!preferences)return 'Save your AI and processing settings before preparing documents.'
-  if(preferences.policy.aiInput==='off'||preferences.policy.aiOutput==='off')return 'AI input and output must be enabled for document preparation.'
+  if(preferences.policy.aiInput==='off'||preferences.policy.aiOutput==='off')return ''
   try{const ai=validateAIConfig(JSON.parse(JSON.stringify(preferences.ai)));if(ai.tasks.facts==='off')return 'Choose a provider and model for fact extraction in AI settings.';if(Object.values(ai.tasks).includes('cloud')&&!cloudEnabled)return 'The cloud provider must be enabled by the companion operator.'}
   catch(e){return e instanceof Error?e.message:'Check your AI settings.'}
   return ''

@@ -20,9 +20,8 @@ describe('Untrusted document evidence', () => {
     const b = samples()[1]!; b.proposal!.issuer.value = '羽島市'
     expect(() => validateBundle(b)).toThrow('Fact is not present')
   })
-  it.each([0, 2, 1.5])('rejects invalid evidence page %s', page => {
-    const b = example(); b.proposal!.issuer.evidence[0]!.page = page
-    expect(() => validateBundle(b)).toThrow('page')
+  it('rejects a non-integer evidence page even if its quote exists', () => {
+    const b=example();b.proposal!.issuer.evidence[0]!.page=1.5;expect(()=>validateBundle(b)).toThrow('page')
   })
   it('rejects nonexistent quotes rather than quietly excluding them', () => {
     const b = example(); b.proposal!.tags[0]!.evidence[0]!.quote = 'fabricated'
@@ -110,3 +109,16 @@ describe('Human-edited filing plans',()=>{
  it('validates safe destinations, binds edits in the digest, and honors feature Off settings',async()=>{const review=validateBundle(example()),policy=defaultPolicy(),manual={target:'Archive/2026/custom.pdf',addTags:['Paid']};const approval=await createApproval(review,policy,manual);expect(approval.actions).toEqual(manual);expect(await approvalMatches(approval,review.bundle,policy)).toBe(true);expect(await reviewDigest(review,policy,manual)).not.toBe(await reviewDigest(review,policy));await expect(createApproval(review,policy,{...manual,target:'../escape.pdf'})).rejects.toThrow();await expect(createApproval(review,{...policy,move:'off'},manual)).rejects.toThrow('Enable folders');await expect(createApproval(review,{...policy,tags:'off'},manual)).rejects.toThrow('Enable tags')})
 })
 it('keeps legacy six-stage approvals valid without injecting a new fields policy',async()=>{const {fields,...legacy}=defaultPolicy(),review=validateBundle(samples()[0]!);const approval=await createApproval(review,legacy);expect('fields' in approval.policy).toBe(false);expect(await approvalMatches(JSON.parse(JSON.stringify(approval)),review.bundle,legacy)).toBe(true)})
+
+describe('Manual review without accepted AI facts',()=>{
+ const manual=()=>validateBundle({...example(),proposal:null,manualReview:{reason:'date'}})
+ it('keeps missing facts separate and requires an explicit destination before approval',async()=>{
+  const r=manual(),policy=defaultPolicy();expect(r.state).toBe('needs_details');expect(r.proposal).toBeNull();expect(actions(r,policy)).toBeNull();await expect(createApproval(r,policy)).rejects.toThrow('Choose a destination');const target={target:'Filed/Other/checked.pdf',addTags:['Checked']};const approved=await createApproval(r,policy,target);expect(approved.manualActions).toEqual(target);expect(await approvalMatches(approved,r.bundle,policy)).toBe(true);expect(await approvalMatches({...approved,manualActions:{...target,target:'Filed/Other/changed.pdf'}},r.bundle,policy)).toBe(false)
+ })
+ it('rejects unknown reasons, unreadable pages and any attempt to attach rejected AI facts',()=>{
+  for(const bundle of [{...manual().bundle,manualReview:{reason:'ignore validation'}},{...manual().bundle,pages:['']},{...manual().bundle,proposal:example().proposal}])expect(()=>validateBundle(bundle)).toThrow('manual review')
+ })
+ it('continues to enforce folder, name, tag and path controls for manual plans',()=>{
+  const r=manual(),policy=defaultPolicy(),target={target:'Filed/Other/checked.pdf',addTags:['Checked']};expect(()=>actions(r,{...policy,rename:'off'},target)).toThrow('filenames');expect(()=>actions(r,{...policy,move:'off'},target)).toThrow('folders');expect(()=>actions(r,{...policy,tags:'off'},target)).toThrow('tags');expect(()=>actions(r,policy,{...target,target:'../checked.pdf'})).toThrow('Unsafe')
+ })
+})

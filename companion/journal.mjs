@@ -23,13 +23,15 @@ export class ProposalJournal {
   }
   close() { this.db.close() }
   get(id) { return this.db.prepare('SELECT * FROM proposals WHERE id=?').get(id) }
-  async prepare(input, configuration, { retry=false, planner, cloudKey,scope:workflowScope }={}) {
+  async prepare(input, configuration, { retry=false, planner, cloudKey,scope:workflowScope,manualFallback=false,ocrAttempted=false,onProgress=()=>{} }={}) {
     const checked = validateDocumentInput(input)
     const policy = validatePolicy(configuration.policy)
-    if (policy.aiInput === 'off' || policy.aiOutput === 'off') throw new Error('AI input and output must both be enabled for proposal generation')
-    const endpoint = configuration.routes ? configuration.endpoint : localEndpoint(configuration.endpoint), model = configuration.model
-    if (typeof model !== 'string' || !model.trim() || model.length>150 || /[\x00-\x1f\x7f]/.test(model) || !configuration.routes && model.includes(':cloud')) throw new Error('Invalid model')
-    const config = {endpoint,model,policy,proposalRecipe}
+    const rulesOnly=configuration.rulesOnly===true&&(policy.aiInput==='off'||policy.aiOutput==='off')
+    if (!rulesOnly&&(policy.aiInput === 'off' || policy.aiOutput === 'off')) throw new Error('AI input and output must both be enabled for proposal generation')
+    const endpoint = rulesOnly?undefined:configuration.routes ? configuration.endpoint : localEndpoint(configuration.endpoint), model = rulesOnly?undefined:configuration.model
+    if (!rulesOnly&&(typeof model !== 'string' || !model.trim() || model.length>150 || /[\x00-\x1f\x7f]/.test(model) || !configuration.routes && model.includes(':cloud'))) throw new Error('Invalid model')
+    const config = rulesOnly?{policy,localRulesVersion:1}:{endpoint,model,policy,proposalRecipe}
+    if(manualFallback){config.manualReviewVersion=1;if(ocrAttempted)config.ocrAttempted=true}
     if(configuration.contextTokens)config.contextTokens=configuration.contextTokens
     if(configuration.routes){config.routes=configuration.routes;config.recipe=configuration.recipe}
     if(configuration.ocrLanguages)config.ocrLanguages=configuration.ocrLanguages
@@ -52,14 +54,17 @@ export class ProposalJournal {
     const claimed = this.db.prepare(`UPDATE proposals SET state='running',owner=?,pid=?,host=?,attempts=attempts+1,updated=? WHERE id=? AND state=? AND attempts=? RETURNING id`).get(owner,process.pid,hostname(),new Date().toISOString(),id,job.state,job.attempts)
     if (!claimed) throw new Error('Proposal claimed by another worker')
     try {
-      const review = checked.pages.some(p=>!p.trim()) ? validateBundle({...checked,proposal:null}) : await (planner??(configuration.routes?((input,model,endpoint,fetcher,onResponse)=>generateRouted(input,configuration,{cloudKey,onResponse})):((...args)=>generateProposal(...args,{contextTokens:configuration.contextTokens}))))(checked,model,endpoint,undefined,raw=>this.db.prepare('UPDATE proposals SET raw=? WHERE id=? AND owner=?').run(JSON.stringify(raw),id,owner))
+      const review = rulesOnly ? validateBundle({...checked,proposal:null,manualReview:{reason:checked.pages.some(p=>!p.trim())?'text':'rules'}}) : checked.pages.some(p=>!p.trim()) ? validateBundle({...checked,proposal:null,...(manualFallback&&ocrAttempted?{manualReview:{reason:'text'}}:{})}) : await (planner??(configuration.routes?((input,model,endpoint,fetcher,onResponse)=>generateRouted(input,configuration,{cloudKey,onResponse,onTagReview:()=>onProgress('tagging')})):((...args)=>generateProposal(...args,{contextTokens:configuration.contextTokens,onTagReview:()=>onProgress('tagging')}))))(checked,model,endpoint,undefined,raw=>this.db.prepare('UPDATE proposals SET raw=? WHERE id=? AND owner=?').run(JSON.stringify(raw),id,owner))
       // Validate again before persisting any provider result.
       const validated = validateBundle(review.bundle)
-      const {proposal,...returnedInput}=validated.bundle
+      const {proposal,manualReview,...returnedInput}=validated.bundle
       if(JSON.stringify(returnedInput)!==JSON.stringify(checked))throw new Error('Provider result changed source identity or extracted pages')
       this.db.prepare("UPDATE proposals SET state=?,result=?,error=NULL,owner=NULL,updated=? WHERE id=? AND owner=?").run(validated.state,JSON.stringify(validated.bundle),new Date().toISOString(),id,owner)
       return {id,cached:false,review:validated}
     } catch(e) {
+      const evidenceErrors=['Missing bounded evidence','Invalid evidence page','Quote is absent from its page','Fact is not present in its evidence','Folder lacks supporting evidence','Unknown folder category','Invalid tag proposals','Invalid discovered tag name','Unexpected or missing fields','Expected an object','Invalid text field']
+      const reason=manualFallback?(evidenceErrors.includes(e.message)?'evidence':e.message.startsWith('Document exceeds configured model context capacity')?'capacity':['Unsupported printed date format; add an explicit language/date rule','Ambiguous printed date; review the date convention explicitly','Invalid calendar date'].includes(e.message)?'date':null):null
+      if(reason){const review=validateBundle({...checked,proposal:null,manualReview:{reason}});this.db.prepare("UPDATE proposals SET state='needs_details',result=?,error=NULL,owner=NULL,updated=? WHERE id=? AND owner=?").run(JSON.stringify(review.bundle),new Date().toISOString(),id,owner);return{id,cached:false,review}}
       this.db.prepare("UPDATE proposals SET state='failed',error=?,owner=NULL,updated=? WHERE id=? AND owner=?").run('Proposal generation or evidence validation failed',new Date().toISOString(),id,owner)
       throw e
     }

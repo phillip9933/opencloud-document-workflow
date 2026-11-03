@@ -25,7 +25,7 @@ export class Duplicates {
    if(reconcileOnly)return this.hold(actor,item,'No Trash request was recorded. The extra copy is still held.')
    const config=this.intake.configuration(actor)
    if(!within(item.path,config.folder))throw new Error('Duplicate is outside the selected inbox')
-   if(automatic&&(!config.enabled||this.action(actor)!=='trash'))return{state:'duplicate'}
+   if(automatic&&(!config.enabled||this.intake.paused(actor)||this.action(actor)!=='trash'))return{state:'duplicate'}
    const identity=await api.identity();if(this.w.scope(identity)!==scope)throw new Error('Duplicate workspace changed')
    if(!item.job)throw new Error('The kept original has no saved review. Both copies are held.')
    const job=this.w.job(actor,item.job),original=JSON.parse(job.input).source
@@ -40,7 +40,7 @@ export class Duplicates {
    const current=await api.stat(source.path),originalNow=await keptAPI.stat(kept.path)
    if(!current||current.resourceId!==source.resourceId||current.etag!==source.etag||!originalNow||originalNow.resourceId!==kept.resourceId||originalNow.etag!==kept.etag)throw new Error('A file changed during duplicate verification. Both copies are held.')
    const latest=this.intake.configuration(actor)
-   if(latest.folder!==config.folder||automatic&&(!latest.enabled||this.action(actor)!=='trash'))return this.hold(actor,item,'Duplicate handling was paused. The extra copy is still held.')
+   if(latest.folder!==config.folder||automatic&&(!latest.enabled||this.intake.paused(actor)||this.action(actor)!=='trash'))return this.hold(actor,item,'Duplicate handling was paused. The extra copy is still held.')
    this.db.prepare("insert into duplicate_trash(queue_id,scope,source,keeper,sha,baseline,state,created) values(?,?,?,?,?,?,'intent',?)").run(id,scope,JSON.stringify(source),JSON.stringify(kept),original.sha256,JSON.stringify(baseline.map(row=>row.id)),new Date().toISOString())
    this.w.event(actor,item.job,'duplicate_trash_intent',{id,path:source.path,resourceId:source.resourceId,keptPath:kept.path,keptResourceId:kept.resourceId,sha256:original.sha256})
    try{await api.trash(source.path,source.etag);this.db.prepare('update duplicate_trash set ack=1 where queue_id=?').run(id)}catch{/* Outcome may be unknown. Never issue DELETE again. */}
@@ -55,5 +55,5 @@ export class Duplicates {
   if(!current&&found.length===1){this.db.prepare("update duplicate_trash set state='trashed',trash_id=? where queue_id=?").run(found[0].id,item.id);this.db.prepare("update intake_queue set state='trashed',detail=? where id=?").run('Moved to OpenCloud Trash. Recovery follows OpenCloud retention settings.',item.id);this.w.event(actor,item.job,'duplicate_trashed',{id:item.id,path:source.path,resourceId:source.resourceId,trashId:found[0].id,keptPath:JSON.parse(intent.keeper).path});return{state:'trashed',trashId:found[0].id}}
   return{...this.hold(actor,item,'Trash outcome needs verification. Inspect OpenCloud Trash; this request will not be repeated.'),uncertain:true}
  }
- async resume(actor,api){if(this.action(actor)!=='trash'||!this.intake.configuration(actor).enabled)return;const rows=this.db.prepare("select id from intake_queue where scope=? and state='duplicate' order by first_seen limit ?").all(this.w.scope(actor),this.w.configuration?.settings(actor).limits.documentsPerCycle??20);for(const row of rows){if(this.action(actor)!=='trash'||!this.intake.configuration(actor).enabled||this.intake.stopped)break;await this.process(actor,api,row.id,{automatic:true})}}
+ async resume(actor,api){if(this.action(actor)!=='trash'||!this.intake.configuration(actor).enabled||this.intake.paused(actor))return;const rows=this.db.prepare("select id from intake_queue where scope=? and state='duplicate' order by first_seen limit ?").all(this.w.scope(actor),this.w.configuration?.settings(actor).limits.documentsPerCycle??20);for(const row of rows){if(this.action(actor)!=='trash'||!this.intake.configuration(actor).enabled||this.intake.paused(actor)||this.intake.stopped)break;await this.process(actor,api,row.id,{automatic:true})}}
 }

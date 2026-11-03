@@ -1,7 +1,10 @@
 {
   "repository": "opencloud-eu/awesome-apps",
+  "snapshotDate": "2026-11-04",
   "files": {
-    "README.md": "99b6a332b0be0a300df0e68ce677be5e56a232cabc694c2045f9feda45c204d8",
-    "webApps/apps.json": "f09fc573f7bb57aacd3bc738e662cd86251444f227a34f265fa59951bbf3e5cb"
-  }
+    "README.md": "9c3b0e7066b787b4911c9b775d7a55b9a10f7524",
+    "webApps/apps.json": "b7e3d27d526659bb3f652b3512938e498c384459"
+  },
+  "guidance": "webApps/README.md",
+  "guidanceGitBlobSHA": "d06d1f06750205ae6d26464b3ad49dac9482b66a"
 }

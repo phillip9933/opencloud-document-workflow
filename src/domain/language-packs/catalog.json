@@ -1,12 +1,14 @@
 [
   {
     "id": "und",
-    "version": 1,
+    "version": 2,
     "name": "Language-neutral formats",
     "dates": [
       "{year}-{month}-{day}",
       "{day}/{month}/{year}",
-      "{month}/{day}/{year}"
+      "{month}/{day}/{year}",
+      "{year}/{month}/{day}",
+      "{year}.{month}.{day}"
     ],
     "months": {},
     "terms": {},
@@ -14,11 +16,14 @@
   },
   {
     "id": "en",
-    "version": 2,
+    "version": 3,
     "name": "English",
     "dates": [
       "{day} {monthName} {year}",
-      "{monthName} {day}, {year}"
+      "{monthName} {day}, {year}",
+      "{monthName} {day} {year}",
+      "{day}-{monthName}-{year}",
+      "{day} {monthName}, {year}"
     ],
     "months": {
       "January": 1,
@@ -32,7 +37,32 @@
       "September": 9,
       "October": 10,
       "November": 11,
-      "December": 12
+      "December": 12,
+      "Jan": 1,
+      "Jan.": 1,
+      "Feb": 2,
+      "Feb.": 2,
+      "Mar": 3,
+      "Mar.": 3,
+      "Apr": 4,
+      "Apr.": 4,
+      "May.": 5,
+      "Jun": 6,
+      "Jun.": 6,
+      "Jul": 7,
+      "Jul.": 7,
+      "Aug": 8,
+      "Aug.": 8,
+      "Sep": 9,
+      "Sep.": 9,
+      "Oct": 10,
+      "Oct.": 10,
+      "Nov": 11,
+      "Nov.": 11,
+      "Dec": 12,
+      "Dec.": 12,
+      "Sept": 9,
+      "Sept.": 9
     },
     "terms": {
       "Utilities/Electricity": [
@@ -138,7 +168,33 @@
         "value": "Utilities/Water"
       }
     ],
-    "termMatch": "substring"
+    "termMatch": "substring",
+    "eras": [
+      {
+        "name": "令和",
+        "offset": 2018,
+        "start": "2019-05-01",
+        "end": "9999-12-31",
+        "format": "{era}{year}年{month}月{day}日",
+        "firstYear": "元"
+      },
+      {
+        "name": "平成",
+        "offset": 1988,
+        "start": "1989-01-08",
+        "end": "2019-04-30",
+        "format": "{era}{year}年{month}月{day}日",
+        "firstYear": "元"
+      },
+      {
+        "name": "昭和",
+        "offset": 1925,
+        "start": "1926-12-25",
+        "end": "1989-01-07",
+        "format": "{era}{year}年{month}月{day}日",
+        "firstYear": "元"
+      }
+    ]
   },
   {
     "id": "fr",

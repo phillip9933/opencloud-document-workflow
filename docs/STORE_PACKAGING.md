@@ -1,37 +1,29 @@
-# Releases and OpenCloud catalogue submission
+# Beta releases and OpenCloud catalogue submission
 
-The public project is https://github.com/phillip9933/opencloud-document-workflow. Version 0.14.5 is an early public release. This document does not imply OpenCloud certification or catalogue acceptance.
+**0.20.0 Beta** advances the previously deployed 0.19.x versions. The GitHub prerelease supplies the matching assets; publishing it does not submit an OpenCloud catalogue pull request.
 
 ## Distribution
 
-Run the checks and build commands in LOCAL_BUILD.md. `pnpm run package:installer` emits matching files in `artifacts/releases/0.14.5/`:
+Run the checks and build commands in LOCAL_BUILD.md, followed by `python3 scripts/validate_release.py`. Matching artifacts are written to `artifacts/releases/0.20.0/`:
 
-- `document-workflow-0.14.5.zip`: native Web app for the catalogue; root folder matches app ID `document-workflow`.
-- `document-workflow-0.14.5-install.tar.gz`: coordinated Web/companion installation kit. The runtime is built from the included pinned Dockerfile.
-- `document-workflow-0.14.5-companion-source.zip`: corresponding application/build/test source.
-- Cover artwork, installation guides, checksums and a build receipt.
+- `document-workflow-0.20.0.zip`: store frontend ZIP, with `manifest.json` and its entrypoint at the ZIP root.
+- `document-workflow-0.20.0-install.tar.gz`: coordinated Web, companion and isolated converter installation kit.
+- `document-workflow-0.20.0-companion-source.zip`: corresponding source, tests, exact locks, notices and dependency inventory.
+- `document-workflow-0.20.0-screenshots.zip`: six 3:2 screenshots containing fictional information and redistribution terms.
+- Installation guides, cover artwork, SHA256SUMS and a build receipt marked unpublished.
 
-Publish these together under tag `v0.14.5`. The native ZIP alone cannot perform processing. The catalogue description and installation link must retain this requirement. No prebuilt companion image is promised by this release; the kit builds it from official sources.
+The internal installer frontend archive retains its app-directory wrapper. Its extracted bytes must exactly match the root-level store ZIP. The store installs only the frontend; it has no companion deployment hook. Keep that requirement prominent in the entry and link to the coordinated kit. Docker/Compose, Bash and sha256sum remain administrator prerequisites. The kit builds from official Node/Debian sources; AI models are optional and separate. Traefik is optional; external proxies require a same-origin route.
 
-Source excludes private operational history, user configuration, documents, credentials and journals. Include LICENSE, third-party notices, the exact lockfile and dependency inventory with distribution. OS packages are recorded in the built image at `/distribution/os-packages.txt`.
+## Validation boundaries
 
-## Compatibility and validation
+See ../submission/VALIDATION.md for this candidate's exact checks. Fresh OpenCloud 9/Caddy installation, synthetic restoration and no-restart repeat checks are documented in ACCEPTANCE_0.20.0.md. Earlier 0.14.5 acceptance remains separately documented. OpenCloud 9 / SDK 8.2.1 and local Ollama are the exercised baseline. Live hosted AI, arm64 and a wider server/proxy matrix remain open. This independent beta is not OpenCloud-certified or catalogue-approved.
 
-The native app has been exercised with OpenCloud 9 and SDK 8.2.1; local Ollama is the accepted AI path. Automated tests cover UI/domain behavior, companion operations and installer planning/asset safeguards. Earlier coordinated-installer acceptance covered Linux/amd64 fresh installation, failed-route rollback and repeat installation. The published 0.14.5 kit now has fresh full installation, restoration, PDF verification and no-restart repeat acceptance on Linux/amd64 with OpenCloud 9 and Traefik; see [the acceptance record](ACCEPTANCE_0.14.5.md). This does not establish every server version, architecture or proxy layout.
+## Publication handoff
 
-Live hosted-provider, arm64 and broad OpenCloud-version acceptance remain open. This remains an early public release with a specific tested baseline, rather than a broadly certified stable store release.
+1. Review the source diff, release notes, licenses, dependency inventory and fictional screenshots. Keep private outputs, journals, credentials and personal configurations excluded.
+2. Commit the reviewed source, run hosted CI for that exact commit and record its outcome. Create tag `v0.20.0` and a GitHub release with **prerelease enabled** only when publication is authorized.
+3. Upload the matching files, compare every public download with SHA256SUMS, and verify each catalogue URL and image content type. Prepared URLs are future targets until that upload succeeds.
+4. Recheck current opencloud-eu/awesome-apps guidance. Apply `submission/awesome-apps.patch` to a fresh checkout and inspect the small addition. Rebase if upstream changed; never replace existing entries.
+5. Submit the prepared PR description for maintainer review once the public links work. The store frontend ZIP is not a one-click server installation.
 
-## Catalogue contribution
-
-OpenCloud's [awesome-apps repository](https://github.com/opencloud-eu/awesome-apps) accepts pull requests. Its current `webApps/apps.json` lists public download URLs and companion requirements; the catalogue does not run a server installer.
-
-`submission/` contains the prepared entry, README addition, PR body and patch against the upstream catalogue. The ID follows the GitHub namespace convention: `com.github.phillip9933.opencloud-document-workflow.document-workflow`. Render the entry with:
-
-```sh
-python3 scripts/store_entry.py \
-  --release-base-url https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.14.5 \
-  --source-url https://github.com/phillip9933/opencloud-document-workflow \
-  --output /tmp/document-workflow-entry.json
-```
-
-Verify every release URL publicly resolves, SHA256SUMS matches downloads, the ZIP has one correct root/manifest, and companion requirements are visible. Apply the patch to a fresh upstream checkout, inspect its small diff and submit it for maintainer review. Preparing this contribution does not send a pull request or guarantee listing.
+No publishing command is executed by packaging. Screenshot artwork and fictional examples are AGPL-3.0-only; third-party dependencies retain their own notices.

@@ -9,20 +9,23 @@ export class Automation {
  snapshot(actor){const value=this.settings(actor);return{...value,hash:digest(value)}}
  eligibility(actor,source){const {preferences,inbox}=this.settings(actor);if(!preferences||!inbox.enabled)return'Background ingestion is paused';const policy=validatePolicy(preferences.policy);if(policy.aiInput!=='automatic'||policy.aiOutput!=='automatic')return'AI processing is set to review';if(['rename','move','tags'].some(key=>policy[key]==='suggest'))return'Filing has stages set to Suggest';if(policy.ocr==='suggest')return'OCR is set to Suggest';if((policy.fields??'suggest')==='suggest')return'Fields are set to Suggest';if(!source.path.startsWith(inbox.folder+'/')||!inbox.recursive&&source.path.slice(inbox.folder.length+1).includes('/'))return'The document is outside the saved inbox';return null}
  guard(actor,id,record){const saved=this.db.prepare('select * from automatic_runs where job=? and scope=?').get(id,this.w.scope(actor));if(!saved||!['pending','running'].includes(saved.state)||saved.authorization!==JSON.stringify(record)||this.snapshot(actor).hash!==record.hash||!this.intake.configuration(actor).enabled)throw new Error('Automatic processing settings changed or were paused; inspect this operation before continuing')}
- update(actor,id,state,detail=null){this.db.prepare('update automatic_runs set state=?,detail=?,updated=? where job=? and scope=?').run(state,detail,new Date().toISOString(),id,this.w.scope(actor));this.w.event(actor,id,'automatic_'+state,detail?{reason:detail}:{})}
- async resume(actor,api){for(const row of this.db.prepare("select job from automatic_runs where scope=? and state in ('pending','running') order by created").all(this.w.scope(actor)))await this.run(actor,api,row.job,{resume:true})}
+ update(actor,id,state,detail=null){const changed=this.db.prepare("update automatic_runs set state=?,detail=?,updated=? where job=? and scope=? and (state<>'cancelled' or ?='done')").run(state,detail,new Date().toISOString(),id,this.w.scope(actor),state);if(changed.changes)this.w.event(actor,id,'automatic_'+state,detail?{reason:detail}:{})}
+ async resume(actor,api){for(const row of this.db.prepare("select job from automatic_runs where scope=? and state in ('pending','running') order by created").all(this.w.scope(actor))){if(this.intake.paused(actor))break;await this.run(actor,api,row.job,{resume:true})}}
  async run(actor,api,id,options={}){
   this.w.job(actor,id);let release
   try{release=this.w.lock('automatic:'+id)}catch(e){if(e.message==='Operation already running')return{state:'running'};throw e}
   try{return await this.execute(actor,api,id,options)}finally{release()}
  }
- async execute(actor,api,id,{resume=false,retry=false}={}){
+ async execute(actor,api,id,{resume=false,retry=false,allowPaused=false}={}){
   const job=this.w.job(actor,id),source=JSON.parse(job.input).source;let prior=this.db.prepare('select * from automatic_runs where job=? and scope=?').get(id,this.w.scope(actor))
-  if(retry&&prior&&['review','held'].includes(prior.state)){if(this.w.decision(actor,id))throw new Error('Inspect or take over the existing filing decision first');this.w.event(actor,id,'automatic_reauthorized',{previousAuthorization:JSON.parse(prior.authorization)});const snap=this.snapshot(actor),authorization={kind:'automatic',hash:snap.hash,configuration:snap,account:actor.account,space:actor.space,authorizedAt:new Date().toISOString()};this.db.prepare("update automatic_runs set state='pending',authorization=?,detail=NULL,updated=? where job=? and scope=?").run(JSON.stringify(authorization),authorization.authorizedAt,id,this.w.scope(actor));prior=this.db.prepare('select * from automatic_runs where job=?').get(id)}
-  if(prior&&['done','review','held'].includes(prior.state))return{state:prior.state,detail:prior.detail}
+  if(this.intake.paused(actor)&&!allowPaused)return{state:'paused'}
+  if(retry&&prior&&['review','held','cancelled'].includes(prior.state)){if(this.w.decision(actor,id))throw new Error('Inspect or take over the existing filing decision first');this.w.event(actor,id,'automatic_reauthorized',{previousAuthorization:JSON.parse(prior.authorization)});const snap=this.snapshot(actor),authorization={kind:'automatic',hash:snap.hash,configuration:snap,account:actor.account,space:actor.space,authorizedAt:new Date().toISOString()};this.db.prepare("update automatic_runs set state='pending',authorization=?,detail=NULL,updated=? where job=? and scope=?").run(JSON.stringify(authorization),authorization.authorizedAt,id,this.w.scope(actor));prior=this.db.prepare('select * from automatic_runs where job=?').get(id)}
+  if(prior&&['done','review','held','cancelled'].includes(prior.state))return{state:prior.state,detail:prior.detail}
   const issue=this.eligibility(actor,source);if(issue){if(prior)this.update(actor,id,'held',issue);return{state:'review',detail:issue}}
   const queue=this.db.prepare("select id from intake_queue where scope=? and job=? and state='prepared'").get(this.w.scope(actor),id);if(!queue)throw new Error('Automatic processing requires a prepared arrival from the saved inbox')
   const review=job.result?validateBundle(JSON.parse(job.result)):null;if(!review?.proposal)return{state:'review',detail:'The document needs text extraction or valid evidence'}
+  if(review.bundle.tagDiscovery&&review.bundle.tagDiscovery.mode!==this.w.preference(actor)?.ai.tagDiscovery){const detail='AI tag review settings changed; prepare new suggestions';if(prior)this.update(actor,id,'held',detail);return{state:'review',detail}}
+  if(this.w.similarities&&(await this.w.similarities.forJob(actor,api,id)).length){if(prior)this.update(actor,id,'held','Potential duplicate needs review');return{state:'review',detail:'Potential duplicate needs review'}}
   if(!prior){const snap=this.snapshot(actor),authorization={kind:'automatic',hash:snap.hash,configuration:snap,account:actor.account,space:actor.space,authorizedAt:new Date().toISOString()};this.db.prepare("insert or ignore into automatic_runs values(?,?,?,'pending',NULL,?,?)").run(id,this.w.scope(actor),JSON.stringify(authorization),authorization.authorizedAt,authorization.authorizedAt)}
   const authorization=JSON.parse(this.db.prepare('select authorization from automatic_runs where job=?').get(id).authorization)
   try{
@@ -49,7 +52,7 @@ export class Automation {
    }
    this.guard(actor,id,authorization);const result=await this.w.apply(actor,api,id);if(result.uncertain){this.update(actor,id,'held','The last file or tag outcome needs read-only verification');return result}
    this.update(actor,id,'done');return result
-  }catch(e){this.update(actor,id,'held',e.message?.length<200?e.message:'Automatic processing needs attention');return{state:'held',detail:e.message}}
+  }catch(e){if(this.statusFor(actor,id)?.state==='cancelled')return{state:'cancelled'};this.update(actor,id,'held',e.message?.length<200?e.message:'Automatic processing needs attention');return{state:'held',detail:e.message}}
  }
  async takeOver(actor,api,id,shownDigest){
   const release=this.w.lock('automatic:'+id)

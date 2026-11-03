@@ -33,6 +33,21 @@ test('full automatic ingestion fills grounded fields, applies rule tags, files o
   const second=new ProposalJournal(s.path);try{const w=new Workflow(second),m=new Metadata(w),i=new Intake(w),a=new Automation(w,m,i);assert.equal(a.statusFor(s.actor,s.id).state,'done');assert.equal(i.sessions.size,0);const api=new DemoAdapter(second.db);api.move=async()=>assert.fail('No replay after restart');api.addTags=async()=>assert.fail('No tag replay');assert.equal((await a.run(s.actor,api,s.id)).state,'done');assert.equal((await w.apply(s.actor,api,s.id,{reconcileOnly:true})).state,'done')}finally{second.close()}
  }finally{s.close()}
 })
+test('cancel during automatic verification blocks writes and cannot be overwritten by an in-flight worker',async()=>{
+ const s=await setup();try{
+  s.intake.processPrepared=undefined;s.intake.resume=undefined;await s.arrivals()
+  let entered,finish;const ready=new Promise(r=>{entered=r}),gate=new Promise(r=>{finish=r}),identity=s.api.identity.bind(s.api)
+  s.api.identity=async()=>{entered();await gate;return identity()};let writes=0;s.api.move=s.api.addTags=async()=>{writes++;assert.fail('Cancelled jobs must not write')}
+  const run=s.automation.run(s.actor,s.api,s.id);await ready;s.intake.manage(s.actor,'cancel');finish();assert.equal((await run).state,'cancelled');assert.equal(s.automation.statusFor(s.actor,s.id).state,'cancelled');assert.equal(writes,0);assert.ok(await s.api.stat('Inbox/english.pdf'))
+ }finally{s.close()}
+})
+test('bulk retry preserves completed files and leaves uncertain filing decisions for individual verification',async()=>{
+ const s=await setup();try{
+  s.api.move=async()=>{throw Error('Lost MOVE response')};await s.arrivals();assert.equal(s.w.decision(s.actor,s.id).state,'move_intent')
+  assert.equal(s.intake.manage(s.actor,'retry').affected,0);assert.equal(s.intake.summary(s.actor).attention,1)
+  s.intake.manage(s.actor,'cancel');assert.equal(s.intake.summary(s.actor).attention,1);assert.equal(s.intake.manage(s.actor,'retry').affected,0)
+ }finally{s.close()}
+})
 test('Suggest policy and arrivals outside the inbox cannot acquire automatic authority',async()=>{
  const s=await setup();try{s.w.savePreference(s.actor,{policy:{...s.policy,move:'suggest'},ai:defaultAIConfig()});await s.arrivals();assert.equal(s.w.decision(s.actor,s.id),undefined);assert.equal((await s.automation.run(s.actor,s.api,s.id)).state,'review');assert.throws(()=>s.w.job({...s.actor,space:'another'},s.id),/not found/);assert.ok(await s.api.stat('Inbox/english.pdf'))}finally{s.close()}
 })
@@ -76,6 +91,28 @@ test('unparseable printed numeric fields are held until an explicit correction a
 test('automatic ingestion never overwrites an occupied destination or auto-processes an identical alias',async()=>{
  const s=await setup();try{
   const original=s.j.db.prepare("select * from demo_files where resourceId='demo-english'").get();s.j.db.prepare('insert into demo_files values(?,?,?,?,?,?)').run('Inbox/zduplicate.pdf','duplicate','"v1"','[]',0,original.data)
-  const target='Filed/Utilities/Electricity/2026-10-29 Example Electricity Company Electricity invoice.pdf';await s.api.mkdir(target);await s.arrivals();assert.equal(s.w.decision(s.actor,s.id).state,'conflict');assert.equal(s.calls,1);assert.equal((await s.api.stat(target)).folder,true);assert.ok(await s.api.stat('Inbox/english.pdf'));assert.equal(s.intake.status(s.actor).queue.find(q=>q.resource==='duplicate').state,'duplicate')
+  const target='Filed/Utilities/Electricity/2026-10-29 Example Electricity Company Electricity invoice.pdf';await s.api.mkdir(target);await s.arrivals();assert.equal(s.w.decision(s.actor,s.id).state,'conflict');assert.equal(s.calls,1);assert.equal((await s.api.stat(target)).folder,true);assert.ok(await s.api.stat('Inbox/english.pdf'));const duplicate=s.intake.status(s.actor).queue.find(q=>q.resource==='duplicate');assert.equal(duplicate.state,'duplicate');assert.equal(s.intake.summary(s.actor).duplicates,1);assert.equal(s.intake.manage(s.actor,'cancel',[duplicate.id]).affected,0);assert.equal(s.automation.statusFor(s.actor,s.id).state,'held')
  }finally{s.close()}
+})
+test('automatic mode leaves unverified details for a human without filling fields, adding tags or filing',async()=>{
+ const s=await setup();try{
+  s.j.prepare=(input,configuration,options)=>ProposalJournal.prototype.prepare.call(s.j,input,configuration,{...options,planner:async()=>{throw Error('Fact is not present in its evidence')}})
+  await s.arrivals();assert.equal(s.j.get(s.id).state,'needs_details');assert.equal(s.intake.summary(s.actor).ready,1);assert.equal(s.w.decision(s.actor,s.id),undefined);assert.equal(s.automation.statusFor(s.actor,s.id),null);assert.equal(s.metadata.read(s.actor,'demo-english').fields.issuer,undefined);const f=await s.api.stat('Inbox/english.pdf');assert.deepEqual(f.tags,['Keep existing']);assert.equal((await s.automation.run(s.actor,s.api,s.id)).state,'review')
+ }finally{s.close()}
+})
+test('potential scan duplicates require review before any automatic field, MOVE or tag write',async()=>{
+ const s=await setup();try{
+  let writes=0;s.w.similarities={forJob:async()=>[{id:'other-copy',path:'Inbox/other.pdf'}]};s.api.move=async()=>{writes++;throw Error('Unexpected filing')};s.api.addTags=async()=>{writes++;throw Error('Unexpected tags')}
+  await s.arrivals();assert.equal(writes,0);assert.equal(s.w.decision(s.actor,s.id),undefined);assert.deepEqual(s.metadata.read(s.actor,'demo-english').fields,{});assert.ok(await s.api.stat('Inbox/english.pdf'))
+ }finally{s.close()}
+})
+
+test('explicit automatic Tags policy can apply new semantic candidates, while Review Tags waits without creating them',async()=>{
+ for(const mode of ['automatic','suggest','disabled']){const s=await setup();try{
+  const base=ProposalJournal.prototype.prepare.bind(s.j);s.j.prepare=(input,configuration,options)=>base({...input,tagDiscovery:{mode:'create',catalog:['Keep existing']}},configuration,{...options,planner:async value=>validateBundle({...value,proposal:{...samples()[0].proposal,tags:[{value:'Home utilities',evidence:samples()[0].proposal.kind.evidence}]}})})
+  s.w.savePreference(s.actor,{policy:{...s.policy,tags:mode==='disabled'?'automatic':mode},ai:{...defaultAIConfig(),local:{endpoint:'http://127.0.0.1:11434',model:'fixture-model'},tasks:{facts:'local',filing:'local',tags:'local'},tagDiscovery:mode==='disabled'?'off':'create'}})
+  await s.arrivals();const decision=s.w.decision(s.actor,s.id)
+  if(mode==='automatic'){assert.equal(decision.state,'done');const record=JSON.parse(decision.record);assert.equal(record.automaticAuthorization.kind,'automatic');assert.ok((await s.api.stat(record.actions.target)).tags.includes('Home utilities'))}
+  else{assert.equal(decision,undefined);assert.equal((await s.api.stat('Inbox/english.pdf')).tags.includes('Home utilities'),false)}
+ }finally{s.close()}}
 })

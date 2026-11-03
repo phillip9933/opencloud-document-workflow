@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import {printedDateISO} from './languages.ts'
+import {printedDateISO,layoutSubstringSupported} from './languages.ts'
 export interface FieldDefinition {id:string;label:string;type:'text'|'number'|'date'|'choice';aliases:string[];choices:string[]}
 export interface TagRule {tag:string;terms:string[];match?:'substring'|'name'}
 export interface MetadataSchema {fields:FieldDefinition[];tags:TagRule[]}
@@ -32,7 +32,7 @@ function singleHanMatcher(name:string){
  return(text:string)=>standalone.test(text)||labelled.test(text)
 }
 function nameMatcher(terms:string[]){
- const tests=terms.map(term=>{const name=normalizedName(term);if(/^\p{Script=Han}$/u.test(name))return singleHanMatcher(name);if(!/\p{Script=Latin}/u.test(name))return(text:string)=>text.includes(name);const literal=name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),pattern=new RegExp(`(?<![\\p{Script=Latin}\\p{N}\\p{M}])${literal}(?![\\p{Script=Latin}\\p{N}\\p{M}])`,'u');return(text:string)=>pattern.test(text)})
+ const tests=terms.map(term=>{const name=normalizedName(term);if(/^\p{Script=Han}$/u.test(name))return singleHanMatcher(name);if(!/\p{Script=Latin}/u.test(name))return(text:string)=>text.includes(name)||layoutSubstringSupported(name,[text]);const literal=name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),pattern=new RegExp(`(?<![\\p{Script=Latin}\\p{N}\\p{M}])${literal}(?![\\p{Script=Latin}\\p{N}\\p{M}])`,'u');return(text:string)=>pattern.test(text)})
  return(line:string)=>{const text=normalizedName(line);return tests.some(test=>test(text))}
 }
 export function suggestMetadata(schema:MetadataSchema,pages:string[]){

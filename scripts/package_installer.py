@@ -49,11 +49,12 @@ for name in ['docs','deploy','scripts']:
     shutil.rmtree(source/name)
 for name in ['container','installer']:
     shutil.copytree(root/'deploy'/name,source/'deploy'/name)
+shutil.copytree(root/'deploy/screenshots',source/'deploy/screenshots')
 for name in ['cover.svg','store-entry.template.json']:
     shutil.copy2(root/'deploy'/name,source/'deploy'/name)
-for name in ['package.py','package_draft.py','package_installer.py','store_entry.py','sbom.py','pdf_assets.py','notices.py']:
+for name in ['package.py','package_draft.py','package_installer.py','store_entry.py','sbom.py','pdf_assets.py','notices.py','validate_release.py','accept_fresh_install.sh']:
     target=source/'scripts'/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(root/'scripts'/name,target)
-for name in ['LOCAL_BUILD.md','INSTALLATION.md','QUICK_INSTALL.md','STORE_PACKAGING.md','dependencies.cdx.json']:
+for name in ['LOCAL_BUILD.md','INSTALLATION.md','QUICK_INSTALL.md','STORE_PACKAGING.md',f'RELEASE_NOTES_{version}.md',f'ACCEPTANCE_{version}.md','dependencies.cdx.json']:
     target=source/'docs'/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(root/'docs'/name,target)
 generic_readme='# Document Workflow\n\nSee docs/QUICK_INSTALL.md for installation, docs/LOCAL_BUILD.md for source builds, and docs/STORE_PACKAGING.md for distribution boundaries.\n'
 (source/'README.md').write_text(generic_readme)
@@ -77,7 +78,12 @@ shutil.copy2(root/'deploy/store-entry.template.json',stage/'store-entry.template
 paths=sorted(p for p in stage.rglob('*') if p.is_file())
 (stage/'SHA256SUMS').write_text(''.join(f'{digest(p)}  {p.relative_to(stage)}\n' for p in paths))
 out=artifacts/'releases'/version;out.mkdir(parents=True,exist_ok=True)
-web_out=out/f'document-workflow-{version}.zip';shutil.copy2(native,web_out)
+web_out=out/f'document-workflow-{version}.zip'
+# The catalogue ZIP has manifest.json at its root, as required by the store.
+# The coordinated installer retains its internal app-directory archive.
+with zipfile.ZipFile(web_out,'w',zipfile.ZIP_DEFLATED) as z:
+    for p in sorted(web.rglob('*')):
+        if p.is_file():z.write(p,str(p.relative_to(web)))
 bundle=out/f'document-workflow-{version}-install.tar.gz'
 with tarfile.open(bundle,'w:gz') as tar:tar.add(stage,arcname='document-workflow')
 source_archive=out/f'document-workflow-{version}-companion-source.zip'
@@ -85,12 +91,16 @@ with zipfile.ZipFile(source_archive,'w',zipfile.ZIP_DEFLATED) as z:
     for p in sorted(source.rglob('*')):
         if p.is_file():z.write(p,'document-workflow-source/'+str(p.relative_to(source)))
 shutil.copy2(root/'deploy/cover.svg',out/'cover.svg')
+with zipfile.ZipFile(out/f'document-workflow-{version}-screenshots.zip','w',zipfile.ZIP_DEFLATED) as z:
+    for p in sorted((root/'deploy/screenshots').iterdir()):
+        if p.is_file():z.write(p,'screenshots/'+p.name)
+shutil.copy2(root/f'docs/RELEASE_NOTES_{version}.md',out/'RELEASE_NOTES.md')
 for name in ['INSTALLATION.md','QUICK_INSTALL.md','STORE_PACKAGING.md']:
     shutil.copy2(root/'docs'/name,out/name)
 shutil.copy2(root/'deploy/store-entry.template.json',out/'store-entry.template.json')
 publish_files=[p for p in sorted(out.iterdir()) if p.is_file() and p.name not in ['SHA256SUMS','BUILD-RECEIPT.json']]
 (out/'SHA256SUMS').write_text(''.join(f'{digest(p)}  {p.name}\n' for p in publish_files))
-receipt={'version':version,'publiclyPublished':False,'minimumAcceptedBaseline':'OpenCloud 9 / SDK 8.2.1; exact-release isolated image acceptance recorded separately','files':{p.name:digest(p) for p in publish_files},'installerFileCount':len(paths),'hostRequirements':['Bash','Docker','Docker Compose v2','sha256sum'],'bundledTools':['Node22','SQLite','Poppler','Tesseract','English/Japanese OCR packs','PDF preview assets'],'storeHooks':'Standard web ZIP plus installation resource link; no server execution hook in current catalogue'}
+receipt={'version':version,'releaseChannel':json.loads((root/'package.json').read_text()).get('releaseChannel','development'),'publiclyPublished':False,'minimumAcceptedBaseline':'OpenCloud 9 / SDK 8.2.1; exact-release isolated image acceptance recorded separately','files':{p.name:digest(p) for p in publish_files},'installerFileCount':len(paths),'hostRequirements':['Bash','Docker','Docker Compose v2','sha256sum'],'bundledTools':['Node22','SQLite','Poppler','Tesseract','English/Japanese OCR packs','PDF preview assets'],'storeHooks':'Standard web ZIP plus installation resource link; no server execution hook in current catalogue'}
 (out/'BUILD-RECEIPT.json').write_text(json.dumps(receipt,indent=2)+'\n')
 print('Created coordinated installation kit:',bundle)
 print('SHA256',digest(bundle))

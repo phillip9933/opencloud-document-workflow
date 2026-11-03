@@ -19,3 +19,22 @@ test('local and cloud task routes both support an intentionally empty AI tag tax
  }
 })
 test('cloud refusal or fabricated facts fail closed without a local fallback',async()=>{const p=prefs();p.ai.tasks={facts:'cloud',filing:'cloud',tags:'cloud'};const c=executionConfig(p,runtime);let calls=0;const fetcher=async()=>{calls++;return Response.json({choices:[{finish_reason:'stop',message:{refusal:'refused'}}]})};await assert.rejects(generateRouted(input,c,{cloudKey:runtime.cloudKey,fetcher}),/refused/);assert.equal(calls,1);const changed=structuredClone(proposal);changed.issuer.value='Fabricated';await assert.rejects(generateRouted(input,c,{cloudKey:runtime.cloudKey,fetcher:async()=>Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(changed)}}]})}),/Fact is not present/)})
+
+test('optional semantic review uses a focused second call for local and cloud routes without writing tags or changing source',async()=>{
+ for(const provider of ['local','cloud']){
+  const p=prefs();p.ai.tasks={facts:provider,filing:provider,tags:provider};p.ai.tagDiscovery='create';const rules=defaultFilingRules();rules.tags=[];const checked={...input,rules,tagDiscovery:{mode:'create',catalog:[]}},calls=[]
+  let progress=0;const result=await generateRouted(checked,executionConfig(p,runtime),{cloudKey:runtime.cloudKey,onTagReview:()=>progress++,fetcher:async(url,options)=>{
+   if(url.endsWith('/api/tags'))return Response.json({models:[{name:'local-model'}]})
+   const body=JSON.parse(options.body);calls.push(body);const schema=body.format??body.response_format.json_schema.schema,isTags=schema.required.includes('subject'),output=isTags?{subject:'Household electricity',existingTags:[],newTags:[{value:'Home utilities',evidence:proposal.kind.evidence}]}:{...proposal,tags:[]}
+   assert.equal(body.messages.some(m=>m.content.includes('EXISTING_TAGS')),isTags);if(isTags){assert.ok(body.messages[0].content.includes('closely related concept'));assert.deepEqual(JSON.parse(body.messages[1].content).CURRENT_DOCUMENT.map(p=>p.text),input.pages)}
+   return provider==='local'?Response.json({done:true,message:{content:JSON.stringify(output)}}):Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(output)}}]})
+  }})
+  assert.equal(calls.length,2);assert.equal(progress,1);assert.deepEqual(result.bundle.source,input.source);assert.deepEqual(result.bundle.tagDiscovery,checked.tagDiscovery);assert.equal(result.proposal.tags[0].value,'Home utilities');assert.ok(calls.every(call=>provider==='local'?call.truncate===false&&call.shift===false:call.store===false))
+ }
+})
+
+test('cloud tag review budgets the actual focused messages and both tag schemas before any provider request',async()=>{
+ const {tagReviewPromptSize,promptContext}=await import('../../companion/ollama.mjs'),p=prefs();p.ai.tasks={facts:'cloud',filing:'cloud',tags:'cloud'};p.ai.tagDiscovery='create';const checked={...input,tagDiscovery:{mode:'create',catalog:Array.from({length:1000},(_,n)=>'Existing topic '+String(n).padStart(5,'0'))}},actual=tagReviewPromptSize(checked)
+ const smaller=promptContext(checked,1048576);assert.ok(actual>smaller);const config={...executionConfig(p,runtime),contextTokens:smaller};let called=false
+ await assert.rejects(generateRouted(checked,config,{cloudKey:runtime.cloudKey,fetcher:async()=>{called=true;throw Error('must not send')}}),/context capacity/);assert.equal(called,false)
+})

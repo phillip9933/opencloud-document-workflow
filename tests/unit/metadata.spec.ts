@@ -52,3 +52,8 @@ describe('conservative one-character Han name aliases',()=>{
   expect(suggestMetadata(single,[line]).tags).toEqual([])
  })
 })
+it('matches spaced Japanese name aliases to one person tag without weakening single-character-name safeguards',()=>{
+ const schema:MetadataSchema={fields:[],tags:[{tag:'Person: Child',terms:['花音','かのん','カノン'],match:'name' as const},{tag:'Person: Partner',terms:['葵'],match:'name' as const},{tag:'Person: Parent',terms:['アレックス'],match:'name' as const}]},line='氏名: テスト 花　音',result=suggestMetadata(schema,[line+'\n氏名: ア レ ッ ク ス\n葵祭のお知らせ']);expect(result.tags.map(tag=>tag.value)).toEqual(['Person: Child','Person: Parent']);expect(result.tags[0]!.evidence[0]!.quote).toBe(line);expect(suggestMetadata(schema,['花\n音\n葵祭のお知らせ']).tags).toEqual([])
+})
+
+it('suggests a configured vehicle subject beside person tags using original Japanese source evidence',()=>{const schema:MetadataSchema={fields:[],tags:[{tag:'Vehicles',terms:['vehicle registration','自動車']},{tag:'Person: Example',terms:['Alex'],match:'name'}]},line='自動車検査証記録事項';expect(suggestMetadata(schema,[line+'\nName: Alex']).tags).toEqual([{value:'Vehicles',evidence:[{page:1,quote:line}]},{value:'Person: Example',evidence:[{page:1,quote:'Name: Alex'}]}]);expect(suggestMetadata(schema,['Household registration']).tags).toEqual([])})

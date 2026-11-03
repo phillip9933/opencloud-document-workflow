@@ -9,6 +9,7 @@ export class DemoAdapter {
  async isAdministrator(){return true}
  async put(path,bytes){if(await this.stat(path))throw new RemoteError(412);const resourceId=randomUUID();this.db.prepare(`INSERT INTO ${this.table} VALUES(?,?,?,?,?,?)`).run(path,resourceId,'"uploaded"','[]',0,bytes);return{resourceId}}
  async spaces(){return[{id:'local-draft',name:'Local documents',type:'project'},{id:'local-archive',name:'Local archive',type:'project'}]}
+ async listTags(){return[...new Set(this.db.prepare(`select tags from ${this.table} where folder=0`).all().flatMap(row=>JSON.parse(row.tags)))]}
  async identity(){return{mode:'demo',server:this.origin,account:this.account,space:this.space,name:'Local draft tester'}}
  seed(){
   if(this.db.prepare(`select count(*) n from ${this.table}`).get().n)return
@@ -23,5 +24,6 @@ export class DemoAdapter {
  async move(source,target,etag){if(await this.stat(target))throw new RemoteError(412);const result=this.db.prepare(`update ${this.table} set path=?,etag=? where path=? and etag=?`).run(target,'"moved"',source,etag);if(!result.changes)throw new RemoteError(412)}
  async listTrash(){this.db.exec(`CREATE TABLE IF NOT EXISTS demo_trash(space TEXT,id TEXT,path TEXT,resourceId TEXT,etag TEXT,tags TEXT,folder INTEGER,data BLOB,PRIMARY KEY(space,id))`);return this.db.prepare('select id,path,resourceId,folder,length(data) size from demo_trash where space=?').all(this.space).map(r=>({...r,folder:!!r.folder}))}
  async trash(path,etag){await this.listTrash();const file=this.db.prepare(`select * from ${this.table} where path=? and etag=? and folder=0`).get(path,etag);if(!file)throw new RemoteError(412);this.db.exec('BEGIN IMMEDIATE');try{this.db.prepare('insert into demo_trash values(?,?,?,?,?,?,?,?)').run(this.space,file.resourceId,file.path,file.resourceId,file.etag,file.tags,file.folder,file.data);this.db.prepare(`delete from ${this.table} where path=? and etag=?`).run(path,etag);this.db.exec('COMMIT')}catch(e){this.db.exec('ROLLBACK');throw e}}
+ async removeTags(resourceId,tags){const file=this.db.prepare(`select tags from ${this.table} where resourceId=?`).get(resourceId);if(!file)throw new RemoteError(404);this.db.prepare(`update ${this.table} set tags=? where resourceId=?`).run(JSON.stringify(JSON.parse(file.tags).filter(tag=>!tags.includes(tag))),resourceId)}
  async addTags(resourceId,tags){const r=this.db.prepare(`select tags from ${this.table} where resourceId=?`).get(resourceId);if(!r)throw new RemoteError(404);this.db.prepare(`update ${this.table} set tags=? where resourceId=?`).run(JSON.stringify([...new Set([...JSON.parse(r.tags),...tags])]),resourceId)}
 }

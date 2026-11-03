@@ -54,7 +54,7 @@ workflow_proxy_networks="$(docker inspect --format '{{json .NetworkSettings.Netw
 if [[ -z "$workflow_entrypoint" ]];then workflow_entrypoint="$(docker inspect --format '{{index .Config.Labels "traefik.http.routers.opencloud.entrypoints"}}' "$workflow_container")";[[ "$workflow_entrypoint" != '<no value>' ]] || workflow_entrypoint='';fi
 if [[ -z "$workflow_image" ]];then
  workflow_image="document-workflow-companion:$workflow_version"
- if ! docker image inspect "$workflow_image" >/dev/null 2>&1;then docker build --tag "$workflow_image" "$workflow_here/image";fi
+ if ! docker image inspect "$workflow_image" >/dev/null 2>&1;then docker build --build-arg "WORKFLOW_VERSION=$workflow_version" --tag "$workflow_image" "$workflow_here/image";fi
 elif ! docker image inspect "$workflow_image" >/dev/null 2>&1;then docker pull "$workflow_image";fi
 [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$workflow_image")" = "$workflow_version" ]] || { printf 'Image version does not match this package\n' >&2;exit 1; }
 workflow_image_id="$(docker image inspect --format '{{.Id}}' "$workflow_image")"
@@ -67,7 +67,7 @@ cleanup(){
  trap - EXIT
  if [[ "$workflow_stopped" = true && "$workflow_committed" != true ]];then
   printf 'Installation did not complete; retaining data and restoring the previous app/runtime where verified\n' >&2
-  workflow_dc stop companion >/dev/null 2>&1 || true
+  workflow_dc stop companion converter >/dev/null 2>&1 || true
   local workflow_restore=true
   if [[ "$workflow_assets_attempted" = true && ( "$workflow_changed" = true || "$workflow_assets_completed" != true ) ]];then workflow_dc run --rm --no-deps web-assets rollback || { workflow_restore=false;printf 'Asset rollback held; processing stays stopped. Inspect the private installer history\n' >&2; };fi
   if [[ "$workflow_restore" = true && -s "$workflow_work/previous.yaml" ]];then docker compose --project-name "$workflow_project" --file "$workflow_work/previous.yaml" up -d --no-deps companion || printf 'Previous runtime could not restart; retained volumes are untouched\n' >&2;fi
@@ -120,10 +120,10 @@ workflow_assets_attempted=true
 workflow_dc run --rm --no-deps web-assets install > "$workflow_work/assets.json"
 workflow_changed="$(docker run --rm -i --pull=never --network none --read-only --cap-drop ALL --entrypoint node "$workflow_image_id" --input-type=module -e 'let b="";for await(const c of process.stdin)b+=c;const changed=JSON.parse(b).changed;if(typeof changed!=="boolean")throw Error("Invalid asset receipt");console.log(changed)' < "$workflow_work/assets.json")"
 workflow_assets_completed=true
-workflow_dc up -d --no-deps companion
+workflow_dc up -d --no-deps converter companion
 workflow_ready=false
 for workflow_attempt in {1..30};do
- if workflow_dc exec -T companion node /distribution/health-check.mjs >/dev/null 2>&1;then workflow_ready=true;break;fi
+ if workflow_dc exec -T companion node /distribution/health-check.mjs >/dev/null 2>&1 && workflow_dc exec -T converter node -e "fetch('http://127.0.0.1:5180/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" >/dev/null 2>&1;then workflow_ready=true;break;fi
  sleep 1
 done
 [[ "$workflow_ready" = true ]] || { printf 'Companion failed its startup check\n' >&2;exit 1; }

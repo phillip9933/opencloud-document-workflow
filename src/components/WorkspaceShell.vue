@@ -7,7 +7,7 @@ import '../theme.css'
 import {useRoute} from '../state/navigation'
 import {provideLocale} from '../state/locale'
 import {provideTheme} from '../state/theme'
-import {version as appVersion} from '../../package.json'
+import {version as appVersion,releaseChannel} from '../../package.json'
 const theme=provideTheme(),locale=provideLocale(),{t}=locale
 const page=ref<HTMLElement|null>(null),route=useRoute()
 watch(()=>route.value.fullPath,async()=>{await nextTick();page.value?.scrollTo?.({top:0})})
@@ -25,7 +25,7 @@ provide(workspaceKey, store)
         <RouterLink to="/document-workflow/activity">{{ t('Activity') }}</RouterLink>
         <RouterLink to="/document-workflow/settings">{{ t('Settings') }}</RouterLink>
       </nav>
-      <footer class="sidebar-footer"><span v-if="store.connection.value?.mode === 'demo'">{{ t('Demo') }}</span><span class="app-version">v{{ appVersion }}</span></footer>
+      <footer class="sidebar-footer"><span v-if="store.connection.value?.mode === 'demo'">{{ t('Demo') }}</span><span class="app-version">v{{ appVersion }}<template v-if="releaseChannel==='beta'"> · {{ t('Beta') }}</template></span></footer>
     </aside>
     <div ref="page" class="dw-content" tabindex="0" :aria-label="t('Document workspace')"><RouterView :key="store.connection.value ? JSON.stringify([store.connection.value.server,store.connection.value.account,store.connection.value.space]) : 'connecting'" /></div>
   </div>

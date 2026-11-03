@@ -29,8 +29,9 @@ jobs:
       - run: pnpm run package
       - run: pnpm run package:draft
       - run: pnpm run package:installer
+      - run: python3 scripts/validate_release.py
       - name: Build matching companion image
-        run: docker build --build-arg WORKFLOW_VERSION=0.14.5 -f deploy/container/Dockerfile -t document-workflow-ci:latest .
+        run: docker build --build-arg "WORKFLOW_VERSION=$(node -p 'require("./package.json").version')" -f deploy/container/Dockerfile -t document-workflow-ci:latest .
       - name: Check bundled runtime without network access
         run: |
           docker run --rm --network none --read-only --cap-drop ALL \

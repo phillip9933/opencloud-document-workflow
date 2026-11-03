@@ -68,3 +68,49 @@ test('search finds extracted body text and saved views are isolated by account a
 test('review and activity pagination reach every older row at tied timestamps',()=>{
  const s=setup();try{for(let n=0;n<430;n++){s.add(n,{state:'approved'});s.w.event(actor,null,'pagination_test',{n})}let cursor,ids=[];do{const page=s.w.jobPage(actor,{limit:137,cursor,activeOnly:true});ids.push(...page.jobs.map(j=>j.id));cursor=page.nextCursor}while(cursor);assert.equal(new Set(ids).size,430);let events=[];cursor=undefined;do{const page=s.w.activityPage(actor,{limit:137,cursor});events.push(...page.events.map(e=>e.seq));cursor=page.nextCursor}while(cursor);assert.equal(new Set(events).size,430);assert.throws(()=>s.w.jobPage(actor,{cursor:'wrong'}),/cursor/)}finally{s.close()}
 })
+
+test('library folder browsing reads all formats only inside the configured destination and checks its Space',async()=>{const s=setup(),calls=[];try{s.w.configuration={settings:()=>({rules:{root:'Docs'}}),destinationSpace:()=> 'destination'};s.w.transfers={canonical:(_a,id)=>id,adapter:async(a,api,space)=>{assert.equal(a,actor);assert.equal(space,'destination');return{list:async path=>{calls.push(path);return[{path:path+'/photo.jpg',resourceId:'image',folder:false,tags:[]},{path:path+'/sheet.xlsx',resourceId:'sheet',folder:false,tags:[]}]}}}};s.add('image',{resource:'image',fields:{reference:'VISIBLE'}});s.add('foreign',{owner:{...actor,account:'other'},resource:'sheet',fields:{reference:'PRIVATE'}});const result=await s.library.browse(actor,{});assert.deepEqual(result.files.map(file=>file.fields),[{reference:'VISIBLE'},{}]);assert.equal(result.files.length,2);assert.equal(result.space,'destination');assert.deepEqual(calls,['Docs']);await assert.rejects(s.library.browse(actor,{},{path:'Inbox'}),/inside/);assert.deepEqual(calls,['Docs']);s.w.transfers.adapter=async()=>({list:async()=>[{path:'DocsElsewhere/private.pdf'}]});await assert.rejects(s.library.browse(actor,{}),/outside/)}finally{s.close()}})
+
+test('external file and parent-folder renames update history/search by identity without rewriting approvals, tags or fields',async()=>{
+ const s=setup();try{
+  s.w.configuration={settings:()=>({rules:{root:'Docs'}}),destinationSpace:()=>actor.space}
+  let path='Docs/Vehicles/2025/car.pdf',tags=['Vehicles','Phil'],fail=false
+  const physical={list:async folder=>{if(fail&&folder==='Docs/Vehicles')throw Error('access lost');return folder==='Docs'?[{path:'Docs/Vehicles',folder:true}]:folder==='Docs/Vehicles'?[{path:'Docs/Vehicles/2025',folder:true}]:[{path,resourceId:'car',etag:'v2',tags,folder:false}]},stat:async wanted=>wanted===path?{path,resourceId:'car',etag:'v2',tags,folder:false}:null}
+  s.w.transfers={canonical:(_a,id)=>id,adapter:async(a,api,space)=>{if(a.account!==actor.account)throw Error('access denied');assert.equal(space,actor.space);return physical}}
+  // Create the tables normally owned by Transfers without introducing a second
+  // copy/alias; an external same-Space rename preserves this resource identity.
+  s.w.db.exec('CREATE TABLE resource_aliases(scope TEXT,resource TEXT,space TEXT,canonical TEXT);CREATE TABLE file_locations(scope TEXT,resource TEXT,space TEXT,target_resource TEXT,path TEXT,sha TEXT,job TEXT)')
+  const id=s.add('car',{resource:'car',path:'Docs/Old/car.pdf',fields:{reference:'KEPT'}}),original=s.w.decision(actor,id).record
+  const result=await s.library.currentList(actor,physical,{search:'2025'})
+  assert.equal(result.documents[0].path,path);assert.deepEqual(result.documents[0].tags,tags);assert.equal(result.documents[0].fields.reference,'KEPT')
+  assert.equal((await s.w.location(actor,{...physical,space:actor.space},id)).path,path)
+  path='Docs/Vehicles/2025/renamed.pdf';tags=['Vehicles','Updated externally']
+  const renamed=await s.library.currentList(actor,physical,{search:'renamed'})
+  assert.equal(renamed.documents[0].path,path);assert.deepEqual(renamed.documents[0].tags,tags)
+  assert.equal(s.w.decision(actor,id).record,original);assert.equal(s.w.decision(actor,id).state,'done')
+  await assert.rejects(s.library.currentList({...actor,account:'other'},physical),/access denied/);assert.equal(s.library.list({...actor,account:'other'}).documents.length,0)
+  fail=true;await assert.rejects(s.library.currentList(actor,physical),/access lost/)
+  assert.equal(s.library.list(actor).documents[0].path,path,'a partial scan cannot publish a missing location')
+ }finally{s.close()}
+})
+
+test('external tracking rejects copied identities, path escapes, duplicate IDs and configuration changes, and never redirects unfinished approvals',async()=>{
+ const s=setup();try{
+  let root='Docs',rows=[{path:'Docs/copy.pdf',resourceId:'copy',etag:'v1',tags:[],folder:false}]
+  s.w.configuration={settings:()=>({rules:{root}}),destinationSpace:()=>actor.space}
+  const physical={space:actor.space,list:async()=>rows,stat:async()=>null}
+  s.w.transfers={canonical:(_a,id)=>id,adapter:async()=>physical}
+  s.w.db.exec('CREATE TABLE resource_aliases(scope TEXT,resource TEXT,space TEXT,canonical TEXT);CREATE TABLE file_locations(scope TEXT,resource TEXT,space TEXT,target_resource TEXT,path TEXT,sha TEXT,job TEXT)')
+  const id=s.add('source',{resource:'source',path:'Docs/old.pdf'})
+  await assert.rejects(s.w.location(actor,physical,id),/could not be located/)
+  rows=[{path:'Elsewhere/source.pdf',resourceId:'source',etag:'v1',tags:[],folder:false}]
+  await assert.rejects(s.library.currentList(actor,physical),/outside/)
+  rows=[{path:'Docs/one.pdf',resourceId:'source',etag:'v1',tags:[],folder:false},{path:'Docs/two.pdf',resourceId:'source',etag:'v1',tags:[],folder:false}]
+  await assert.rejects(s.library.currentList(actor,physical),/repeated/)
+  rows=[{path:'Docs/one.pdf',resourceId:'source',etag:'v1',tags:[],folder:false}]
+  const pending=s.add('pending',{state:'approved',resource:'source',path:'Docs/old.pdf'})
+  await assert.rejects(s.w.location(actor,physical,pending),/could not be located/)
+  physical.list=async()=>{root='Changed';return rows}
+  await assert.rejects(s.library.currentList(actor,physical),/destination changed/)
+ }finally{s.close()}
+})

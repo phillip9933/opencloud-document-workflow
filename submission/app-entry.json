@@ -2,15 +2,15 @@
   "id": "com.github.phillip9933.opencloud-document-workflow.document-workflow",
   "name": "Document Workflow",
   "subtitle": "Review and automatically file documents in OpenCloud.",
-  "description": "Early public release. One Inbox, PDF review, fields, tags, local or explicitly configured cloud AI and automatic filing. Original files and permissions stay in OpenCloud. Requires the companion service: the coordinated installation kit includes the matching web app, Node, Poppler, Tesseract and initial OCR packs. An administrator installs it once per instance using Docker; the web ZIP alone cannot process documents. Connect your own OpenCloud App Token in Settings for unattended work.",
+  "description": "PDF Inbox, local OCR, optional AI suggestions, fields, tags and review or automatic filing. Original files and permissions stay in OpenCloud. Requires the companion service: an administrator installs the matching Docker kit once per instance. The store ZIP alone installs only the frontend. The kit bundles Node, Poppler, Tesseract and OCR data; conversion is optional. Use an OpenCloud App Token for unattended work. Independent community beta, tested on OpenCloud 9.",
   "license": "AGPL-3.0-only",
   "versions": [
     {
-      "version": "0.14.5",
-      "releaseDate": "2026-10-31",
+      "version": "0.20.0",
+      "releaseDate": "2026-11-04",
       "minOpenCloud": "9.0.0",
-      "url": "https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.14.5/document-workflow-0.14.5.zip",
-      "filename": "document-workflow-0.14.5.zip"
+      "url": "https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.0/document-workflow-0.20.0.zip",
+      "filename": "document-workflow-0.20.0.zip"
     }
   ],
   "authors": [
@@ -26,8 +26,8 @@
     "productivity"
   ],
   "coverImage": {
-    "url": "https://raw.githubusercontent.com/phillip9933/opencloud-document-workflow/v0.14.5/deploy/cover.svg",
-    "caption": "Document review and filing in OpenCloud"
+    "url": "https://github.com/phillip9933/opencloud-document-workflow/raw/v0.20.0/deploy/screenshots/3.jpg",
+    "caption": "Fictional document library (dark theme)"
   },
   "resources": [
     {
@@ -38,15 +38,45 @@
     {
       "label": "Installation",
       "icon": "book-open",
-      "url": "https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.14.5/QUICK_INSTALL.md"
+      "url": "https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.0/QUICK_INSTALL.md"
     },
     {
       "label": "Coordinated installation kit",
-      "url": "https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.14.5/document-workflow-0.14.5-install.tar.gz"
+      "url": "https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.0/document-workflow-0.20.0-install.tar.gz"
     },
     {
       "label": "Checksums",
-      "url": "https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.14.5/SHA256SUMS"
+      "url": "https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.0/SHA256SUMS"
+    }
+  ],
+  "badge": {
+    "label": "Beta",
+    "color": "primary"
+  },
+  "screenshots": [
+    {
+      "url": "https://github.com/phillip9933/opencloud-document-workflow/raw/v0.20.0/deploy/screenshots/1.jpg",
+      "caption": "Inbox with fictional documents"
+    },
+    {
+      "url": "https://github.com/phillip9933/opencloud-document-workflow/raw/v0.20.0/deploy/screenshots/2.jpg",
+      "caption": "Review beside the original PDF"
+    },
+    {
+      "url": "https://github.com/phillip9933/opencloud-document-workflow/raw/v0.20.0/deploy/screenshots/3.jpg",
+      "caption": "Searchable document library"
+    },
+    {
+      "url": "https://github.com/phillip9933/opencloud-document-workflow/raw/v0.20.0/deploy/screenshots/4.jpg",
+      "caption": "Independent OCR and AI controls"
+    },
+    {
+      "url": "https://github.com/phillip9933/opencloud-document-workflow/raw/v0.20.0/deploy/screenshots/5.jpg",
+      "caption": "Processing and attempt history"
+    },
+    {
+      "url": "https://github.com/phillip9933/opencloud-document-workflow/raw/v0.20.0/deploy/screenshots/6.jpg",
+      "caption": "Document library in light mode"
     }
   ]
 }

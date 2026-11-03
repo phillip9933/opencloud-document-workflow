@@ -86,3 +86,89 @@ test('unconfirmed metadata holds filing before any folder, MOVE or tag write and
   assert.equal(metadata.read(s.actor,view.source.resourceId).fields.invoice,'TEST-42');assert.equal((await s.w.apply(s.actor,s.api,s.result.id)).state,'done');assert.equal(moves,1);assert.equal(tags,1)
  }finally{s.close()}
 })
+test('manual review cannot be automatically authorized and files only after explicit destination-bound approval',async()=>{
+ const s=await setup();try{
+  const original=JSON.parse(s.j.get(s.result.id).input),r=await s.j.prepare(original,{...config,model:'manual-fixture'},{manualFallback:true,planner:async()=>{throw Error('Fact is not present in its evidence')}}),policy=defaultPolicy(),manual={target:'Filed/Checked/english.pdf',addTags:['Checked']},digest=await reviewDigest(r.review,policy,manual)
+  await assert.rejects(s.w.approve(s.actor,s.api,r.id,policy,digest,manual,{automaticAuthorization:{kind:'automatic'}}),/human review/);assert.equal(s.w.decision(s.actor,r.id),undefined)
+  await assert.rejects(s.w.apply(s.actor,s.api,r.id),/approval/);await assert.rejects(s.w.approve(s.actor,s.api,r.id,policy,digest,{...manual,target:'Filed/Changed/english.pdf'}),/changed/)
+  await s.w.approve(s.actor,s.api,r.id,policy,digest,manual);const result=await s.w.apply(s.actor,s.api,r.id);assert.equal(result.target,manual.target);assert.ok(result.tags.includes('Checked'));assert.equal(await s.api.stat('Inbox/english.pdf'),null)
+ }finally{s.close()}
+})
+test('a manual review can explicitly prepare fresh suggestions without rejecting, filing or replacing the earlier review',async()=>{
+ const s=await setup();try{
+  const input=JSON.parse(s.j.get(s.result.id).input),manual=await s.j.prepare(input,{...config,model:'manual-fixture'},{manualFallback:true,planner:async()=>{throw Error('Fact is not present in its evidence')}})
+  s.j.db.prepare('update proposals set updated=? where id=?').run('2020-01-01T00:00:00Z',s.result.id)
+  const before=await s.api.stat('Inbox/english.pdf'),original=s.j.prepare.bind(s.j);s.j.prepare=(i,c,o)=>original(i,c,{...o,planner:async value=>validateBundle({...value,proposal:s.result.review.bundle.proposal})})
+  const fresh=await s.w.prepare(s.actor,s.api,'Inbox/english.pdf',config,{newReview:true});assert.notEqual(fresh.id,manual.id);assert.equal(s.j.get(fresh.id).state,'needs_review');assert.equal(s.j.get(manual.id).state,'needs_details');assert.equal(s.w.decision(s.actor,manual.id),undefined);assert.equal(s.w.decision(s.actor,fresh.id),undefined);assert.deepEqual(await s.api.stat('Inbox/english.pdf'),before);await assert.rejects(s.w.apply(s.actor,s.api,fresh.id),/approval/)
+  const policy=defaultPolicy(),actions={target:'Filed/Manual/english.pdf',addTags:[]};await s.w.approve(s.actor,s.api,manual.id,policy,await reviewDigest(manual.review,policy,actions),actions);s.j.db.prepare('update proposals set updated=? where id=?').run('2030-01-01T00:00:00Z',manual.id);await assert.rejects(s.w.prepare(s.actor,s.api,'Inbox/english.pdf',config,{newReview:true}),/Finish or verify/);assert.equal(s.w.decision(s.actor,manual.id).state,'approved')
+ }finally{s.close()}
+})
+test('a failed fresh manual preparation can be retried without filing or discarding either earlier record',async()=>{
+ const s=await setup();try{
+  const original=s.j.get(s.result.id),bundle=JSON.parse(original.input);s.j.db.prepare("update proposals set state='needs_details',result=?,updated='2000-01-01T00:00:00Z' where id=?").run(JSON.stringify({...bundle,proposal:null,manualReview:{reason:'evidence'}}),s.result.id)
+  const prepare=s.j.prepare.bind(s.j);let calls=0;s.j.prepare=(input,configuration,options)=>prepare(input,configuration,{...options,planner:async value=>{calls++;if(calls===1)throw Error('Ollama HTTP 503');return validateBundle({...value,proposal:samples()[0].proposal})}})
+  s.api.move=async()=>{throw Error('Unexpected MOVE')};s.api.addTags=async()=>{throw Error('Unexpected tag write')}
+  await assert.rejects(s.w.prepare(s.actor,s.api,'Inbox/english.pdf',config,{newReview:true}),/503/)
+  const result=await s.w.prepare(s.actor,s.api,'Inbox/english.pdf',config,{newReview:true,retry:true});assert.equal(result.bundle.proposal.issuer.value,'Example Electricity Company');assert.equal(calls,2);assert.equal(s.j.db.prepare('select count(*) n from proposals').get().n,3);assert.equal(s.j.db.prepare('select count(*) n from decisions').get().n,0);assert.ok(await s.api.stat('Inbox/english.pdf'))
+ }finally{s.close()}
+})
+
+test('semantic discovery snapshots authenticated tags without writes and still needs exact approval to create a new tag',async()=>{
+ const s=await setup();try{
+  let writes=0;const add=s.api.addTags.bind(s.api);s.api.addTags=async(...args)=>{writes++;return add(...args)};s.api.listTags=async()=>['Energy','Invoices'];let captured
+  const original=s.j.prepare.bind(s.j);s.j.prepare=(i,c,o)=>{captured=i;return original(i,c,{...o,planner:async input=>validateBundle({...input,proposal:{...s.result.review.bundle.proposal,tags:[{value:'Home utilities',evidence:s.result.review.bundle.proposal.kind.evidence}]}})})}
+  const prepared=await s.w.prepare(s.actor,s.api,'Inbox/english.pdf',{...config,tagDiscovery:'create'})
+  assert.equal(writes,0);assert.deepEqual(captured.tagDiscovery,{mode:'create',catalog:['Energy','Invoices','Keep existing']});assert.equal(prepared.bundle.proposal.tags[0].value,'Home utilities')
+  await assert.rejects(s.w.apply(s.actor,s.api,prepared.id),/approval/);assert.equal(writes,0)
+  const review=validateBundle(prepared.bundle);await s.w.approve(s.actor,s.api,prepared.id,defaultPolicy(),await reviewDigest(review,defaultPolicy()));await s.w.apply(s.actor,s.api,prepared.id);assert.equal(writes,1)
+ }finally{s.close()}
+})
+test('unavailable authenticated tag directory holds discovery before model work or tag writes',async()=>{
+ const s=await setup();try{let called=false;s.j.prepare=async()=>{called=true;throw Error('must not reach model')};s.api.listTags=async()=>{throw Error('Tag directory unavailable')};await assert.rejects(s.w.prepare(s.actor,s.api,'Inbox/english.pdf',{...config,tagDiscovery:'create'}),/Tag directory unavailable/);assert.equal(called,false);assert.equal(s.w.decision(s.actor,s.result.id),undefined)}finally{s.close()}
+})
+
+test('explicit reprocessing bypasses the successful cache and preserves every earlier review and decision',async()=>{
+ const s=await setup();try{const prepare=s.j.prepare.bind(s.j);let calls=0;s.j.prepare=(input,config,options)=>prepare(input,config,{...options,planner:async value=>{calls++;return validateBundle({...value,proposal:s.result.review.bundle.proposal})}})
+ const original=s.j.get(s.result.id).result,current=await s.api.stat('Inbox/english.pdf'),options={newReview:true,retry:true,expectedResourceId:current.resourceId,expectedEtag:current.etag}
+ const one=await s.w.prepare(s.actor,s.api,current.path,config,options),two=await s.w.prepare(s.actor,s.api,current.path,config,options)
+ assert.notEqual(one.id,two.id);assert.notEqual(one.id,s.result.id);assert.equal(calls,2);assert.equal(s.j.get(s.result.id).result,original);for(const id of [s.result.id,one.id,two.id])assert.equal(s.w.decision(s.actor,id),undefined);assert.ok(await s.api.stat(current.path))
+ await assert.rejects(s.w.prepare(s.actor,s.api,current.path,config,{...options,expectedResourceId:'replaced'}),/changed before preparation/);assert.equal(calls,2)
+ }finally{s.close()}
+})
+test('reprocessing cannot bypass an approved filing operation',async()=>{
+ const s=await setup();try{await approve(s);await assert.rejects(s.w.prepare(s.actor,s.api,'Inbox/english.pdf',config,{newReview:true}),/Finish or verify/);assert.equal(s.w.decision(s.actor,s.result.id).state,'approved')}
+ finally{s.close()}
+})
+
+test('a filed resource reprocesses at its current location without changing its completed filing or bytes',async()=>{
+ const s=await setup();try{await approve(s);const filed=await s.w.apply(s.actor,s.api,s.result.id),location=await s.w.location(s.actor,s.api,s.result.id),bytes=await s.api.get(location.path),before=await s.api.stat(location.path),prepare=s.j.prepare.bind(s.j)
+ s.j.prepare=(input,configuration,options)=>prepare(input,configuration,{...options,planner:async value=>validateBundle({...value,proposal:s.result.review.bundle.proposal})})
+ const fresh=await s.w.prepare(s.actor,s.api,location.path,config,{newReview:true,expectedResourceId:location.resourceId,expectedEtag:location.etag});assert.notEqual(fresh.id,s.result.id);assert.equal(fresh.bundle.source.path,filed.target);assert.equal(s.w.decision(s.actor,s.result.id).state,'done');assert.equal(s.w.decision(s.actor,fresh.id),undefined);assert.deepEqual(await s.api.stat(location.path),before);assert.deepEqual(await s.api.get(location.path),bytes)
+ }finally{s.close()}
+})
+test('uncertain metadata writes must be reconciled before explicit reprocessing',async()=>{
+ const s=await setup();try{const{Metadata}=await import('../../companion/metadata.mjs'),metadata=new Metadata(s.w),source=await metadata.inspect(s.actor,s.api,'Inbox/english.pdf');s.api.addTags=async()=>{throw Error('Lost tag response')};await assert.rejects(metadata.save(s.actor,s.api,{path:source.path,resourceId:source.resourceId,etag:source.etag,sha256:source.sha256,version:0,fields:{},addTags:['Check']}),/Lost tag response/);await assert.rejects(s.w.prepare(s.actor,s.api,source.path,config,{newReview:true}),/pending metadata/);assert.equal(metadata.read(s.actor,source.resourceId).version,0)
+ }finally{s.close()}
+})
+
+test('a completed document moved externally retains fields, history and read-only verification across restart; changed bytes stay held',async()=>{
+ const s=await setup();try{
+  const {Configuration}=await import('../../companion/configuration.mjs'),{Transfers}=await import('../../companion/transfers.mjs'),{Metadata}=await import('../../companion/metadata.mjs'),{DocumentLibrary}=await import('../../companion/documents.mjs')
+  const attach=()=>{new Configuration(s.w);new Transfers(s.w);new Metadata(s.w);return new DocumentLibrary(s.w)}
+  let library=attach();await approve(s);const done=await s.w.apply(s.actor,s.api,s.result.id),file=await s.api.stat(done.target),record=s.w.decision(s.actor,s.result.id).record
+  s.w.db.prepare('insert into metadata values(?,?,?,?,?)').run(s.w.scope(s.actor),file.resourceId,1,JSON.stringify({reference:'PRESERVED'}),new Date().toISOString())
+  const root=s.w.configuration.settings(s.actor).rules.root,target=root+'/Renamed parent/renamed.pdf';await s.api.mkdir(root+'/Renamed parent');await s.api.move(done.target,target,file.etag)
+  // A new unrelated file occupies the old path; identical bytes are insufficient.
+  await s.api.put(done.target,await s.api.get(target))
+  const current=await library.currentList(s.actor,s.api);assert.equal(current.documents[0].path,target);assert.equal(current.documents[0].fields.reference,'PRESERVED')
+  s.j.close();s.j=new ProposalJournal(s.path);s.w=new Workflow(s.j);s.api=new DemoAdapter(s.j.db);library=attach()
+  for(const method of ['move','put','addTags','trash','mkdir'])s.api[method]=async()=>assert.fail('Read-only tracking must not write files')
+  const verified=await s.w.apply(s.actor,s.api,s.result.id,{reconcileOnly:true});assert.equal(verified.target,target);assert.equal(verified.verification.resourceId,file.resourceId);assert.equal(s.w.decision(s.actor,s.result.id).record,record)
+  assert.equal((await library.currentList(s.actor,s.api)).documents[0].fields.reference,'PRESERVED')
+  s.w.db.prepare('update demo_files set data=?,etag=? where path=?').run(Buffer.from('changed bytes'),'"changed"',target)
+  await assert.rejects(s.w.apply(s.actor,s.api,s.result.id,{reconcileOnly:true}),/document changed/)
+  assert.equal(s.w.decision(s.actor,s.result.id).state,'done');assert.equal(s.w.decision(s.actor,s.result.id).record,record)
+ }finally{s.close()}
+})
+
+test('an explicitly unassigned tag updates current verification without altering the original filing approval',async()=>{const s=await setup();try{const {Configuration}=await import('../../companion/configuration.mjs'),{Transfers}=await import('../../companion/transfers.mjs'),{Metadata}=await import('../../companion/metadata.mjs'),{DocumentLibrary}=await import('../../companion/documents.mjs');new Configuration(s.w);new Transfers(s.w);const metadata=new Metadata(s.w);new DocumentLibrary(s.w);await approve(s);const filed=await s.w.apply(s.actor,s.api,s.result.id),record=s.w.decision(s.actor,s.result.id).record,d=await metadata.get(s.actor,s.api,filed.target);await metadata.removeTag(s.actor,s.api,{...d.source,version:d.record.version,tag:'Electricity'});const result=await s.w.apply(s.actor,s.api,s.result.id,{reconcileOnly:true});assert.equal(result.state,'done');assert.ok(!result.tags.includes('Electricity'));assert.ok(result.tags.includes('Keep existing'));assert.equal(s.w.decision(s.actor,s.result.id).record,record);assert.equal(s.w.decision(s.actor,s.result.id).state,'done')}finally{s.close()}})

@@ -23,3 +23,7 @@
 .dw-shell .appearance-settings select{min-width:180px}.dw-shell .tag{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 @media(max-width:700px){.dw-shell .appearance-control{position:absolute;top:17px;right:18px;margin:0;display:block}.dw-shell .appearance-control>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.dw-shell .appearance-control select{width:90px;font-size:11px;padding:5px}.dw-shell .dw-sidebar{position:relative}.dw-shell .brand{padding-right:100px}.dw-shell .dw-sidebar nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;overflow:visible;padding-bottom:0}.dw-shell .dw-sidebar nav a{display:flex;flex-direction:column;gap:4px;padding:7px 1px;font-size:10px;min-width:0;text-align:center;white-space:normal}.dw-shell .dw-sidebar nav a span{width:auto;font-size:16px}.dw-shell .settings-tabs{gap:14px}}
 @media(prefers-reduced-motion:reduce){.dw-shell *{scroll-behavior:auto!important}}
+
+/* Action buttons and tag choices have deliberately different shapes and weight. */
+.dw-shell .button.tag-choice{border-radius:999px;padding:4px 10px;font-size:12px;font-weight:450;line-height:1.6;white-space:normal;text-align:left;background:var(--raised);border-color:var(--line);color:var(--ink)}
+.dw-shell .button.tag-choice:hover:not(:disabled){background:var(--subtle);border-color:var(--accent-text)}

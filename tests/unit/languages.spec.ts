@@ -1,4 +1,4 @@
-import {defaultLanguageProfile,languageProfile,printedDateISO,categorySupported} from '../../src/domain/languages'
+import {defaultLanguageProfile,languageProfile,printedDateISO,categorySupported,dateSearchCandidates} from '../../src/domain/languages'
 import {validateBundle,filename} from '../../src/domain/review'
 import {samples} from '../../src/domain/samples'
 import type {LanguagePack} from '../../src/domain/languages'
@@ -42,3 +42,27 @@ describe('Extensible document language rules',()=>{
   const b=structuredClone(defaultLanguageProfile.packs[1]!);b.dates=['{year}/{month}'];expect(()=>languageProfile([b])).toThrow('tokens')
  })
 })
+it('interprets data-defined era dates with layout spaces, full-width digits and strict transition boundaries',()=>{
+ expect(printedDateISO('令 和 ７年 ９ 月 １８ 日')).toBe('2025-09-18')
+ expect(printedDateISO('令和元年5月1日')).toBe('2019-05-01')
+ expect(printedDateISO('平成31年4月30日')).toBe('2019-04-30')
+ expect(()=>printedDateISO('平成31年5月1日')).toThrow('Invalid calendar')
+ expect(()=>printedDateISO('令和元年4月30日')).toThrow('Invalid calendar')
+ expect(()=>printedDateISO('令和0年5月1日')).toThrow('Invalid calendar')
+ expect(printedDateISO('令和6年2月29日')).toBe('2024-02-29')
+ expect(()=>printedDateISO('令和7年2月29日')).toThrow('Invalid calendar')
+ const pack={...defaultLanguageProfile.packs.find(p=>p.id==='ja')!,id:'fixture',eras:[{name:'TestEra',offset:1999,start:'2000-01-01',end:'2001-12-31',format:'{era}:{year}-{month}-{day}',firstYear:'First'}]};expect(printedDateISO('TestEra:First-1-2',languageProfile([pack]))).toBe('2000-01-02')
+})
+it('supports unambiguous year-first numeric dates and abbreviated English months',()=>{
+ for(const [printed,expected] of [['2026/10/29','2026-10-29'],['2026.10.29','2026-10-29'],['29-Oct-2026','2026-10-29'],['Sep. 18 2025','2025-09-18']])expect(printedDateISO(printed!)).toBe(expected)
+ expect(()=>printedDateISO('10/11/2026')).toThrow('Ambiguous')
+})
+it('retains the exact printed date span inside a timestamp without accepting partial or conflicting dates',()=>{
+ for(const printed of ['2026/10/29 14:05','Oct 29, 2026 (Thursday)']){
+  const bundle=samples()[0]!,line='Issued: '+printed;bundle.pages[0]+='\n'+line;bundle.proposal!.date={value:printed,evidence:[{page:1,quote:line}]}
+  const review=validateBundle(bundle);expect(printedDateISO(review.proposal!.date.value)).toBe('2026-10-29');expect(line).toContain(review.proposal!.date.value);expect(review.proposal!.date.evidence[0]!.quote).toBe(line)
+ }
+ for(const printed of ['2026/10','2026/10/29 through 2026/11/29']){const bundle=samples()[0]!;bundle.pages[0]+='\n'+printed;bundle.proposal!.date={value:printed,evidence:[{page:1,quote:printed}]};expect(()=>validateBundle(bundle)).toThrow()}
+})
+
+it('keeps a long whitespace run and a following timestamp from joining numeric date components',()=>{expect(dateSearchCandidates(' '.repeat(100000)+'2026/10/29 14:05')).toContain('2026/10/29')})

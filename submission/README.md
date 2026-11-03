@@ -1,9 +1,9 @@
-# OpenCloud catalogue contribution
+# Prepared beta catalogue contribution
 
-Prepared for [opencloud-eu/awesome-apps](https://github.com/opencloud-eu/awesome-apps). No upstream pull request has been sent.
+Candidate: **0.20.0 Beta**. Nothing from this candidate has been published or submitted.
 
-`app-entry.json` is the catalogue entry; `awesome-apps.patch` adds it to `webApps/apps.json` and adds a README listing. `PR-BODY.md` is the proposed pull-request description. `upstream-files.json` records the source file hashes used to prepare this patch.
+`app-entry.json` and `awesome-apps.patch` prepare the catalogue and README additions against the upstream snapshots identified by `upstream-files.json`. Screenshot URLs target the future v0.20.0 tag; they are not verified public downloads yet. The six fictional 3:2 screenshots live in ../deploy/screenshots with redistribution terms.
 
-Apply against a current upstream checkout with `git apply --check /path/to/awesome-apps.patch`, then `git apply /path/to/awesome-apps.patch`. If upstream changed, rebase the small addition without replacing or reformatting other entries. Confirm its current contribution guidance before sending.
+Review VALIDATION.md and ../docs/RELEASE_NOTES_0.20.0.md, then follow ../docs/STORE_PACKAGING.md. Run `git apply --check` against a fresh awesome-apps checkout before submitting. New hosted CI, public download verification and exact-release fresh-install acceptance must be recorded separately; earlier releases' evidence does not establish those checks for 0.20.0.
 
-Public download checksums, ZIP manifest/root and a fresh full install of the exact release kit have been checked; see VALIDATION.md and ../docs/ACCEPTANCE_0.14.5.md. Recheck the upstream patch and download links when submitting. Report compatibility precisely. This early public release is not yet OpenCloud-certified or catalogue-approved. Catalogue installation delivers only the frontend; companion installation must remain prominent in the entry and installation resources.
+The entry explicitly requires an administrator-installed companion. The catalogue ZIP installs only the Web frontend. This is an independent community beta.

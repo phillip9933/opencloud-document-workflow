@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import {validateFilingRules,filingProfile,ruleSupported,renderFilingTemplate,explicitFolderMatches,taxYearFromPages} from './filing.ts'
+import {validateTagDiscovery,canonicalTag,discoveredTagAllowed} from './tag-discovery.ts'
+import type {TagDiscovery} from './tag-discovery.ts'
 import type {FilingRules} from './filing.ts'
-import {printedDateISO,categorySupported,defaultLanguageProfile} from './languages.ts'
+import {printedDateISO,dateSearchCandidates,categorySupported,defaultLanguageProfile} from './languages.ts'
 import type {LanguageProfile} from './languages.ts'
 export type Mode = 'off' | 'suggest' | 'automatic'
 export type Policy = Record<'ocr' | 'rename' | 'move' | 'tags' | 'aiInput' | 'aiOutput', Mode> & {fields?:Mode}
@@ -15,8 +17,9 @@ export interface Source {
   path: string; etag: string; sha256: string
 }
 export interface Proposal { issuer: Claim; date: Claim; kind: Claim; folder: Claim; tags: Claim[] }
-export interface Bundle { schemaVersion: 1; source: Source; pages: string[]; proposal: Proposal | null;rules?:FilingRules;destinationSpace?:string }
-export interface Review { state: 'needs_review' | 'needs_ocr'; bundle: Bundle; proposal: Proposal | null; excluded: Claim[];ruleMatch?:string;ruleAmbiguous?:boolean }
+export type ManualReviewReason = 'evidence' | 'date' | 'capacity' | 'text' | 'original' | 'rules'
+export interface Bundle {tagDiscovery?:TagDiscovery;manualReview?:{reason:ManualReviewReason}; schemaVersion: 1; source: Source; pages: string[]; proposal: Proposal | null;rules?:FilingRules;destinationSpace?:string }
+export interface Review { state: 'needs_review' | 'needs_ocr' | 'needs_details'; bundle: Bundle; proposal: Proposal | null; excluded: Claim[];ruleMatch?:string;ruleAmbiguous?:boolean }
 
 function fail(message: string): never { throw new Error(message) }
 function object(value: unknown, keys: string[]): Record<string, unknown> {
@@ -35,28 +38,77 @@ export function safePath(value: unknown): string {
   if (path !== path.normalize('NFC') || path.split('/').some(p => !p || p === '.' || p === '..' || p.length > 150 || /[\\:?*<>|"#%]/.test(p))) fail('Unsafe document path')
   return path
 }
+// Return the actual cited span for unambiguous Unicode presentation/spacing differences.
+// More than one possible source span remains ambiguous and is held.
+function sourceQuote(page:string,quote:string,foldCase=false):string {
+ if(page.includes(quote))return quote
+ const presentation=(value:string)=>{const normalized=value.normalize('NFKC').replace(/\s/gu,'');return foldCase?normalized.toLowerCase():normalized}
+ const compact=presentation(quote),source=presentation(page),at=source.indexOf(compact)
+ if(!compact||at<0||source.indexOf(compact,at+1)>=0)fail('Quote is absent from its page')
+ let count=0,start=-1,end=-1
+ for(const part of new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(page)){const normalized=presentation(part.segment);if(normalized){if(count===at)start=part.index;count+=normalized.length;if(count===at+compact.length){end=part.index+part.segment.length;break}}}
+ if(start<0||end<0||end-start>2000)fail('Quote is absent from its page')
+ return page.slice(start,end)
+}
+const invalidFactControl=/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/
+function factValue(value:unknown):string{if(typeof value!=='string'||!value.trim()||value.length>150||invalidFactControl.test(value))fail('Invalid text field');return value}
+const filenameFact=(value:string)=>value.replace(/[ \t]*[\r\n\t][ \t\r\n]*/g,' ')
 function claim(value: unknown, pages: string[], literal: boolean): Claim {
   const c = object(value, ['value', 'evidence'])
-  const v = text(c.value)
+  let v = literal?factValue(c.value):text(c.value)
   if (!Array.isArray(c.evidence) || c.evidence.length < 1 || c.evidence.length > 8) fail('Missing bounded evidence')
   const evidence = c.evidence.map(raw => {
     const e = object(raw, ['page', 'quote'])
-    if (!Number.isInteger(e.page) || (e.page as number) < 1 || (e.page as number) > pages.length) fail('Invalid evidence page')
-    if (typeof e.quote !== 'string' || !e.quote.trim() || e.quote.length > 2000 || !pages[(e.page as number) - 1]!.includes(e.quote)) fail('Quote is absent from its page')
-    return { page: e.page as number, quote: e.quote }
+    if (!Number.isInteger(e.page)) fail('Invalid evidence page')
+    if (typeof e.quote !== 'string' || !e.quote.trim() || e.quote.length > 2000) fail('Quote is absent from its page')
+    if ((e.page as number) < 1 || (e.page as number) > pages.length) {
+      // Recover a misnumbered citation only from one verifiable source page.
+      // Never choose between repeated quotes or invent source characters.
+      const matches:Evidence[]=[]
+      pages.forEach((page,index)=>{try{matches.push({page:index+1,quote:sourceQuote(page,e.quote as string,true)})}catch{/* This page does not contain that unique source span. */}})
+      if(matches.length!==1)fail('Invalid evidence page')
+      return matches[0]!
+    }
+    return { page: e.page as number, quote: sourceQuote(pages[(e.page as number)-1]!,e.quote,true) }
   })
+  // Restore the exact printed span rather than storing a model-normalized
+  // name/date. Changed letters/digits and ambiguous presentation matches hold.
+  if(literal&&!evidence.some(e=>e.quote.includes(v))){
+    for(const e of evidence){try{const match=sourceQuote(e.quote,v,true);if(match.length<=150&&!invalidFactControl.test(match)){v=match;break}}catch(error){if(!(error instanceof Error)||error.message!=='Quote is absent from its page')throw error}}
+  }
   if (literal && (!evidence.some(e => e.quote.includes(v)) || /[□■�]/.test(v))) fail('Fact is not present in its evidence')
   return { value: v, evidence }
 }
 function supported(c:Claim,profile:LanguageProfile){return categorySupported(c.value,c.evidence.map(e=>e.quote),profile)}
+function printedDateSpan(checked:Claim,profile:LanguageProfile):Claim {
+ try{printedDateISO(checked.value,profile);return checked}catch(original){
+  if(!(original instanceof Error)||!original.message.startsWith('Unsupported printed date'))throw original
+  const matches=new Map<string,string>()
+  for(const candidate of dateSearchCandidates(checked.value,profile)){try{const printed=sourceQuote(checked.value,candidate,true);matches.set(printedDateISO(printed,profile),printed)}catch{/* Only an actual complete, unambiguous source span can replace a timestamp or annotation. */}}
+  if(matches.size!==1)throw original
+  return{...checked,value:[...matches.values()][0]!}
+ }
+}
+function dateClaim(value:unknown,pages:string[],profile:LanguageProfile):Claim {
+ try{return printedDateSpan(claim(value,pages,true),profile)}catch(error){
+  if(!(error instanceof Error)||error.message!=='Fact is not present in its evidence')throw error
+  const checked=claim(value,pages,false),matches=new Set<string>();let expected:string
+  try{expected=printedDateISO(checked.value,profile)}catch{throw error}
+  for(const evidence of checked.evidence){for(const candidate of dateSearchCandidates(evidence.quote,profile)){
+   try{const printed=sourceQuote(evidence.quote,candidate,true);if(printed.length<=150&&!/[\x00-\x1f\x7f]/.test(printed)&&printedDateISO(printed,profile)===expected)matches.add(printed)}catch{/* An incomplete, ambiguous or different printed date cannot support this value. */}
+  }}
+  if(matches.size!==1)throw error
+  return{...checked,value:[...matches][0]!}
+ }
+}
 export function filename(p: Proposal, profile=defaultLanguageProfile): string {
   if(p.issuer.value.includes('/') || p.kind.value.includes('/')) fail('A filename fact contains a path separator')
   const iso=printedDateISO(p.date.value,profile)
-  return safePath(`${iso} ${p.issuer.value} ${p.kind.value}.pdf`)
+  return safePath(`${iso} ${filenameFact(p.issuer.value)} ${filenameFact(p.kind.value)}.pdf`)
 }
 export type DocumentInput = Omit<Bundle, 'proposal'>
-export function validateDocumentInput(value: unknown): DocumentInput {
-  const b = object(value, ['schemaVersion', 'source', 'pages',...(value&&typeof value==='object'&&'rules' in value?['rules']:[]),...(value&&typeof value==='object'&&'destinationSpace' in value?['destinationSpace']:[])])
+export function validateDocumentInput(value: unknown, originalFile=false): DocumentInput {
+  const b = object(value, ['schemaVersion', 'source', 'pages',...(value&&typeof value==='object'&&'rules' in value?['rules']:[]),...(value&&typeof value==='object'&&'destinationSpace' in value?['destinationSpace']:[]),...(value&&typeof value==='object'&&'tagDiscovery' in value?['tagDiscovery']:[])])
   if (b.schemaVersion !== 1) fail('Unsupported review schema')
   const s = object(b.source, ['server', 'account', 'space', 'resourceId', 'path', 'etag', 'sha256'])
   const server = text(s.server, 300)
@@ -67,35 +119,82 @@ export function validateDocumentInput(value: unknown): DocumentInput {
     path: safePath(s.path), etag: text(s.etag, 300), sha256: text(s.sha256)
   }
   if (!/^[a-f0-9]{64}$/.test(source.sha256)) fail('Expected SHA256')
-  if (!Array.isArray(b.pages) || !b.pages.length || b.pages.length > 10000 || b.pages.some(p => typeof p !== 'string') || b.pages.reduce((n, p) => n + p.length, 0) > 8000000) fail('Invalid or oversized extracted pages')
+  if (!Array.isArray(b.pages) || (!originalFile&&!b.pages.length) || b.pages.length > 10000 || b.pages.some(p => typeof p !== 'string') || b.pages.reduce((n, p) => n + p.length, 0) > 8000000) fail('Invalid or oversized extracted pages')
   const pages = [...b.pages] as string[],rules=b.rules?validateFilingRules(b.rules as FilingRules):undefined
-  return { schemaVersion: 1, source, pages,...(rules?{rules}:{}),...('destinationSpace' in b?{destinationSpace:validateSpace(b.destinationSpace)}:{}) }
+  return { schemaVersion: 1, source, pages,...(rules?{rules}:{}),...('destinationSpace' in b?{destinationSpace:validateSpace(b.destinationSpace)}:{}),...('tagDiscovery' in b?{tagDiscovery:validateTagDiscovery(b.tagDiscovery)}:{}) }
 }
 export function validateBundle(value: unknown, profile=defaultLanguageProfile): Review {
-  const b = object(value, ['schemaVersion', 'source', 'pages', 'proposal',...(value&&typeof value==='object'&&'rules' in value?['rules']:[]),...(value&&typeof value==='object'&&'destinationSpace' in value?['destinationSpace']:[])])
-  const input=validateDocumentInput({schemaVersion:b.schemaVersion,source:b.source,pages:b.pages,...('rules' in b?{rules:b.rules}:{}),...('destinationSpace' in b?{destinationSpace:b.destinationSpace}:{})}),{source,pages,rules}=input
+  const b = object(value, ['schemaVersion', 'source', 'pages', 'proposal',...(value&&typeof value==='object'&&'manualReview' in value?['manualReview']:[]),...(value&&typeof value==='object'&&'rules' in value?['rules']:[]),...(value&&typeof value==='object'&&'destinationSpace' in value?['destinationSpace']:[]),...(value&&typeof value==='object'&&'tagDiscovery' in value?['tagDiscovery']:[])])
+  const originalFile=!!b.manualReview&&typeof b.manualReview==='object'&&(b.manualReview as {reason?:unknown}).reason==='original'
+  const input=validateDocumentInput({schemaVersion:b.schemaVersion,source:b.source,pages:b.pages,...('rules' in b?{rules:b.rules}:{}),...('destinationSpace' in b?{destinationSpace:b.destinationSpace}:{}),...('tagDiscovery' in b?{tagDiscovery:b.tagDiscovery}:{})},originalFile),{source,pages,rules}=input
   if(rules)profile=filingProfile(rules)
+  if('manualReview' in b){
+    const manual=object(b.manualReview,['reason']);if(!['evidence','date','capacity','text','original','rules'].includes(String(manual.reason))||b.proposal!==null||!['text','original'].includes(String(manual.reason))&&pages.some(p=>!p.trim())||manual.reason==='original'&&(pages.length!==0||/\.pdf$/i.test(source.path)))fail('Invalid manual review')
+    return{state:'needs_details',bundle:{...input,proposal:null,manualReview:{reason:manual.reason as ManualReviewReason}},proposal:null,excluded:[]}
+  }
   // Partial image-only documents also require OCR; no approval or model step.
   if (pages.some(p => !p.trim())) {
     if (b.proposal !== null) fail('OCR-required input must not contain a proposal')
     return { state: 'needs_ocr', bundle: {...input,proposal:null}, proposal: null, excluded: [] }
   }
   const p = object(b.proposal, ['issuer', 'date', 'kind', 'folder', 'tags'])
-  if (!Array.isArray(p.tags) || p.tags.length > (rules?.tags.length??5)) fail('Invalid tag proposals')
+  if (!Array.isArray(p.tags) || p.tags.length > (input.tagDiscovery?50:rules?.tags.length??5)) fail('Invalid tag proposals')
   const proposal: Proposal = {
-    issuer: claim(p.issuer, pages, true), date: claim(p.date, pages, true), kind: claim(p.kind, pages, true),
-    folder: claim(p.folder, pages, false), tags: p.tags.map(t => claim(t, pages, false))
+    issuer: claim(p.issuer, pages, true), date: dateClaim(p.date, pages, profile), kind: claim(p.kind, pages, true),
+    folder: claim(p.folder, pages, false), tags: p.tags.map(t => {const tag=claim(t,pages,false);return input.tagDiscovery?{...tag,value:canonicalTag(tag.value,input.tagDiscovery)}:tag})
   }
   if (rules?!rules.folders.some(r=>r.value===proposal.folder.value):proposal.folder.value !== 'Other' && !['Utilities/Electricity', 'Utilities/Water', 'Finance', 'Correspondence'].includes(proposal.folder.value)) fail('Unknown folder category')
   if (proposal.folder.value !== 'Other' && !(rules?ruleSupported(proposal.folder.value,proposal.folder.evidence.map(e=>e.quote),rules.folders,rules):supported(proposal.folder,profile))) fail('Folder lacks supporting evidence')
   const folderMatches=rules?explicitFolderMatches(pages,rules):[]
   if(proposal.folder.value==='Other'&&folderMatches.length===1)proposal.folder=folderMatches[0]!
   if(rules)printedDateISO(proposal.date.value,profile);else filename(proposal,profile)
-  const tagSupported=(t:Claim)=>rules?ruleSupported(t.value,t.evidence.map(e=>e.quote),rules.tags,rules):supported(t,profile)
+  const tagSupported=(t:Claim)=>input.tagDiscovery?discoveredTagAllowed(t.value,input.tagDiscovery):rules?ruleSupported(t.value,t.evidence.map(e=>e.quote),rules.tags,rules):supported(t,profile)
   const excluded = proposal.tags.filter(t => !tagSupported(t))
   const rawProposal = structuredClone(proposal)
   proposal.tags = proposal.tags.filter(tagSupported)
   return { state: 'needs_review', bundle: {...input,proposal:rawProposal}, proposal,excluded,...(folderMatches.length===1?{ruleMatch:folderMatches[0]!.value}:{}),...(folderMatches.length>1?{ruleAmbiguous:true}:{}) }
+}
+// Deterministic source passages help a model choose a complete printed date;
+// they are untrusted document data, and normal proposal validation still applies.
+export function documentDateCandidates(value:DocumentInput):Claim[] {
+ const input=validateDocumentInput(value),profile=input.rules?filingProfile(input.rules):defaultLanguageProfile,result:Claim[]=[],seen=new Set<string>()
+ for(const [index,page] of input.pages.entries())for(const line of page.split(/\r?\n/)){
+  if(!line.trim()||line.length>2000)continue
+  for(const candidate of dateSearchCandidates(line,profile)){
+   try{const printed=sourceQuote(line,candidate,true);printedDateISO(printed,profile);const key=JSON.stringify([index,printed,line]);if(seen.has(key))continue;seen.add(key);result.push({value:printed,evidence:[{page:index+1,quote:line.trim()}]});if(result.length>=24)return result}catch{/* Incomplete, ambiguous or changed source characters offer no date hint. */}
+  }
+ }
+ return result
+}
+export type InspectedField = 'issuer' | 'date' | 'kind' | 'folder' | 'tags' | 'document'
+export type InspectionCode = 'shape' | 'quote' | 'literal' | 'date' | 'category' | 'value' | 'missing'
+export interface ProposalInspection { verified: Partial<Proposal>; issues: {field:InspectedField;code:InspectionCode}[] }
+// Read-only advice for manual review. Every retained claim passes the same
+// evidence checks as an accepted proposal; this never creates filing actions.
+export function inspectProposal(value:DocumentInput,raw:unknown):ProposalInspection {
+ const input=validateDocumentInput(value),{pages,rules}=input,profile=rules?filingProfile(rules):defaultLanguageProfile
+ const result:ProposalInspection={verified:{},issues:[]}
+ let proposal:Record<string,unknown>
+ try{proposal=object(raw,['issuer','date','kind','folder','tags'])}catch{return{verified:{},issues:[{field:'document',code:'shape'}]}}
+ const code=(error:unknown):InspectionCode=>{const message=error instanceof Error?error.message:'';return message==='Fact is not present in its evidence'?'literal':message.includes('date')?'date':message.includes('folder')||message.includes('Folder')?'category':message.includes('evidence')||message.includes('Quote')?'quote':'value'}
+ for(const field of ['issuer','date','kind','folder'] as const){
+  try{
+   if(proposal[field]===null){result.issues.push({field,code:'missing'});continue}
+   const checked=field==='date'?dateClaim(proposal[field],pages,profile):field==='folder'?claim(proposal[field],pages,false):claim(proposal[field],pages,true)
+   if(field==='date')printedDateISO(checked.value,profile)
+   if(field==='folder'){
+    if(rules?!rules.folders.some(rule=>rule.value===checked.value):!['Other','Utilities/Electricity','Utilities/Water','Finance','Correspondence'].includes(checked.value))fail('Unknown folder category')
+    if(checked.value!=='Other'&&!(rules?ruleSupported(checked.value,checked.evidence.map(e=>e.quote),rules.folders,rules):supported(checked,profile)))fail('Folder lacks supporting evidence')
+   }
+   result.verified[field]=checked
+  }catch(error){result.issues.push({field,code:code(error)})}
+ }
+ if(!Array.isArray(proposal.tags)||proposal.tags.length>(input.tagDiscovery?50:rules?.tags.length??5))result.issues.push({field:'tags',code:'shape'})
+ else{
+  result.verified.tags=[]
+  for(const rawTag of proposal.tags){try{const checked=claim(rawTag,pages,false),tag=input.tagDiscovery?{...checked,value:canonicalTag(checked.value,input.tagDiscovery)}:checked;if(input.tagDiscovery?discoveredTagAllowed(tag.value,input.tagDiscovery):rules?ruleSupported(tag.value,tag.evidence.map(e=>e.quote),rules.tags,rules):supported(tag,profile))result.verified.tags.push(tag)}catch(error){if(!result.issues.some(issue=>issue.field==='tags'))result.issues.push({field:'tags',code:code(error)})}}
+ }
+ return result
 }
 export function parseBundle(json: string): Review {
   if (json.length > 32_000_000) fail('Review bundle exceeds 32 MB')
@@ -107,17 +206,19 @@ export function validatePolicy(value: unknown): Policy {
   return p as Policy
 }
 export interface ManualActions {target:string;addTags:string[]}
-export function validateManualActions(value:unknown):ManualActions{
- const v=object(value,['target','addTags']);const target=safePath(v.target);if(!target.toLowerCase().endsWith('.pdf'))fail('A filing target must be a PDF path');if(!Array.isArray(v.addTags)||v.addTags.length>50)fail('Invalid manual tags');const addTags=[...new Set(v.addTags.map(t=>text(t,80)))].sort();if(addTags.some(t=>t!==t.normalize('NFC')))fail('Tags must use normalized Unicode');return{target,addTags}
+export function validateManualActions(value:unknown,originalPath?:string):ManualActions{
+ const v=object(value,['target','addTags']);const target=safePath(v.target);if(originalPath!==undefined){const extension=(path:string)=>{const name=path.split('/').pop()!,at=name.lastIndexOf('.');return at>0?name.slice(at).toLowerCase():''};if(extension(originalPath)==='.pdf'||extension(target)!==extension(originalPath))fail('Keep the original file format when filing without conversion')}else if(!target.toLowerCase().endsWith('.pdf'))fail('A filing target must be a PDF path');if(!Array.isArray(v.addTags)||v.addTags.length>50)fail('Invalid manual tags');const addTags=[...new Set(v.addTags.map(t=>text(t,80)))].sort();if(addTags.some(t=>t!==t.normalize('NFC')))fail('Tags must use normalized Unicode');return{target,addTags}
 }
 export function actions(review: Review, policy: Policy, manualActions?:ManualActions) {
   validatePolicy(policy)
-  if (!review.proposal) return null
+  if (!review.proposal&&!review.bundle.manualReview) return null
+  if(review.bundle.manualReview&&!manualActions)return null
   const destination=policy.move!=='off'&&review.bundle.destinationSpace&&review.bundle.destinationSpace!==review.bundle.source.space?{targetSpace:review.bundle.destinationSpace}:{}
-  if(manualActions){const manual=validateManualActions(manualActions);if(policy.tags==='off'&&manual.addTags.length)fail('Enable tags before adding manual tags');const original=review.bundle.source.path.split('/'),target=manual.target.split('/');if(policy.rename==='off'&&original.at(-1)!==target.at(-1))fail('Enable filenames before changing the name');if(policy.move==='off'&&original.slice(0,-1).join('/')!==target.slice(0,-1).join('/'))fail('Enable folders before changing the folder');return {...manual,...destination}}
+  if(manualActions){const manual=validateManualActions(manualActions,review.bundle.manualReview?.reason==='original'?review.bundle.source.path:undefined);if(policy.tags==='off'&&manual.addTags.length)fail('Enable tags before adding manual tags');const original=review.bundle.source.path.split('/'),target=manual.target.split('/');if(policy.rename==='off'&&original.at(-1)!==target.at(-1))fail('Enable filenames before changing the name');if(policy.move==='off'&&original.slice(0,-1).join('/')!==target.slice(0,-1).join('/'))fail('Enable folders before changing the folder');return {...manual,...destination}}
+  if(!review.proposal)return null
   const old = review.bundle.source.path.split('/')
   const oldName = old.pop()!
-  const rules=review.bundle.rules,iso=printedDateISO(review.proposal.date.value,filingProfile(rules)),values={date:iso,year:iso.slice(0,4),month:iso.slice(5,7),day:iso.slice(8,10),issuer:review.proposal.issuer.value,kind:review.proposal.kind.value,category:review.proposal.folder.value,original:oldName.replace(/\.pdf$/i,''),resource:review.bundle.source.resourceId}
+  const rules=review.bundle.rules,iso=printedDateISO(review.proposal.date.value,filingProfile(rules)),values={date:iso,year:iso.slice(0,4),month:iso.slice(5,7),day:iso.slice(8,10),issuer:filenameFact(review.proposal.issuer.value),kind:filenameFact(review.proposal.kind.value),category:review.proposal.folder.value,original:oldName.replace(/\.pdf$/i,''),resource:review.bundle.source.resourceId}
   const name = policy.rename === 'off' ? oldName : rules?renderFilingTemplate(rules.nameTemplate,values):filename(review.proposal)
   const categoryRule=rules?.folders.find(row=>row.value===review.proposal!.folder.value),folderTemplate=categoryRule?.folderTemplate??rules?.folderTemplate
   const folderValues=policy.move!=='off'&&folderTemplate?.includes('{taxYear}')?{...values,taxYear:taxYearFromPages(review.bundle.pages,categoryRule!.taxYearLabels!)}:values
@@ -136,19 +237,20 @@ export async function reviewDigest(review: Review, policy: Policy, manualActions
 export async function createApproval(review: Review, policy: Policy, manualActions?:ManualActions) {
   // Re-validate at the boundary; never trust a caller's constructed Review object.
   const checked = validateBundle(review.bundle)
-  if (checked.state !== 'needs_review') fail('OCR is required before review')
+  if (checked.state !== 'needs_review'&&checked.state!=='needs_details') fail('OCR is required before review')
+  if(checked.state==='needs_details'&&!manualActions)fail('Choose a destination before filing.')
   const planned = actions(checked, policy, manualActions)!
   if (!planned.targetSpace&&planned.target === checked.bundle.source.path && !planned.addTags.length) fail('No proposed file changes are enabled')
   return {
     schemaVersion: 1, decision: 'approve', source: checked.bundle.source,
-    ...(manualActions?{manualActions:validateManualActions(manualActions)}:{}),
+    ...(manualActions?{manualActions:validateManualActions(manualActions,checked.bundle.manualReview?.reason==='original'?checked.bundle.source.path:undefined)}:{}),
     reviewDigest: await reviewDigest(checked, policy, manualActions), policy: { ...policy }, actions: planned,
     reviewedAt: new Date().toISOString()
   }
 }
 export async function approvalMatches(approval: Awaited<ReturnType<typeof createApproval>>, bundle: Bundle, policy: Policy) {
   const checked = validateBundle(bundle)
-  return approval.decision === 'approve' && checked.state === 'needs_review'
+  return approval.decision === 'approve' && (checked.state === 'needs_review'||checked.state==='needs_details'&&!!approval.manualActions)
     && canonical(approval.source) === canonical(checked.bundle.source)
     && canonical(approval.policy) === canonical(validatePolicy(policy))
     && canonical(approval.actions) === canonical(actions(checked, policy, approval.manualActions))

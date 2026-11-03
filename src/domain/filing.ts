@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import {defaultLanguageProfile,languageProfile,categorySupported} from './languages.ts'
+import {defaultLanguageProfile,languageProfile,categorySupported,layoutSubstringSupported} from './languages.ts'
 import type {LanguagePack} from './languages.ts'
 import {safePath} from './review.ts'
 export interface ClassificationRule {value:string;terms:string[];match:'word'|'substring'}
@@ -28,12 +28,12 @@ export function validateFilingRules(value:FilingRules):FilingRules{
  if(!value.folders.some(r=>r.value==='Other'))throw new Error('Keep an Other category for documents without a match')
  languageProfile(value.languages);return JSON.parse(JSON.stringify(value)) as FilingRules
 }
-export function filingProfile(rules?:FilingRules){return rules?languageProfile([...defaultLanguageProfile.packs.filter(p=>!rules.languages.some(extra=>extra.id===p.id)),...rules.languages]):defaultLanguageProfile}
+export function filingProfile(rules?:FilingRules){return rules?languageProfile([...defaultLanguageProfile.packs.filter(p=>!rules.languages.some(extra=>extra.id===p.id)),...rules.languages.map(pack=>({...pack,eras:pack.eras??defaultLanguageProfile.packs.find(base=>base.id===pack.id)?.eras}))]):defaultLanguageProfile}
 export function ruleSupported(value:string,quotes:string[],rows:ClassificationRule[],rules:FilingRules){
  const row=rows.find(r=>r.value===value);if(!row)return false
  if(!row.terms.length)return categorySupported(value,quotes,filingProfile(rules))
- const text=quotes.join(' ').normalize('NFKC').toLowerCase(),escape=(s:string)=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
- return row.terms.some(term=>{const cue=term.normalize('NFKC').toLowerCase();return row.match==='substring'?text.includes(cue):new RegExp('(?<![\\p{L}\\p{N}\\p{M}])'+escape(cue)+'(?![\\p{L}\\p{N}\\p{M}])','u').test(text)})
+ const normalizedQuotes=quotes.map(quote=>quote.normalize('NFKC').toLowerCase()),text=normalizedQuotes.join(' '),escape=(s:string)=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
+ return row.terms.some(term=>{const cue=term.normalize('NFKC').toLowerCase();return row.match==='substring'?(text.includes(cue)||layoutSubstringSupported(cue,normalizedQuotes)):new RegExp('(?<![\\p{L}\\p{N}\\p{M}])'+escape(cue)+'(?![\\p{L}\\p{N}\\p{M}])','u').test(text)})
 }
 export function renderFilingTemplate(template:string,values:Record<string,string>){return safePath(template.replace(/\{([^}]+)\}/g,(_,key)=>{const value=values[key];if(value===undefined)throw new Error('Missing filing template value');if(key!=='category'&&value.includes('/'))throw new Error('A filename fact contains a path separator');return value}))}
 
