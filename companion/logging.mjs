@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { readdirSync } from 'node:fs'
+
+const sourceFiles = new Set(
+  readdirSync(new URL('.', import.meta.url)).filter((name) => name.endsWith('.mjs'))
+)
 const events = new Set([
   'request_failed',
   'http_handler_failed',
@@ -43,7 +48,11 @@ export function createLogger(write = (line) => process.stderr.write(line)) {
         )
       ]
       record.locations = [
-        ...new Set(frames.map(([, file, line, column]) => `${file}:${line}:${column}`))
+        ...new Set(
+          frames
+            .filter(([, file]) => sourceFiles.has(file))
+            .map(([, file, line, column]) => `${file}:${line}:${column}`)
+        )
       ].slice(0, 8)
     }
     try {

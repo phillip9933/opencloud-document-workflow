@@ -13,7 +13,7 @@ test('structured logs discard document, credential, URL and arbitrary error data
     body: 'document-secret',
     headers: { authorization: 'private-token' },
     stack:
-      'Error: private-token\n    at request (/private/user/project/companion/draft-api.mjs:12:5)\n    at private-function (https://private.example:123/secret:1:1)'
+      'Error: private-token\n    at request (/private/user/project/companion/draft-api.mjs:12:5)\n    at private-function (https://private.example:123/secret:1:1)\n    at fake (/companion/private-token.mjs:1:1)'
   })
   log('request_failed', error)
   const record = JSON.parse(lines[0])
