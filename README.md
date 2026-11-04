@@ -30,3 +30,9 @@ After installation, choose Inbox and destination folders in Settings, configure 
 See [Source builds](docs/LOCAL_BUILD.md), [Architecture](docs/ARCHITECTURE.md), [Contributing](CONTRIBUTING.md), [Security](SECURITY.md) and [Release/submission notes](docs/STORE_PACKAGING.md). Source tests require Poppler (`pdfinfo`, `pdftotext`, `pdftoppm`) and Tesseract with English/Japanese data on the development host; the end-user installation kit supplies these inside its container. Test fixtures are synthetic. Personal filing taxonomies and live credentials are not shipped as defaults.
 
 New application code is **AGPL-3.0-only**. The upstream OpenCloud skeleton and dependencies retain their licenses; see [Third-party notices](THIRD_PARTY_NOTICES.md), `LICENSES/` and the [dependency inventory](docs/dependencies.cdx.json).
+
+## AI usage
+
+I use AI tools to help with development, including analysis, code, tests and documentation. I care about security, privacy and protecting people's data, and I try to reflect that in how I build these projects.
+
+Validation records distinguish checks actually run from checks still required. See [validation](submission/VALIDATION.md) and [contribution guidance](CONTRIBUTING.md).
