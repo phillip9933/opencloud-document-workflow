@@ -371,9 +371,7 @@ const resolvedPath = ref<string | null>(null),
 const documentSpace = computed(
   () =>
     resolvedSpace.value ??
-    (['done', 'move_done', 'tags_intent', 'transfer_ready', 'transfer_ready'].includes(
-      job.value?.decision || ''
-    )
+    (['done', 'move_done', 'tags_intent', 'transfer_ready'].includes(job.value?.decision || '')
       ? (planned.value?.targetSpace ?? active.value?.bundle.source.space)
       : active.value?.bundle.source.space)
 )
@@ -385,10 +383,6 @@ const documentPath = computed(
       : active.value?.bundle.source.path)
 )
 let previewGeneration = 0
-function statusLabel(review: (typeof reviews.value)[number]) {
-  const state = store.jobFor(review)?.decision
-  return displayStatus(state || review.state)
-}
 const inInbox = computed(() => collectionPath().endsWith('/inbox'))
 const navigation = useInboxNavigation(
   computed(() => active.value?.bundle.source.resourceId),
@@ -613,7 +607,9 @@ async function decide(operation: 'approve' | 'reject' | 'apply' | 'reconcile' | 
     try {
       await store.refresh()
       if (requestedJob.value) await store.openJob(requestedJob.value)
-    } catch {}
+    } catch {
+      /* Keep the original operation error visible if the read-only refresh also fails. */
+    }
   } finally {
     busy.value = false
   }
@@ -659,6 +655,10 @@ async function exportApproval() {
   } finally {
     busy.value = false
   }
+}
+function chooseManualTarget(target: string) {
+  manualTarget.value = target
+  manualNeedsDestination.value = false
 }
 </script>
 
@@ -946,10 +946,7 @@ async function exportApproval() {
                     fileTrashState.uncertain ||
                     fieldsBusy
                   "
-                  @update:model-value="
-                    manualTarget = $event
-                    manualNeedsDestination = false
-                  "
+                  @update:model-value="chooseManualTarget($event)"
               /></template>
               <dl v-else-if="planned" class="filing suggested-destination">
                 <dt>{{ t(job?.decision === 'done' ? 'Filename' : 'Suggested filename') }}</dt>

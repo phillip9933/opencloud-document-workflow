@@ -303,7 +303,9 @@ export class Operations {
               )
               if (['reading', 'ocr', 'analysing', 'tagging'].includes(saved.stage))
                 stage = saved.stage
-            } catch {}
+            } catch {
+              /* Missing stage diagnostics must not prevent recording the held operation. */
+            }
           }
           this.item(id, item.position, 'held', {
             ...(stage ? { stage } : {}),

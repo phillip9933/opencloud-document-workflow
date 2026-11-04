@@ -48,7 +48,9 @@ export function provideTheme() {
   let storage: Storage | undefined
   try {
     storage = globalThis.localStorage
-  } catch {}
+  } catch {
+    /* Storage may be unavailable; appearance can still follow the system. */
+  }
   const theme = createTheme(
     storage,
     typeof globalThis.matchMedia === 'function'

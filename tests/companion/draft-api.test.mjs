@@ -1360,3 +1360,35 @@ test('a fresh explicit review updates only the matching current intake record an
     rmSync(dir, { recursive: true })
   }
 })
+
+test('status reads one coherent job page and inherited names cannot dispatch handlers', async () => {
+  const { Workflow } = await import('../../companion/workflow.mjs')
+  const directory = mkdtempSync(join(tmpdir(), 'workflow-routes-'))
+  const api = createDraftAPI({
+    database: join(directory, 'db'),
+    allowOrigin: 'http://127.0.0.1:5175'
+  })
+  const original = Workflow.prototype.jobPage
+  let reads = 0
+  Workflow.prototype.jobPage = function (...args) {
+    reads++
+    return original.apply(this, args)
+  }
+  try {
+    const result = await call(api, 'status')
+    assert.equal(result.status, 200)
+    assert.equal(reads, 1)
+    assert.deepEqual(result.data.jobs, [])
+    assert.equal(result.data.jobsHasMore, false)
+    assert.equal(result.data.jobsCursor, null)
+    for (const operation of ['constructor', '__proto__', 'toString', 'unknown-route']) {
+      assert.equal((await call(api, operation)).status, 404)
+    }
+    assert.equal((await call(api, 'status', {}, { origin: 'https://foreign.example' })).status, 403)
+    assert.equal(reads, 1)
+  } finally {
+    Workflow.prototype.jobPage = original
+    api.close()
+    rmSync(directory, { recursive: true })
+  }
+})

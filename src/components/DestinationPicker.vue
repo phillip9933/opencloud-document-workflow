@@ -92,6 +92,10 @@ onBeforeUnmount(() => {
   alive = false
   generation++
 })
+function setAddingFolder(value: boolean) {
+  addingFolder.value = value
+  folderName.value = ''
+}
 </script>
 <template>
   <div class="destination-picker">
@@ -156,14 +160,7 @@ onBeforeUnmount(() => {
             @click="chooseNew"
           >
             {{ t('Use new folder') }}</button
-          ><button
-            type="button"
-            class="button subtle"
-            @click="
-              addingFolder = false
-              folderName = ''
-            "
-          >
+          ><button type="button" class="button subtle" @click="setAddingFolder(false)">
             {{ t('Cancel') }}
           </button>
         </div>
@@ -174,10 +171,7 @@ onBeforeUnmount(() => {
           type="button"
           class="button"
           :disabled="loading || disabled || !!error"
-          @click="
-            addingFolder = true
-            folderName = ''
-          "
+          @click="setAddingFolder(true)"
         >
           {{ t('New folder') }}</button
         ><button

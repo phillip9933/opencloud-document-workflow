@@ -491,7 +491,9 @@ export class Conversions {
         if (record.state === 'replace_intent') {
           try {
             return await this.verifyReformat(actor, api, intentId)
-          } catch {}
+          } catch {
+            /* Keep the unresolved replacement intent; never repeat the write here. */
+          }
         }
         return {
           ...record,

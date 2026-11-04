@@ -96,7 +96,7 @@ function text(value: unknown, max = 150): string {
 }
 export function validateSpace(value: unknown): string {
   const id = text(value, 400)
-  if (/[\/\\?#%\x00-\x20]/.test(id)) fail('Invalid Space')
+  if (/[/\\?#%\x00-\x20]/.test(id)) fail('Invalid Space')
   return id
 }
 export function safePath(value: unknown): string {

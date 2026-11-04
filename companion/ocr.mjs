@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { defaultLimits, validateLimits } from './configuration.mjs'
 import { spawn } from 'node:child_process'
-import { mkdtemp, writeFile, readFile, rm, stat } from 'node:fs/promises'
+import { mkdtemp, writeFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 export function runOCRTool(command, args, { limit = 240000, timeout = 30000 } = {}) {

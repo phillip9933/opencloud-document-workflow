@@ -7,7 +7,7 @@ import PendingTrash from './PendingTrash.vue'
 import { useWorkspace } from '../state/workspace'
 import type { FiledDocument } from '../state/workspace'
 import { useRouter } from '../state/navigation'
-const { t, formatDate } = useLocale(),
+const { t } = useLocale(),
   store = useWorkspace(),
   router = useRouter(),
   documents = ref<FiledDocument[]>([]),

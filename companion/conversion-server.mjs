@@ -37,7 +37,9 @@ export async function renderPDF(bytes, extension) {
         const kill = () => {
           try {
             process.kill(-child.pid, 'SIGKILL')
-          } catch {}
+          } catch {
+            /* The process group may already have exited. */
+          }
         }
         const child = execFile(
           command,

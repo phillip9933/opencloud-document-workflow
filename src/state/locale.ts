@@ -37,7 +37,9 @@ export function createLocale({
     )
   try {
     preference.value = preferenceValue(globalThis.localStorage?.getItem(storageKey))
-  } catch {}
+  } catch {
+    /* Storage may be unavailable; retain the system language default. */
+  }
   const locale = computed<UILanguage>(() =>
     preference.value !== 'auto'
       ? preference.value
@@ -47,7 +49,9 @@ export function createLocale({
     preference.value = preferenceValue(value)
     try {
       globalThis.localStorage?.setItem(storageKey, preference.value)
-    } catch {}
+    } catch {
+      /* Keep the in-memory selection when browser storage is unavailable. */
+    }
   }
   function t(message: string, parameters: Record<string, string | number> = {}) {
     const translated = catalogs[locale.value][message] ?? message

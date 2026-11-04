@@ -123,7 +123,9 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     spaceError = ref('')
   try {
     activeSpace.value = globalThis.localStorage?.getItem('document-workflow:active-space') ?? ''
-  } catch {}
+  } catch {
+    /* Storage may be unavailable; resolve Space through authenticated setup. */
+  }
   const inboxSearch = ref(''),
     inboxNavigation = ref<{ folder: string; entries: DraftFile[] } | null>(null)
   const filingDrafts = ref<Record<string, { target: string; tags: string }>>({})
@@ -325,7 +327,9 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
       await connect()
       try {
         globalThis.localStorage?.setItem('document-workflow:active-space', id)
-      } catch {}
+      } catch {
+        /* The verified selection remains usable without browser storage. */
+      }
       try {
         await refresh()
       } catch {
@@ -337,7 +341,9 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
       spaceError.value = e instanceof Error ? e.message : 'Space access failed'
       try {
         await connect()
-      } catch {}
+      } catch {
+        /* Preserve and surface the original Space-switch error. */
+      }
       throw e
     } finally {
       switchingSpace.value = false
@@ -478,7 +484,8 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
       } catch (e) {
         if (paused)
           throw new Error(
-            'Automatic preparation is paused. Could not confirm the settings save; reload saved settings before retrying.'
+            'Automatic preparation is paused. Could not confirm the settings save; reload saved settings before retrying.',
+            { cause: e }
           )
         throw e
       }

@@ -99,6 +99,10 @@ function setCategoryLabels(row: ClassificationRule, event: Event) {
 onMounted((): void => {
   void load()
 })
+function chooseFilingFolder() {
+  rules.value.root = pickerPath.value
+  pickerOpen.value = false
+}
 </script>
 <template>
   <section class="panel filing-settings">
@@ -149,10 +153,7 @@ onMounted((): void => {
                 type="button"
                 class="button primary"
                 :disabled="!pickerPath"
-                @click="
-                  rules.root = pickerPath
-                  pickerOpen = false
-                "
+                @click="chooseFilingFolder"
               >
                 {{ t('Use this folder') }}</button
               ><button type="button" class="button subtle" @click="pickerOpen = false">

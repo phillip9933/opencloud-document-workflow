@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto'
 import {
   generateProposal,
   localEndpoint,
-  proposalSchema,
   proposalRecipe,
   systemFor,
   schemaFor,

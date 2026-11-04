@@ -53,7 +53,7 @@ export function validateBackupSettings(value) {
       !destination.account ||
       typeof destination.space !== 'string' ||
       !destination.space ||
-      /[\/\\?#%\x00-\x20]/.test(destination.space)
+      /[/\\?#%\x00-\x20]/.test(destination.space)
     )
       throw new Error('Invalid backup destination')
     safePath(destination.folder)
@@ -318,7 +318,9 @@ export class BackupManager {
     let storage = null
     try {
       storage = this.destination ? await this.remoteUsage() : await usage(this.directory)
-    } catch {}
+    } catch {
+      /* Usage unavailable: preserve the explicit unknown storage value. */
+    }
     return { ...this.status(), storage, storageType: this.destination ? 'opencloud' : 'local' }
   }
   attach(actor, api, { background = false } = {}) {

@@ -12,7 +12,7 @@ import {
   processingIssue,
   preparationIssue
 } from '../../companion/processing-issues.mjs'
-import { defaultPolicy, validateBundle } from '../../src/domain/review.ts'
+import { defaultPolicy } from '../../src/domain/review.ts'
 test('direct preparation exposes pinned stages and persists safe timeout diagnostics without approving or writing files', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'workflow-progress-')),
     j = new ProposalJournal(join(dir, 'journal')),

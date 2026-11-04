@@ -28,7 +28,7 @@ it('pauses intake before explicitly saving required AI stages Off, without any d
     calls: string[] = []
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string, options: any) => {
+    vi.fn(async (url: string, _options: any) => {
       const op = url.split('/').pop()!
       calls.push(op)
       return Response.json(

@@ -174,7 +174,9 @@ export class DocumentTrash {
         locks.push(this.w.lock(`resource:${scope}:${this.key(actor, input.resourceId)}`))
       } catch (error) {
         if (error.message === 'Operation already running')
-          throw new Error('This document is busy. Wait for its current operation to finish.')
+          throw new Error('This document is busy. Wait for its current operation to finish.', {
+            cause: error
+          })
         throw error
       }
       this.assertAvailable(actor, input.resourceId)

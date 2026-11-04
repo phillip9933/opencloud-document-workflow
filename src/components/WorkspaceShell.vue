@@ -30,7 +30,9 @@ const token = inject(sessionTokenKey, () => ''),
 onMounted(async () => {
   try {
     await store.loadSpaces()
-  } catch {}
+  } catch {
+    /* Connection below reports authentication and Space errors to the user. */
+  }
   if (token() || store.spaces.value.length)
     try {
       await store.connect()

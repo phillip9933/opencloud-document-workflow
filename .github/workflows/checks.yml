@@ -16,6 +16,8 @@ jobs:
       - name: Install locked tooling
         run: npm install --global pnpm@11.25.0
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run format:check
+      - run: pnpm run lint
       - run: pnpm run check:types
       - run: pnpm run test
       - name: Install extraction tools for source tests

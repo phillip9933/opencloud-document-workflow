@@ -58,7 +58,7 @@ export class PrivateSessionFile {
     try {
       value = JSON.parse(raw)
     } catch {
-      if (!/^[\[{]/.test(raw.trim()) && token(raw.trim()))
+      if (!/^[[{]/.test(raw.trim()) && token(raw.trim()))
         return {
           value: { version: 1, access_token: raw.trim(), expires_at: null },
           hash: digest(raw),

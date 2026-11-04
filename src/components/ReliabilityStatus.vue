@@ -115,6 +115,10 @@ function accessTitle() {
             ? 'Background access needs attention'
             : 'Connecting background access'
 }
+function cancelConnection() {
+  connecting.value = false
+  appToken.value = ''
+}
 </script>
 <template>
   <section class="panel reliability-panel" :aria-label="t('Background access')">
@@ -191,15 +195,7 @@ function accessTitle() {
       <div class="settings-footer">
         <button class="button primary" :disabled="busy || !appToken.trim()">
           {{ t('Connect') }}</button
-        ><button
-          type="button"
-          class="button subtle"
-          :disabled="busy"
-          @click="
-            connecting = false
-            appToken = ''
-          "
-        >
+        ><button type="button" class="button subtle" :disabled="busy" @click="cancelConnection">
           {{ t('Cancel') }}
         </button>
       </div>

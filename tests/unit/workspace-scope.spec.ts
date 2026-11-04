@@ -240,7 +240,7 @@ it('accepts a renewed token only after the server verifies the same account and 
     space: 'chosen',
     name: 'Fixture'
   }
-  const fetcher = vi.fn(async (url: string, options: any) =>
+  const fetcher = vi.fn(async (url: string, _options: any) =>
     url.endsWith('/prepare')
       ? new Promise<Response>((resolve) => {
           finish = resolve

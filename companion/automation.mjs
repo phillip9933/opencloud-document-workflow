@@ -106,7 +106,7 @@ export class Automation {
       release()
     }
   }
-  async execute(actor, api, id, { resume = false, retry = false, allowPaused = false } = {}) {
+  async execute(actor, api, id, { retry = false, allowPaused = false } = {}) {
     const job = this.w.job(actor, id),
       source = JSON.parse(job.input).source
     let prior = this.db

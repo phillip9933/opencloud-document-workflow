@@ -110,6 +110,10 @@ onBeforeUnmount(() => {
   clearInterval(timer)
   alive = false
 })
+function chooseBackupFolder() {
+  folder.value = pickerPath.value
+  pickerOpen.value = false
+}
 </script>
 <template>
   <section class="panel backup-settings" :aria-label="t('Workflow database backups')">
@@ -254,10 +258,7 @@ onBeforeUnmount(() => {
                 type="button"
                 class="button primary"
                 :disabled="!pickerPath"
-                @click="
-                  folder = pickerPath
-                  pickerOpen = false
-                "
+                @click="chooseBackupFolder"
               >
                 {{ t('Use this folder') }}</button
               ><button type="button" class="button subtle" @click="pickerOpen = false">

@@ -187,7 +187,9 @@ export function suggestMetadata(schema: MetadataSchema, pages: string[]) {
               value: checked,
               evidence: [{ page: index + 1, quote: line }]
             })
-          } catch {}
+          } catch {
+            /* An invalid candidate is not an extracted field; other lines may still match. */
+          }
         }
       })
     )

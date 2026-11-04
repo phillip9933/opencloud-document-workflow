@@ -110,6 +110,10 @@ async function save() {
 onMounted((): void => {
   void load()
 })
+function chooseInboxFolder() {
+  configuration.value.folder = pickerPath.value
+  pickerOpen.value = false
+}
 </script>
 <template>
   <section class="intake-settings">
@@ -151,10 +155,7 @@ onMounted((): void => {
             type="button"
             class="button primary"
             :disabled="!pickerPath || busy"
-            @click="
-              configuration.folder = pickerPath
-              pickerOpen = false
-            "
+            @click="chooseInboxFolder"
           >
             {{ t('Use this folder') }}</button
           ><button type="button" class="button subtle" @click="pickerOpen = false">

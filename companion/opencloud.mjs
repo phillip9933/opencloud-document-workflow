@@ -69,7 +69,7 @@ export class OpenCloudAdapter {
     const u = new URL(origin)
     if (u.protocol !== 'https:' || u.origin !== origin || u.username || u.password)
       throw new Error('OpenCloud requires an HTTPS origin')
-    if (typeof space !== 'string' || !space || /[\/\\?#%\x00-\x20]/.test(space))
+    if (typeof space !== 'string' || !space || /[/\\?#%\x00-\x20]/.test(space))
       throw new Error('Invalid configured Space ID')
     if (appToken !== undefined) {
       if (
@@ -163,7 +163,7 @@ export class OpenCloudAdapter {
       )
       if (!Array.isArray(data.value)) throw new Error('Invalid Space directory')
       for (const drive of data.value) {
-        if (typeof drive.id !== 'string' || !drive.id || /[\/\\?#%\x00-\x20]/.test(drive.id))
+        if (typeof drive.id !== 'string' || !drive.id || /[/\\?#%\x00-\x20]/.test(drive.id))
           throw new Error('Invalid Space ID')
         if (drive.root?.deleted || drive.deleted) continue
         found.set(drive.id, {
