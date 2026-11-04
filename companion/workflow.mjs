@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { withTransaction } from './transactions.mjs'
 import { applyFiling } from './filing.mjs'
 import { defaultLimits, validateLimits } from './configuration.mjs'
 import { tagCatalog } from '../src/domain/tag-discovery.ts'
@@ -572,8 +573,7 @@ export class Workflow {
   lock(id) {
     const owner = randomUUID(),
       owners = this.journal.runtime.locks
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
+    withTransaction(this.db, () => {
       const previous = this.db.prepare('select owner from workflow_locks where job=?').get(id)
       if (previous && owners.has(previous.owner))
         throw Object.assign(new Error('Operation already running'), { code: 'WORKFLOW_BUSY' })
@@ -582,12 +582,8 @@ export class Workflow {
       this.db
         .prepare('insert into workflow_locks values(?,?,?,?)')
         .run(id, owner, process.pid, hostname())
-      this.db.exec('COMMIT')
-      owners.add(owner)
-    } catch (error) {
-      this.db.exec('ROLLBACK')
-      throw error
-    }
+    })
+    owners.add(owner)
     return () => {
       this.db.prepare('delete from workflow_locks where job=? and owner=?').run(id, owner)
       owners.delete(owner)

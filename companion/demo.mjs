@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { withTransaction } from './transactions.mjs'
 // An isolated local simulation; never reads or writes OpenCloud storage.
 import { readFileSync } from 'node:fs'
 import { randomUUID, createHash } from 'node:crypto'
@@ -148,8 +149,7 @@ export class DemoAdapter {
       .prepare(`select * from ${this.table} where path=? and etag=? and folder=0`)
       .get(path, etag)
     if (!file) throw new RemoteError(412)
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
+    withTransaction(this.db, () => {
       this.db
         .prepare('insert into demo_trash values(?,?,?,?,?,?,?,?)')
         .run(
@@ -163,11 +163,7 @@ export class DemoAdapter {
           file.data
         )
       this.db.prepare(`delete from ${this.table} where path=? and etag=?`).run(path, etag)
-      this.db.exec('COMMIT')
-    } catch (e) {
-      this.db.exec('ROLLBACK')
-      throw e
-    }
+    })
   }
   async removeTags(resourceId, tags) {
     const file = this.db

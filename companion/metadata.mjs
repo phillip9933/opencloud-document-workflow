@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { withTransaction } from './transactions.mjs'
 import { existingTagName, tagNameKey } from '../src/domain/tag-names.ts'
 import { createHash, randomUUID } from 'node:crypto'
 import {
@@ -179,8 +180,7 @@ export class Metadata {
         throw new Error('Recheck the pending tag operation first')
       const id = randomUUID(),
         expected = current.tags.filter((value) => value !== tag)
-      this.db.exec('BEGIN IMMEDIATE')
-      try {
+      withTransaction(this.db, () => {
         this.db
           .prepare('insert into metadata_changes values(?,?,?,?,?,?,?,?,?,?,?)')
           .run(
@@ -198,11 +198,7 @@ export class Metadata {
           )
         this.db.prepare('insert into metadata_tag_removals values(?,?)').run(id, tag)
         this.w.event(actor, null, 'metadata_tag_removal_intent', { id, resourceId, tag })
-        this.db.exec('COMMIT')
-      } catch (error) {
-        this.db.exec('ROLLBACK')
-        throw error
-      }
+      })
       // One resource-scoped unassignment; never delete the tag definition or retry
       // an uncertain DELETE. Subsequent verification is entirely read-only.
       try {
@@ -242,13 +238,9 @@ export class Metadata {
       !JSON.parse(change.tags).every((t) => current.tags.includes(t))
     )
       return { state: 'intent', uncertain: true }
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
+    withTransaction(this.db, () => {
       const latest = this.db.prepare('select state from metadata_changes where id=?').get(id)
-      if (latest.state === 'done') {
-        this.db.exec('COMMIT')
-        return { state: 'done', record: this.read(actor, change.resource), source: current }
-      }
+      if (latest.state === 'done') return
       if (this.read(actor, change.resource).version !== change.base)
         throw new Error('Metadata version conflict')
       this.db
@@ -270,11 +262,7 @@ export class Metadata {
         resourceId: change.resource,
         version: change.base + 1
       })
-      this.db.exec('COMMIT')
-    } catch (e) {
-      this.db.exec('ROLLBACK')
-      throw e
-    }
+    })
     return { state: 'done', record: this.read(actor, change.resource), source: current }
   }
 }

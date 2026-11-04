@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { withTransaction } from './transactions.mjs'
 import { createHash } from 'node:crypto'
 export class Operations {
   constructor(workflow, { metadata, prepare, convert, session, invalidateSession }) {
@@ -59,8 +60,7 @@ export class Operations {
       return this.status(actor, id)
     }
     const now = new Date().toISOString()
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
+    withTransaction(this.db, () => {
       this.db
         .prepare("insert into bulk_operations values(?,?,?,?,'queued',?,?)")
         .run(id, scope, kind, request, now, now)
@@ -70,11 +70,7 @@ export class Operations {
           .run(id, index, JSON.stringify(input))
       )
       this.w.event(actor, null, 'bulk_queued', { id, kind, count: items.length })
-      this.db.exec('COMMIT')
-    } catch (e) {
-      this.db.exec('ROLLBACK')
-      throw e
-    }
+    })
     this.launch(actor, api, id)
     return this.status(actor, id)
   }

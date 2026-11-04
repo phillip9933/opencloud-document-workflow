@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { withTransaction } from './transactions.mjs'
 import { DatabaseSync } from 'node:sqlite'
 
 export const JOURNAL_SCHEMA_VERSION = 1
@@ -187,15 +188,10 @@ export function migrateJournal(db) {
     verifyJournalSchema(db)
     return
   }
-  db.exec('BEGIN IMMEDIATE')
-  try {
+  withTransaction(db, () => {
     db.exec(baseline)
     upgradeLegacyColumns(db)
     verifyJournalSchema(db)
     db.exec('PRAGMA user_version=1')
-    db.exec('COMMIT')
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
-  }
+  })
 }

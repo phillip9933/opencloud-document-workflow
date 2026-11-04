@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { withTransaction } from './transactions.mjs'
 import { DatabaseSync, backup } from 'node:sqlite'
 import { constants, createReadStream } from 'node:fs'
 import {
@@ -210,8 +211,7 @@ export async function restoreSnapshot(snapshot, target) {
   let before
   try {
     before = inspect(db)
-    db.exec('BEGIN IMMEDIATE')
-    try {
+    withTransaction(db, () => {
       for (const row of db.prepare('select scope,value from intake_settings').all()) {
         const config = JSON.parse(row.value)
         config.enabled = false
@@ -221,11 +221,7 @@ export async function restoreSnapshot(snapshot, target) {
         )
       }
       db.exec('delete from workflow_locks')
-      db.exec('COMMIT')
-    } catch (e) {
-      db.exec('ROLLBACK')
-      throw e
-    }
+    })
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
     inspect(db)
   } finally {

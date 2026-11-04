@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { withTransaction } from './transactions.mjs'
 import { logEvent } from './logging.mjs'
 import { createHash, randomUUID } from 'node:crypto'
 import { pageOptions, pageCursor } from './pagination.mjs'
@@ -149,8 +150,7 @@ export class Intake {
     const selected = ids === undefined ? null : new Set(ids),
       scope = this.w.scope(actor)
     let affected = 0
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
+    withTransaction(this.db, () => {
       if (action === 'pause' || action === 'resume' || (action === 'cancel' && !selected)) {
         this.db
           .prepare(
@@ -189,11 +189,7 @@ export class Intake {
         affected,
         selection: selected ? 'selected' : 'all'
       })
-      this.db.exec('COMMIT')
-    } catch (e) {
-      this.db.exec('ROLLBACK')
-      throw e
-    }
+    })
     return { affected, paused: this.paused(actor), summary: this.summary(actor) }
   }
   configuration(actor) {

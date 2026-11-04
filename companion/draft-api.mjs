@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { withTransaction } from './transactions.mjs'
 import { logEvent } from './logging.mjs'
 import { tagNameKey } from '../src/domain/tag-names.ts'
 import { ProposalJournal } from './journal.mjs'
@@ -275,16 +276,11 @@ export function createDraftAPI({
           configuration.policy.aiInput !== 'off' &&
           configuration.policy.aiOutput !== 'off' &&
           configuration.ai.tasks.facts === 'off'
-      journal.db.exec('BEGIN IMMEDIATE')
       let saved
-      try {
+      withTransaction(journal.db, () => {
         saved = workflow.savePreference(actor, configuration)
         if (paused) intake.save(actor, { ...prior, enabled: false }, api)
-        journal.db.exec('COMMIT')
-      } catch (e) {
-        journal.db.exec('ROLLBACK')
-        throw e
-      }
+      })
       send(res, 200, { ...saved, paused })
       return true
     },
@@ -419,16 +415,11 @@ export function createDraftAPI({
       if (body.duplicateAction !== undefined && !['keep', 'trash'].includes(body.duplicateAction))
         throw new Error('Choose a duplicate action')
       let config
-      journal.db.exec('BEGIN IMMEDIATE')
-      try {
+      withTransaction(journal.db, () => {
         config = intake.save(actor, checked, api)
         if (body.duplicateAction !== undefined)
           duplicates.save(actor, body.duplicateAction, checked.folder)
-        journal.db.exec('COMMIT')
-      } catch (e) {
-        journal.db.exec('ROLLBACK')
-        throw e
-      }
+      })
       send(res, 200, { configuration: config, duplicateAction: duplicates.action(actor) })
       return true
     },
@@ -592,16 +583,12 @@ export function createDraftAPI({
     async 'filing-settings-save'({ actor, api, body, res }) {
       const targetSpace = body.destinationSpace ?? configurationStore.destinationSpace(actor)
       await transfers.adapter(actor, api, targetSpace)
-      journal.db.exec('BEGIN IMMEDIATE')
-      try {
+      let result
+      withTransaction(journal.db, () => {
         configurationStore.saveDestination(actor, targetSpace)
-        const result = configurationStore.save(actor, body)
-        journal.db.exec('COMMIT')
-        send(res, 200, { ...result, destinationSpace: targetSpace })
-      } catch (e) {
-        journal.db.exec('ROLLBACK')
-        throw e
-      }
+        result = configurationStore.save(actor, body)
+      })
+      send(res, 200, { ...result, destinationSpace: targetSpace })
       return true
     },
     async 'tag-options'({ actor, api, res }) {
