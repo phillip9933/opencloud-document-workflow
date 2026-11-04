@@ -718,5 +718,20 @@
   "Field and tag updates": "項目とタグの更新",
   "Automatic filing": "自動整理",
   "Queue record": "キューの記録",
-  "Beta": "ベータ"
+  "Beta": "ベータ",
+  "The document details are invalid. Review them before continuing.": "文書の詳細が無効です。内容を確認してから続行してください。",
+  "The suggested folder could not be verified against the document.": "提案されたフォルダーを文書の内容と照合できませんでした。",
+  "The suggested folder is not in the configured categories.": "提案されたフォルダーは設定済みのカテゴリーにありません。",
+  "The suggested tags could not be verified against the document.": "提案されたタグを文書の内容と照合できませんでした。",
+  "Choose a valid tag name.": "有効なタグ名を指定してください。",
+  "This document is busy. Wait for its current operation to finish.": "この文書は処理中です。現在の操作が完了するまでお待ちください。",
+  "Invalid request": "リクエストが無効です",
+  "Request exceeds limit": "リクエストが上限を超えています",
+  "OpenCloud sign-in required": "OpenCloudへのログインが必要です",
+  "OpenCloud access denied": "OpenCloudへのアクセスが拒否されました",
+  "Resource not found": "リソースが見つかりません",
+  "Operation held. {reason}": "操作を保留しました。{reason}",
+  "OpenCloud returned HTTP {status}.": "OpenCloudがHTTP {status}を返しました。",
+  "Companion request failed": "コンパニオンへのリクエストに失敗しました",
+  "Companion is not connected. Start the companion server or configure its same-origin route.": "コンパニオンに接続されていません。サーバーを起動するか、同一オリジンのルートを設定してください。"
 }

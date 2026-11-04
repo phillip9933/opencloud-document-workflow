@@ -53,7 +53,11 @@ export function createLocale({
       /* Keep the in-memory selection when browser storage is unavailable. */
     }
   }
-  function t(message: string, parameters: Record<string, string | number> = {}) {
+  function t(message: string, parameters: Record<string, string | number> = {}): string {
+    if (message !== 'Operation held. {reason}' && message.startsWith('Operation held. '))
+      return t('Operation held. {reason}', { reason: t(message.slice('Operation held. '.length)) })
+    const remoteStatus = /^OpenCloud HTTP (\d{3})$/.exec(message)
+    if (remoteStatus) return t('OpenCloud returned HTTP {status}.', { status: remoteStatus[1] })
     const translated = catalogs[locale.value][message] ?? message
     return translated.replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g, (original, key) =>
       parameters[key] === undefined

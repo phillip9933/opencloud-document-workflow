@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { createCompanionRequest } from './companion-request'
 import { inject, ref, computed, toRaw } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 import type { InjectionKey } from 'vue'
@@ -172,82 +173,12 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     inbox = ref('Inbox'),
     intakeEnabled = ref(false),
     connectionError = ref('')
-  async function request(operation: string, body: unknown = {}) {
-    const bearer = token(),
-      generation = workspaceGeneration,
-      pin = connection.value
-        ? JSON.stringify([
-            connection.value.server,
-            connection.value.account,
-            connection.value.space
-          ])
-        : null,
-      space = activeSpace.value
-    let verifiedBearer = bearer
-    const checkSession = async () => {
-      if (generation !== workspaceGeneration)
-        throw new Error('The workspace changed. Reload its current state before continuing.')
-      if (verifiedBearer === token()) return
-      const renewed = token()
-      if (!pin || !renewed)
-        throw new Error('The workspace changed. Reload its current state before continuing.')
-      // Token renewal is normal during OCR. Re-authenticate the current session
-      // before exposing a response produced under the earlier credential.
-      const check = await fetch('/_workflow/api/status', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${renewed}`,
-          ...(space ? { 'X-Workflow-Space': space } : {})
-        },
-        body: JSON.stringify({ activeOnly: true }),
-        signal: AbortSignal.timeout(30_000)
-      })
-      const status = check.ok ? await check.json() : null,
-        actor = status?.actor
-      if (
-        generation !== workspaceGeneration ||
-        renewed !== token() ||
-        !actor ||
-        JSON.stringify([actor.server, actor.account, actor.space]) !== pin
-      )
-        throw new Error('The workspace changed. Reload its current state before continuing.')
-      verifiedBearer = renewed
-    }
-    const response = await fetch(`/_workflow/api/${operation}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
-        ...(activeSpace.value ? { 'X-Workflow-Space': activeSpace.value } : {})
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(480_000)
-    })
-    await checkSession()
-    if (operation === 'preview' && response.ok) {
-      const blob = await response.blob()
-      await checkSession()
-      return blob
-    }
-    let result
-    try {
-      result = await response.json()
-    } catch {
-      throw new Error(
-        'Companion is not connected. Start the draft server or configure its same-origin route.'
-      )
-    }
-    await checkSession()
-    if (!response.ok)
-      throw Object.assign(
-        new Error(result.error || 'Companion request failed'),
-        operation === 'document-trash' && result.trashRecorded === false
-          ? { trashRecorded: false }
-          : {}
-      )
-    return result
-  }
+  const request = createCompanionRequest({
+    token,
+    space: () => activeSpace.value,
+    generation: () => workspaceGeneration,
+    connection: () => connection.value
+  })
   let reviewJobs = new WeakMap<Review, string>()
   const jobsById = computed(() => new Map(jobs.value.map((job) => [job.id, job])))
   function installJobs(rows: DraftJob[]) {

@@ -718,5 +718,20 @@
   "Field and tag updates": "Field and tag updates",
   "Automatic filing": "Automatic filing",
   "Queue record": "Queue record",
-  "Beta": "Beta"
+  "Beta": "Beta",
+  "The document details are invalid. Review them before continuing.": "The document details are invalid. Review them before continuing.",
+  "The suggested folder could not be verified against the document.": "The suggested folder could not be verified against the document.",
+  "The suggested folder is not in the configured categories.": "The suggested folder is not in the configured categories.",
+  "The suggested tags could not be verified against the document.": "The suggested tags could not be verified against the document.",
+  "Choose a valid tag name.": "Choose a valid tag name.",
+  "This document is busy. Wait for its current operation to finish.": "This document is busy. Wait for its current operation to finish.",
+  "Invalid request": "Invalid request",
+  "Request exceeds limit": "Request exceeds limit",
+  "OpenCloud sign-in required": "OpenCloud sign-in required",
+  "OpenCloud access denied": "OpenCloud access denied",
+  "Resource not found": "Resource not found",
+  "Operation held. {reason}": "Operation held. {reason}",
+  "OpenCloud returned HTTP {status}.": "OpenCloud returned HTTP {status}.",
+  "Companion request failed": "Companion request failed",
+  "Companion is not connected. Start the companion server or configure its same-origin route.": "Companion is not connected. Start the companion server or configure its same-origin route."
 }

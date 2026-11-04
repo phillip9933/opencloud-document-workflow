@@ -718,5 +718,20 @@
   "Field and tag updates": "Mises à jour des champs et étiquettes",
   "Automatic filing": "Classement automatique",
   "Queue record": "Enregistrement de la file",
-  "Beta": "Bêta"
+  "Beta": "Bêta",
+  "The document details are invalid. Review them before continuing.": "Les détails du document sont invalides. Vérifiez-les avant de continuer.",
+  "The suggested folder could not be verified against the document.": "Le dossier suggéré n’a pas pu être vérifié à partir du document.",
+  "The suggested folder is not in the configured categories.": "Le dossier suggéré ne figure pas dans les catégories configurées.",
+  "The suggested tags could not be verified against the document.": "Les étiquettes suggérées n’ont pas pu être vérifiées à partir du document.",
+  "Choose a valid tag name.": "Choisissez un nom d’étiquette valide.",
+  "This document is busy. Wait for its current operation to finish.": "Ce document est en cours de traitement. Attendez la fin de l’opération.",
+  "Invalid request": "Requête invalide",
+  "Request exceeds limit": "La requête dépasse la limite",
+  "OpenCloud sign-in required": "Une connexion à OpenCloud est nécessaire",
+  "OpenCloud access denied": "Accès à OpenCloud refusé",
+  "Resource not found": "Ressource introuvable",
+  "Operation held. {reason}": "Opération suspendue. {reason}",
+  "OpenCloud returned HTTP {status}.": "OpenCloud a renvoyé le code HTTP {status}.",
+  "Companion request failed": "La requête au service compagnon a échoué",
+  "Companion is not connected. Start the companion server or configure its same-origin route.": "Le service compagnon n’est pas connecté. Démarrez-le ou configurez sa route sur la même origine."
 }
