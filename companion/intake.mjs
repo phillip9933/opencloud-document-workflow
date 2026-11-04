@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import {logEvent} from './logging.mjs'
 import {createHash,randomUUID} from 'node:crypto'
 import {pageOptions,pageCursor} from './pagination.mjs'
 import {inboxSummary} from './inbox.mjs'
@@ -9,7 +10,7 @@ export const defaultIntake=()=>({enabled:false,folder:'Inbox',recursive:true,int
 export function validateIntake(c){if(!c||Object.keys(c).sort().join(',')!=='cloudConsent,enabled,folder,intervalSeconds,recursive,settleSeconds'||typeof c.cloudConsent!=='boolean'||typeof c.enabled!=='boolean'||typeof c.recursive!=='boolean'||!Number.isInteger(c.intervalSeconds)||(c.intervalSeconds!==0&&c.intervalSeconds<5)||c.intervalSeconds>86400||!Number.isInteger(c.settleSeconds)||c.settleSeconds<2||c.settleSeconds>3600)throw new Error('Invalid intake settings');safePath(c.folder);return structuredClone(c)}
 const sha=b=>createHash('sha256').update(b).digest('hex')
 export class Intake {
- constructor(workflow,{prepare,processPrepared,resume,now=()=>Date.now(),schedule=setTimeout,cancel=clearTimeout}={}){this.w=workflow;this.db=workflow.db;this.prepare=prepare;this.processPrepared=processPrepared;this.resume=resume;this.now=now;this.schedule=schedule;this.cancel=cancel;this.manualChecks=new Map();this.sessions=new Map();this.backgroundSessions=new Map();this.running=false;this.activeScope=null;this.stopped=false;this.db.exec(`CREATE TABLE IF NOT EXISTS intake_settings(scope TEXT PRIMARY KEY,value TEXT NOT NULL,last_scan INTEGER NOT NULL DEFAULT 0);
+ constructor(workflow,{logger=logEvent,prepare,processPrepared,resume,now=()=>Date.now(),schedule=setTimeout,cancel=clearTimeout}={}){this.logger=logger;this.w=workflow;this.db=workflow.db;this.prepare=prepare;this.processPrepared=processPrepared;this.resume=resume;this.now=now;this.schedule=schedule;this.cancel=cancel;this.manualChecks=new Map();this.sessions=new Map();this.backgroundSessions=new Map();this.running=false;this.activeScope=null;this.stopped=false;this.db.exec(`CREATE TABLE IF NOT EXISTS intake_settings(scope TEXT PRIMARY KEY,value TEXT NOT NULL,last_scan INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS intake_health(scope TEXT PRIMARY KEY,last_attempt INTEGER,last_success INTEGER,reason TEXT,message TEXT);
  CREATE TABLE IF NOT EXISTS intake_queue(id TEXT PRIMARY KEY,scope TEXT NOT NULL,resource TEXT NOT NULL,path TEXT NOT NULL,etag TEXT NOT NULL,first_seen INTEGER NOT NULL,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL DEFAULT 0,job TEXT,detail TEXT);
  CREATE INDEX IF NOT EXISTS intake_scope ON intake_queue(scope,state);
@@ -78,7 +79,7 @@ export class Intake {
   this.manualChecks.set(scope,check);this.scheduleCheck(scope,check,0)
   return{state:'scheduled'}
  }
- scheduleCheck(scope,check,delay){check.timer=this.schedule(()=>{check.timer=undefined;void this.runCheck(scope,check).catch(()=>{if(this.manualChecks.get(scope)===check)this.cancelCheck(scope)})},delay);check.timer?.unref?.()}
+ scheduleCheck(scope,check,delay){check.timer=this.schedule(()=>{check.timer=undefined;void this.runCheck(scope,check).catch(error=>{this.recordFailure(error);if(this.manualChecks.get(scope)===check)this.cancelCheck(scope)})},delay);check.timer?.unref?.()}
  async runCheck(scope,check){
   if(this.stopped||this.manualChecks.get(scope)!==check)return
   const session=this.sessions.get(scope)
@@ -161,11 +162,12 @@ export class Intake {
        // Waiting for an active worker is not a failed document attempt.
        this.db.prepare("update intake_queue set state='queued',attempts=attempts-1,next_attempt=?,stage=NULL,issue=NULL,detail=NULL where id=? and state='running'").run(this.now()+1000,item.id)
        continue
-      }if([401,403].includes(error.status)){this.db.prepare("update intake_queue set state='queued',attempts=attempts-1,stage=NULL,issue=NULL where id=? and state='running'").run(item.id);if(this.sessions.get(scope)===currentSession)this.detach(currentSession.api);throw error}const issue=preparationIssue(error);this.db.prepare("update intake_content set job=(select p.id from proposals p where p.scope=intake_content.scope and json_extract(p.input,'$.source.sha256')=intake_content.sha and json_extract(p.input,'$.source.resourceId')=intake_content.resource order by p.updated desc,p.id desc limit 1) where scope=? and resource=?").run(scope,item.resource);const attempts=item.attempts+1;if(this.db.prepare("update intake_queue set state='failed',next_attempt=?,detail=?,issue=? where id=? and state='running'").run(this.now()+Math.min(3600,30*2**attempts)*1000,issue.message,JSON.stringify(issue),item.id).changes)this.w.event(actor,null,'intake_held',{path:item.path,attempts})}
+      }if([401,403].includes(error.status)){this.db.prepare("update intake_queue set state='queued',attempts=attempts-1,stage=NULL,issue=NULL where id=? and state='running'").run(item.id);if(this.sessions.get(scope)===currentSession)this.detach(currentSession.api);throw error}this.logger('intake_document_held',error);const issue=preparationIssue(error);this.db.prepare("update intake_content set job=(select p.id from proposals p where p.scope=intake_content.scope and json_extract(p.input,'$.source.sha256')=intake_content.sha and json_extract(p.input,'$.source.resourceId')=intake_content.resource order by p.updated desc,p.id desc limit 1) where scope=? and resource=?").run(scope,item.resource);const attempts=item.attempts+1;if(this.db.prepare("update intake_queue set state='failed',next_attempt=?,detail=?,issue=? where id=? and state='running'").run(this.now()+Math.min(3600,30*2**attempts)*1000,issue.message,JSON.stringify(issue),item.id).changes)this.w.event(actor,null,'intake_held',{path:item.path,attempts})}
      }
      if(this.resume&&!this.stopped&&!this.paused(actor)&&this.sessions.has(scope))await this.resume(actor,this.sessions.get(scope).api)
      this.db.prepare('update intake_health set last_success=?,reason=NULL,message=NULL where scope=?').run(this.now(),scope)
     }catch(e){
+     this.logger('intake_scan_failed',e)
      if(this.paused(actor)||!this.configuration(actor).enabled)continue
      const sessionFailure=[401,403].includes(e.status),message=sessionFailure?'Session expired or access revoked':'Check source folder access, session and connectivity'
      this.db.prepare('update intake_health set reason=?,message=? where scope=?').run(sessionFailure?'session':'source',message,scope)
@@ -176,8 +178,15 @@ export class Intake {
     }finally{this.activeScope=null}
    }
   return true
-  }catch(e){if(e.code!=='WORKFLOW_BUSY')throw e;return false}finally{release?.();this.running=false}
+  }catch(e){if(e.code!=='WORKFLOW_BUSY')this.recordFailure(e);return false}finally{release?.();this.running=false}
  }
- start(){if(this.timer)return;this.timer=setInterval(()=>{void this.tick().catch(()=>{})},1000);this.timer.unref()}
+ recordFailure(error) {
+  this.logger('intake_worker_failed',error)
+  // If the journal itself is unavailable the structured log remains the fallback.
+  try {
+   for (const scope of this.sessions.keys()) this.db.prepare("insert into intake_health(scope,last_attempt,reason,message) values(?,?,'worker','Background processing stopped unexpectedly. Check server logs.') on conflict(scope) do update set last_attempt=excluded.last_attempt,reason=excluded.reason,message=excluded.message").run(scope,this.now())
+  } catch { /* The log above records the failure without exporting private state. */ }
+ }
+ start(){if(this.timer)return;this.timer=setInterval(()=>{void this.tick().catch(error=>this.recordFailure(error))},1000);this.timer.unref()}
  async stop(){this.stopped=true;clearInterval(this.timer);for(const scope of this.manualChecks.keys())this.cancelCheck(scope);while(this.running)await new Promise(r=>setTimeout(r,20))}
 }

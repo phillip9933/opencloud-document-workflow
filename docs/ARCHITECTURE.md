@@ -36,6 +36,10 @@ Approvals bind to the exact source identity, hash, ETag, proposal or manual-revi
 
 Identical-byte duplicate handling is scoped to the authenticated workflow. Recoverable Trash is opt-in and verified. No similarity-based automatic deletion or purge is exposed.
 
+## Operational logging
+
+The companion emits one JSON record per failure to stderr. Records contain a timestamp, a fixed event name, a bounded error type/code/status and companion source file/line locations. Raw exception messages, full stacks, URLs, document paths/content, account identities and tokens are excluded. API failures after a sent response are logged without sending another response; partial responses close their connection. Unexpected intake-loop failures mark attached scopes as held, with server logs as the fallback if the journal cannot be written. A subsequent successful scan clears the hold. Logs do not authorize retries or replay uncertain writes.
+
 ## Deployment
 
 The companion runs without root, with a read-only filesystem, dropped capabilities, private volumes and no published host ports. The proxy forwards Host, Origin and Authorization to a same-origin route. Traefik automation is optional; external proxies need an equivalent route. No raw OpenCloud storage or identity-provider changes are required.

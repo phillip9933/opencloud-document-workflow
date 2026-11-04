@@ -184,3 +184,25 @@ test('outer HTTP boundary handles errors before, during and after the response',
     assert.equal(destroyed, phase === 'partial')
   }
 })
+
+test('unexpected intake worker failures update health and recover on the next check', async () => {
+  const f = fixture(), logged = []
+  const actor = await f.adapter.identity()
+  const intake = new Intake(f.workflow, { logger: (event) => logged.push(event) })
+  try {
+    intake.save(actor, { ...defaultIntake(), enabled: true }, f.adapter)
+    await intake.tick({ force: true })
+    assert.equal(intake.status(actor).health.state, 'ready')
+    const lock = f.workflow.lock.bind(f.workflow)
+    f.workflow.lock = () => { throw Error('private storage failure') }
+    assert.equal(await intake.tick({ force: true }), false)
+    const health = intake.status(actor).health
+    assert.equal(health.state, 'held')
+    assert.equal(health.reason, 'worker')
+    assert.doesNotMatch(JSON.stringify(health), /private storage failure/)
+    assert.deepEqual(logged, ['intake_worker_failed'])
+    f.workflow.lock = lock
+    await intake.tick({ force: true })
+    assert.equal(intake.status(actor).health.state, 'ready')
+  } finally { await intake.stop(); f.close() }
+})

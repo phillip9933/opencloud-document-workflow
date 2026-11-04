@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import {createServer} from 'node:http'
 import {handleRequest} from './http-handler.mjs'
+import {logEvent} from './logging.mjs'
 import {readFile} from 'node:fs/promises'
 import {resolve,extname,dirname} from 'node:path'
 import {AppTokenSessions} from './app-tokens.mjs'
@@ -39,5 +40,5 @@ const server=createServer(handleRequest(async(req,res)=>{
   const data=await readFile(path)
   res.writeHead(200,{'Content-Type':types[extname(path)]||'application/octet-stream','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; font-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src blob:; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'"});res.end(data)
 }))
-server.listen(port,listen,()=>console.log(`Document Workflow ${mode} draft: ${origin}`))
-for(const name of ['SIGINT','SIGTERM'])process.on(name,()=>server.close(async()=>{await appTokens?.stop();await session?.stop();await backups?.stop();await api.stop();process.exit(0)}))
+server.listen(port,listen,()=>logEvent('server_started'))
+for(const name of ['SIGINT','SIGTERM'])process.on(name,()=>server.close(async()=>{try{await appTokens?.stop();await session?.stop();await backups?.stop();await api.stop();process.exit(0)}catch(error){logEvent('shutdown_failed',error);process.exit(1)}}))
