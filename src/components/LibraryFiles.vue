@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { WorkflowError } from '../domain/errors'
+
 // SPDX-License-Identifier: AGPL-3.0-only
 import { ref, computed, watch, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { useWorkspace } from '../state/workspace'
@@ -97,7 +99,10 @@ async function load() {
         if (result.status === 'rejected') throw result.reason
         const value = result.value
         if (value.root !== initial.root || value.space !== initial.space)
-          throw new Error('The filing destination changed. Refresh documents.')
+          throw new WorkflowError(
+            'SOURCE_CHANGED',
+            'The filing destination changed. Refresh documents.'
+          )
         for (const entry of value.files ?? []) {
           next.push(entry)
           if (entry.folder && !seen.has(entry.path)) pending.push(entry.path)

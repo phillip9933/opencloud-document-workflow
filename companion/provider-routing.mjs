@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { createHash } from 'node:crypto'
 import { validateAIConfig } from '../src/domain/ai.ts'
 /** @param {string} value */
@@ -21,7 +22,8 @@ export function localEndpoint(value) {
     u.hash ||
     u.pathname !== '/'
   )
-    throw new Error(
+    throw new WorkflowError(
+      'OPERATION_HELD',
       'Local Ollama requires an explicit private-network or loopback origin without credentials'
     )
   return u.origin
@@ -37,7 +39,10 @@ export function cloudEndpoint(value) {
     u.hash ||
     u.pathname.includes('//')
   )
-    throw new Error('Cloud provider requires an HTTPS API base without credentials')
+    throw new WorkflowError(
+      'OPERATION_HELD',
+      'Cloud provider requires an HTTPS API base without credentials'
+    )
   return u.href.replace(/\/$/, '')
 }
 /** @param {{ai:import('../src/domain/ai.ts').AIConfig,policy:import('../src/domain/review.ts').Policy}} preferences
@@ -61,7 +66,10 @@ export function resolveExecutionConfig(
       recipe: 'local-rules-v1'
     }
   if (ai.tasks.facts === 'off')
-    throw new Error('Enable fact extraction before preparing a filing review')
+    throw new WorkflowError(
+      'OPERATION_HELD',
+      'Enable fact extraction before preparing a filing review'
+    )
   for (const task of /** @type {const} */ (['facts', 'filing', 'tags'])) {
     const provider = ai.tasks[task]
     if (provider === 'off') {
@@ -72,12 +80,22 @@ export function resolveExecutionConfig(
       endpoint =
         provider === 'local' ? localEndpoint(selected.endpoint) : cloudEndpoint(selected.endpoint)
     if (provider === 'local' && endpoint !== local)
-      throw new Error('Local provider must match operator configuration')
+      throw new WorkflowError(
+        'VALIDATION_INVALID',
+        'Local provider must match operator configuration'
+      )
     if (provider === 'cloud' && (!cloudKey || !cloud || endpoint !== cloudEndpoint(cloud)))
-      throw new Error('Cloud execution is not enabled for this provider by the companion operator')
+      throw new WorkflowError(
+        'OPERATION_HELD',
+        'Cloud execution is not enabled for this provider by the companion operator'
+      )
     routes[task] = { provider, endpoint, model: ai.modelOverrides[task] || selected.model }
   }
-  if (!routes.facts) throw new Error('Enable fact extraction before preparing a filing review')
+  if (!routes.facts)
+    throw new WorkflowError(
+      'OPERATION_HELD',
+      'Enable fact extraction before preparing a filing review'
+    )
   return {
     ...(ai.tagDiscovery && ai.tagDiscovery !== 'off' && routes.tags
       ? { tagDiscovery: ai.tagDiscovery }

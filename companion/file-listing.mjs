@@ -97,26 +97,7 @@ export function describeFiles({ workflow }, actor, listing) {
       automatic = current ? records.automatic.get(latest.id) : null,
       processed = current && (latest.decision === 'done' || automatic?.state === 'done')
     const bulk = records.bulk.get(recordKey(f.resourceId, f.etag))
-    const latestRunning =
-        current && !latest.decision && ['running', 'pending', 'failed'].includes(latest.state),
-      state = processed
-        ? 'processed'
-        : bulk?.state === 'running'
-          ? 'running'
-          : bulk?.state === 'queued'
-            ? 'queued'
-            : bulk?.state === 'held'
-              ? 'failed'
-              : latestRunning
-                ? latest.state === 'pending'
-                  ? 'queued'
-                  : latest.state
-                : queued?.state
-    let stage = queued?.stage ?? null
-    if (bulk && ['running', 'held'].includes(bulk.state)) {
-      stage = bulk.result.stage ?? 'reading'
-    } else if (latestRunning)
-      stage = ['running', 'failed'].includes(latest.state) ? 'analysing' : 'reading'
+    const { state, stage } = listingStage(processed, bulk, current ? latest : undefined, queued)
     const progress =
       !/\.pdf$/i.test(f.path) && !current
         ? { step: 1, total: 5, label: 'Choose filing details', attention: false }
@@ -145,4 +126,33 @@ export function describeFiles({ workflow }, actor, listing) {
         : {})
     }
   })
+}
+
+/** @param {boolean|undefined} processed
+ * @param {ReturnType<typeof selectBulkPreparation>|undefined} bulk
+ * @param {{decision:string|null,state:string}|undefined} latest
+ * @param {{state:string,stage:string|null}|undefined} queued
+ */
+function listingStage(processed, bulk, latest, queued) {
+  const latestRunning =
+      latest && !latest.decision && ['running', 'pending', 'failed'].includes(latest.state),
+    state = processed
+      ? 'processed'
+      : bulk?.state === 'running'
+        ? 'running'
+        : bulk?.state === 'queued'
+          ? 'queued'
+          : bulk?.state === 'held'
+            ? 'failed'
+            : latestRunning
+              ? latest.state === 'pending'
+                ? 'queued'
+                : latest.state
+              : queued?.state
+  let stage = queued?.stage ?? null
+  if (bulk && ['running', 'held'].includes(bulk.state)) {
+    stage = bulk.result.stage ?? 'reading'
+  } else if (latestRunning)
+    stage = ['running', 'failed'].includes(latest.state) ? 'analysing' : 'reading'
+  return { state, stage }
 }

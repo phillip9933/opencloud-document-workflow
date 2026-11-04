@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { WorkflowError } from '../domain/errors'
+
 // SPDX-License-Identifier: AGPL-3.0-only
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { useWorkspace } from '../state/workspace'
@@ -61,7 +63,10 @@ async function browse(value: string) {
   error.value = ''
   try {
     if (value !== props.root && !value.startsWith(props.root + '/'))
-      throw new Error('Choose a folder inside the document destination')
+      throw new WorkflowError(
+        'VALIDATION_INVALID',
+        'Choose a folder inside the document destination'
+      )
     const result = await store.request('files', { path: value, documentSpace: props.space })
     if (alive && version === generation) {
       folders.value = (result.files ?? []).filter(

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../domain/errors'
 import { computed, ref } from 'vue'
 import type { Ref } from 'vue'
 import { useWorkspace } from './workspace'
@@ -48,7 +49,8 @@ export function useInboxNavigation(resource: Ref<string | undefined>, blocked: R
   async function open(file: DraftFile) {
     const pin = scope(),
       location = await store.inboxLocation(file)
-    if (pin !== scope()) throw new Error('The workspace changed. Reopen this document.')
+    if (pin !== scope())
+      throw new WorkflowError('SOURCE_CHANGED', 'The workspace changed. Reopen this document.')
     await router.push(location)
   }
   async function move(delta: number) {

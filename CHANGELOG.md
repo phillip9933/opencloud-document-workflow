@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.20.2 Beta
+
+- Recover backup ownership after unclean stops and remove unreferenced temporary snapshots while retaining uncertain upload recovery data.
+- Queue and retry busy batch preparations and automatic document work; stop the intake download cycle on contention.
+- Avoid false source failures during shutdown and preserve SQLite's original error after automatic rollback.
+- Add private-safe backup/session/batch/automation diagnostics and distinguish expected access or contention events from internal failures.
+- Split batch execution and automatic field resolution, extend strict backend checks, and reuse intake status reads.
+- Extend strict checks through the proposal journal and local/cloud AI response paths; reject malformed provider envelopes with bounded, private-safe failures.
+- Separate saved document metadata and draft editing into typed UI components, preserving save verification and source identity checks.
+- Extend strict checks into workflow, intake, processing diagnostics and queue API handlers; separate queue reporting, validated preparation persistence and completed-file verification.
+- Split the review filing panel and decision controls while preserving approval, takeover and uncertain-write recovery states.
+- Hold incomplete resumed filing plans before writes and safely record non-Error preparation failures without leaving the intake worker running.
+
+- Complete strict checks across API routes, automatic filing, conversions, duplicates and their adapters; validate unknown request values before dispatch.
+- Split automatic authorization/approval, duplicate verification/Trash, conversion preparation/replacement and API route groups while retaining recovery guards.
+- Distinguish typed domain holds from redacted internal HTTP failures and preserve safe diagnostic severity.
+- Extract typed metadata definition editors and processing controls, preserving unsaved settings across tabs and shared layout styles.
+
+## 0.20.1 Beta
+
+- Recover journal ownership after unclean stops without relying on container hostnames or reused process IDs.
+- Preserve intake retry attempts during preparation contention and avoid sending a second HTTP response after a late error.
+- Introduce versioned journal migrations, private-safe structured logging and shared transaction/request boundaries.
+- Expand regression tests and strict backend type checks; simplify filing, preparation, request dispatch and frontend request/preview handling.
+- Validate fresh OpenCloud 9/Caddy installation, isolated upgrade, backup restore and repeat-install behavior.
+
 ## 0.20.0 Beta
 
 - Separate local PDF text extraction, Tesseract OCR and rule-based custom fields/tags from optional AI review. AI off makes no model calls and still prepares manual reviews.

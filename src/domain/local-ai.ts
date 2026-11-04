@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from './errors.ts'
 import { validateBundle } from './review'
 export interface LocalModel {
   name: string
@@ -15,15 +16,22 @@ async function request(path: string, body: unknown) {
   try {
     data = await response.json()
   } catch {
-    throw new Error('The local AI companion is not connected to this app.')
+    throw new WorkflowError(
+      'OPERATION_HELD',
+      'The local AI companion is not connected to this app.'
+    )
   }
   if (!response.ok)
-    throw new Error(typeof data.error === 'string' ? data.error : 'Local AI request failed')
+    throw new WorkflowError(
+      'OPERATION_HELD',
+      typeof data.error === 'string' ? data.error : 'Local AI request failed'
+    )
   return data
 }
 export async function discoverLocalModels(endpoint: string): Promise<LocalModel[]> {
   const data = await request('models', { endpoint })
-  if (!Array.isArray(data.models)) throw new Error('Invalid companion model list')
+  if (!Array.isArray(data.models))
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid companion model list')
   return data.models
 }
 export async function generateSyntheticReview(endpoint: string, model: string, sample: number) {

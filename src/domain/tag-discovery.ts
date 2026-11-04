@@ -21,7 +21,7 @@ export const tagKey = (value: string) =>
   value.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
 export function tagCatalog(values: unknown): string[] {
   if (!Array.isArray(values) || values.length > 5000)
-    throw new Error('Tag directory exceeds the supported review size')
+    throw new WorkflowError('VALIDATION_INVALID', 'Tag directory exceeds the supported review size')
   const result: string[] = [],
     keys = new Set<string>()
   for (const value of values) {
@@ -41,9 +41,10 @@ export function validateTagDiscovery(value: unknown): TagDiscovery {
     Array.isArray(value) ||
     Object.keys(value).sort().join(',') !== 'catalog,mode'
   )
-    throw new Error('Invalid tag discovery snapshot')
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid tag discovery snapshot')
   const v = value as TagDiscovery
-  if (!['existing', 'create'].includes(v.mode)) throw new Error('Invalid tag discovery mode')
+  if (!['existing', 'create'].includes(v.mode))
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid tag discovery mode')
   return { mode: v.mode, catalog: tagCatalog(v.catalog) }
 }
 export function canonicalTag(value: string, discovery?: TagDiscovery): string {

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../domain/errors'
 import { onBeforeUnmount, ref } from 'vue'
 import { pdfHash } from '../domain/source'
 
@@ -34,7 +35,7 @@ export function useVerifiedPreview() {
       if (!current()) return
       if (hash !== expectedHash) {
         changed.value = true
-        throw new Error(messages.changed)
+        throw new WorkflowError('SOURCE_CHANGED', messages.changed)
       }
       data.value = blob
     } catch (cause) {

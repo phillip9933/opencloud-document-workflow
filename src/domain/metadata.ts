@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from './errors.ts'
 import { printedDateISO, layoutSubstringSupported } from './languages.ts'
 export interface FieldDefinition {
   id: string
@@ -19,7 +20,7 @@ export interface MetadataSchema {
 export const defaultMetadataSchema = (): MetadataSchema => ({ fields: [], tags: [] })
 const str = (v: unknown, max = 150): string => {
   if (typeof v !== 'string' || !v.trim() || v.length > max || /[\x00-\x1f\x7f]/.test(v))
-    throw new Error('Invalid metadata text')
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid metadata text')
   return v
 }
 const exact = (v: unknown, keys: string[]) => {
@@ -29,7 +30,7 @@ const exact = (v: unknown, keys: string[]) => {
     Array.isArray(v) ||
     Object.keys(v).sort().join(',') !== keys.sort().join(',')
   )
-    throw new Error('Unexpected metadata fields')
+    throw new WorkflowError('VALIDATION_INVALID', 'Unexpected metadata fields')
   return v as Record<string, unknown>
 }
 export function validateMetadataSchema(input: unknown): MetadataSchema {
@@ -40,7 +41,7 @@ export function validateMetadataSchema(input: unknown): MetadataSchema {
     !Array.isArray(value.tags) ||
     value.tags.length > 50
   )
-    throw new Error('Too many metadata definitions')
+    throw new WorkflowError('VALIDATION_INVALID', 'Too many metadata definitions')
   const ids = new Set<string>()
   const fields = value.fields.map((input): FieldDefinition => {
     const f = exact(input, ['id', 'label', 'type', 'aliases', 'choices'])
@@ -50,21 +51,22 @@ export function validateMetadataSchema(input: unknown): MetadataSchema {
       ids.has(id) ||
       ['__proto__', 'constructor', 'prototype'].includes(id)
     )
-      throw new Error('Field IDs must be unique safe identifiers')
+      throw new WorkflowError('VALIDATION_INVALID', 'Field IDs must be unique safe identifiers')
     ids.add(id)
     const label = str(f.label)
     if (f.type !== 'text' && f.type !== 'number' && f.type !== 'date' && f.type !== 'choice')
-      throw new Error('Invalid field type')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid field type')
     if (
       !Array.isArray(f.aliases) ||
       f.aliases.length > 20 ||
       !Array.isArray(f.choices) ||
       f.choices.length > 50
     )
-      throw new Error('Invalid extraction rules')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid extraction rules')
     const aliases = f.aliases.map((a: unknown) => str(a)),
       choices = f.choices.map((a: unknown) => str(a))
-    if (f.type === 'choice' && !f.choices.length) throw new Error('Choice fields need options')
+    if (f.type === 'choice' && !f.choices.length)
+      throw new WorkflowError('VALIDATION_INVALID', 'Choice fields need options')
     return { id, label, type: f.type, aliases, choices }
   })
   const tags = value.tags.map((input): TagRule => {
@@ -77,7 +79,7 @@ export function validateMetadataSchema(input: unknown): MetadataSchema {
       t.terms.length > 30 ||
       (hasMatch && t.match !== 'substring' && t.match !== 'name')
     )
-      throw new Error('Invalid tag rule')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid tag rule')
     return {
       tag,
       terms: t.terms.map((a: unknown) => str(a)),
@@ -85,21 +87,21 @@ export function validateMetadataSchema(input: unknown): MetadataSchema {
     }
   })
   if (new Set(tags.map((t) => t.tag)).size !== tags.length)
-    throw new Error('Tag rules must be unique')
+    throw new WorkflowError('VALIDATION_INVALID', 'Tag rules must be unique')
   return { fields, tags }
 }
 export function validateFieldValue(field: FieldDefinition, value: unknown): string | number {
   if (field.type === 'number') {
     if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > 1e15)
-      throw new Error(`${field.label} needs a finite number`)
+      throw new WorkflowError('VALIDATION_INVALID', `${field.label} needs a finite number`)
     return value
   }
   const s = str(value, 2000)
   if (field.type === 'choice' && !field.choices.includes(s))
-    throw new Error(`${field.label} needs a configured choice`)
+    throw new WorkflowError('VALIDATION_INVALID', `${field.label} needs a configured choice`)
   if (field.type === 'date') {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || printedDateISO(s) !== s)
-      throw new Error(`${field.label} needs an ISO date`)
+      throw new WorkflowError('VALIDATION_INVALID', `${field.label} needs an ISO date`)
   }
   return s
 }
@@ -113,7 +115,7 @@ export function validateValues(
     Array.isArray(values) ||
     Object.keys(values).some((k) => !schema.fields.some((f) => f.id === k))
   )
-    throw new Error('Unknown custom field')
+    throw new WorkflowError('VALIDATION_INVALID', 'Unknown custom field')
   return Object.fromEntries(
     Object.entries(values).map(([id, value]) => [
       id,

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 // Runs only on the installer's internal network, with no credentials or mounts.
 import { createServer } from 'node:http'
 import { mkdtemp, writeFile, readFile, rm, mkdir, stat } from 'node:fs/promises'
@@ -22,47 +23,47 @@ export const officeExtensions = [
 ]
 export const extensions = [...imageExtensions, ...officeExtensions, 'xps', 'oxps']
 const limit = 100 * 1024 * 1024
+/** @param {Buffer} bytes @param {string} extension */
 export async function renderPDF(bytes, extension) {
   if (!extensions.includes(extension) || !bytes.length || bytes.length > limit)
-    throw Error('Unsupported or oversized conversion source')
+    throw new WorkflowError('VALIDATION_INVALID', 'Unsupported or oversized conversion source')
   const dir = await mkdtemp(join(tmpdir(), 'workflow-convert-'))
   try {
     const source = join(dir, 'source.' + extension),
       output = join(dir, 'source.pdf')
     await writeFile(source, bytes, { mode: 0o600 })
+    /** @param {string} command @param {string[]} args @returns {Promise<{stdout:string}>} */
     const run = (command, args) =>
       new Promise((resolve, reject) => {
-        let timedOut = false,
-          timer
+        let timedOut = false
+        /** @type {ReturnType<typeof setTimeout>|undefined} */
+        let timer
         const kill = () => {
           try {
-            process.kill(-child.pid, 'SIGKILL')
+            if (child.pid) process.kill(-child.pid, 'SIGKILL')
           } catch {
             /* The process group may already have exited. */
           }
         }
-        const child = execFile(
-          command,
-          args,
-          {
-            detached: true,
-            maxBuffer: 1024 * 1024,
-            env: { PATH: process.env.PATH, HOME: dir, LANG: 'C.UTF-8', TMPDIR: dir }
-          },
-          (error, stdout) => {
-            clearTimeout(timer)
-            kill()
-            if (error)
-              reject(
-                Error(
-                  timedOut
-                    ? 'Conversion took too long; the original has been kept'
-                    : 'The conversion tool could not read this file; the original has been kept'
-                )
+        const options = {
+          detached: true,
+          maxBuffer: 1024 * 1024,
+          env: { PATH: process.env.PATH, HOME: dir, LANG: 'C.UTF-8', TMPDIR: dir }
+        }
+        const child = execFile(command, args, options, (error, stdout) => {
+          clearTimeout(timer)
+          kill()
+          if (error)
+            reject(
+              new WorkflowError(
+                'OPERATION_HELD',
+                timedOut
+                  ? 'Conversion took too long; the original has been kept'
+                  : 'The conversion tool could not read this file; the original has been kept'
               )
-            else resolve({ stdout })
-          }
-        )
+            )
+          else resolve({ stdout })
+        })
         timer = setTimeout(() => {
           timedOut = true
           kill()
@@ -99,16 +100,22 @@ export async function renderPDF(bytes, extension) {
     const size = await stat(output)
       .then((s) => s.size)
       .catch(() => 0)
-    if (size > limit) throw Error('Converted PDF exceeds limit')
+    if (size > limit) throw new WorkflowError('VALIDATION_INVALID', 'Converted PDF exceeds limit')
     const pdf = await readFile(output).catch(() => {
-      throw Error('The file could not be exported to PDF; the original has been kept')
+      throw new WorkflowError(
+        'OPERATION_HELD',
+        'The file could not be exported to PDF; the original has been kept'
+      )
     })
     if (pdf.length > limit || !pdf.subarray(0, 5).equals(Buffer.from('%PDF-')))
-      throw Error('Conversion did not produce a bounded PDF')
+      throw new WorkflowError('OPERATION_HELD', 'Conversion did not produce a bounded PDF')
     const { stdout } = await run('pdfinfo', [output]),
       pages = Number(stdout.match(/^Pages:\s+(\d+)/m)?.[1])
     if (!pages || pages > 1000)
-      throw Error('The converted PDF exceeds the 1000-page limit; the original has been kept')
+      throw new WorkflowError(
+        'VALIDATION_INVALID',
+        'The converted PDF exceeds the 1000-page limit; the original has been kept'
+      )
     return pdf
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -122,7 +129,7 @@ export function conversionServer() {
       return
     }
     const extension = req.url?.match(/^\/convert\/([a-z0-9]+)$/)?.[1]
-    if (req.method !== 'POST' || !extensions.includes(extension)) {
+    if (req.method !== 'POST' || !extension || !extensions.includes(extension)) {
       res.writeHead(404).end()
       return
     }
@@ -136,7 +143,8 @@ export function conversionServer() {
       let size = 0
       for await (const chunk of req) {
         size += chunk.length
-        if (size > limit) throw Error('Source exceeds conversion limit')
+        if (size > limit)
+          throw new WorkflowError('VALIDATION_INVALID', 'Source exceeds conversion limit')
         chunks.push(chunk)
       }
       const pdf = await renderPDF(Buffer.concat(chunks), extension)
@@ -153,7 +161,7 @@ export function conversionServer() {
       res
         .writeHead(422)
         .end(
-          allowed.includes(error.message)
+          error instanceof Error && allowed.includes(error.message)
             ? error.message
             : 'Conversion failed; the original has been kept'
         )

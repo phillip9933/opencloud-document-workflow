@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Metadata } from '../../companion/metadata.mjs'
 import { DocumentLibrary } from '../../companion/documents.mjs'
 import { samples } from '../../src/domain/samples.ts'
@@ -15,7 +15,7 @@ function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'workflow-library-')),
     journal = new ProposalJournal(join(dir, 'state.sqlite3')),
     w = new Workflow(journal)
-  new Metadata(w)
+  w.metadata = new Metadata(w)
   const library = new DocumentLibrary(w)
   function add(
     index,
@@ -374,6 +374,58 @@ test('external tracking rejects copied identities, path escapes, duplicate IDs a
       return rows
     }
     await assert.rejects(s.library.currentList(actor, physical), /destination changed/)
+  } finally {
+    s.close()
+  }
+})
+
+test('job pages read conversion and automation associations in a fixed number of scoped queries', () => {
+  const s = setup()
+  try {
+    const id = s.add(0),
+      second = s.add(1)
+    for (let n = 2; n < 205; n++) s.add(n)
+    s.w.db
+      .prepare('insert into automatic_runs values(?,?,?,?,?,?,?)')
+      .run(id, s.w.scope(actor), '{}', 'review', 'Synthetic hold', 'now', 'now')
+    s.w.db.prepare('insert into conversions values(?,?,?)').run(
+      'conversion',
+      s.w.scope(actor),
+      JSON.stringify({
+        id: 'conversion',
+        pdfResourceId: 'resource-0',
+        resourceId: 'original',
+        original: 'Archive/original.png',
+        sha256: 'a'.repeat(64),
+        state: 'done'
+      })
+    )
+    // An unrelated actor's matching resource must never attach its archive.
+    s.w.db.prepare('insert into conversions values(?,?,?)').run(
+      'foreign',
+      s.w.scope({ ...actor, account: 'someone-else' }),
+      JSON.stringify({
+        id: 'foreign',
+        pdfResourceId: 'resource-1',
+        state: 'done',
+        original: 'private'
+      })
+    )
+    const prepare = s.w.db.prepare.bind(s.w.db)
+    let reads = 0
+    s.w.db.prepare = (...args) => {
+      if (/^select/i.test(args[0])) reads++
+      return prepare(...args)
+    }
+    for (const limit of [1, 200]) {
+      reads = 0
+      assert.equal(s.w.jobPage(actor, { limit }).jobs.length, limit)
+      assert.equal(reads, 3)
+    }
+    const job = s.w.jobPage(actor, { id }).jobs[0]
+    assert.equal(job.automation.state, 'review')
+    assert.equal(job.conversion.archivePath, 'Archive/original.png')
+    assert.equal(s.w.jobPage(actor, { id: second }).jobs[0].conversion, null)
   } finally {
     s.close()
   }

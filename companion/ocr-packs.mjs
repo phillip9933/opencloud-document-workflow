@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
+import { responseRecord } from './provider-response.mjs'
 import { readFile, lstat, realpath, mkdir, open, link, unlink } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { join, resolve, dirname } from 'node:path'
+/** @typedef {{code:string,bytes:number,blob:string,downloadPath?:string}} Pack */
+/** @typedef {{revision:string,repository:string,packs:Pack[]}} Catalog */
+/** @typedef {{directory?:string,fetcher?:typeof fetch,validate?:(path:string)=>Promise<unknown>,installed?:()=>Promise<string[]>,catalogInfo?:Catalog}} PackOptions */
+/** @type {Catalog} */
 const catalog = JSON.parse(await readFile(new URL('./ocr-catalog.json', import.meta.url), 'utf8'))
 export class OCRPacks {
+  /** @param {import('./workflow.mjs').Workflow} workflow @param {PackOptions} options */
   constructor(
     workflow,
     {
@@ -14,18 +21,19 @@ export class OCRPacks {
       catalogInfo = catalog
     } = {}
   ) {
-    Object.assign(this, {
-      w: workflow,
-      directory: directory ? resolve(directory) : null,
-      fetcher,
-      validate,
-      installed
-    })
+    this.w = workflow
+    this.directory = directory ? resolve(directory) : null
+    this.fetcher = fetcher
+    this.validate = validate
+    this.installed = installed
     this.catalog = catalogInfo
+    /** @type {Promise<void>|null} */
     this.active = null
+    /** @type {{state:string,code?:string,message?:string}} */
     this.health = { state: 'idle' }
     this.stopped = false
   }
+  /** @param {boolean} canManage */
   async status(canManage) {
     const installed = await this.installed()
     return {
@@ -40,11 +48,14 @@ export class OCRPacks {
       installation: this.health
     }
   }
+  /** @param {string} code */
   async start(code) {
-    if (this.stopped || !this.directory) throw new Error('OCR pack installation is not configured')
+    if (this.stopped || !this.directory)
+      throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'OCR pack installation is not configured')
     const pack = this.catalog.packs.find((p) => p.code === code)
-    if (!pack) throw new Error('Choose an official OCR language pack')
-    if (this.active) throw new Error('Another OCR language is being installed')
+    if (!pack) throw new WorkflowError('VALIDATION_INVALID', 'Choose an official OCR language pack')
+    if (this.active)
+      throw new WorkflowError('OPERATION_HELD', 'Another OCR language is being installed')
     const release = this.w.lock('__ocr_install__')
     this.health = { state: 'installing', code }
     this.active = this.install(pack)
@@ -64,7 +75,10 @@ export class OCRPacks {
       })
     return this.health
   }
+  /** @param {Pack} pack */
   async install(pack) {
+    if (!this.directory)
+      throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'OCR pack installation is not configured')
     const root = await realpath(this.directory),
       info = await lstat(this.directory)
     if (
@@ -73,36 +87,36 @@ export class OCRPacks {
       info.isSymbolicLink() ||
       info.mode & 0o022
     )
-      throw new Error('A protected OCR data directory is required')
+      throw new WorkflowError('OPERATION_HELD', 'A protected OCR data directory is required')
     const destination = join(root, pack.code + '.traineddata'),
       parent = dirname(destination)
     if (parent !== root) {
       try {
         await mkdir(parent, { mode: 0o755 })
       } catch (e) {
-        if (e.code !== 'EEXIST') throw e
+        if (responseRecord(e)?.code !== 'EEXIST') throw e
       }
       if ((await realpath(parent)) !== parent || (await lstat(parent)).isSymbolicLink())
-        throw new Error('Unsafe OCR directory')
+        throw new WorkflowError('OPERATION_HELD', 'Unsafe OCR directory')
     }
     try {
       await lstat(destination)
-      throw new Error('OCR language already exists')
+      throw new WorkflowError('OPERATION_HELD', 'OCR language already exists')
     } catch (e) {
-      if (e.code !== 'ENOENT') throw e
+      if (responseRecord(e)?.code !== 'ENOENT') throw e
     }
     const url = `https://raw.githubusercontent.com/${this.catalog.repository}/${this.catalog.revision}/${pack.downloadPath ?? pack.code + '.traineddata'}`,
       response = await this.fetcher(url, { redirect: 'error', signal: AbortSignal.timeout(120000) })
     if (!response.ok) {
       await response.body?.cancel()
-      throw new Error('Official OCR download unavailable')
+      throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'Official OCR download unavailable')
     }
     const chunks = []
     let length = 0
     for await (const chunk of response.body ?? []) {
       length += chunk.length
       if (length > pack.bytes || length > 128 * 1024 * 1024)
-        throw new Error('OCR language exceeds expected size')
+        throw new WorkflowError('VALIDATION_INVALID', 'OCR language exceeds expected size')
       chunks.push(chunk)
     }
     const bytes = Buffer.concat(chunks)
@@ -110,7 +124,7 @@ export class OCRPacks {
       bytes.length !== pack.bytes ||
       createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex') !== pack.blob
     )
-      throw new Error('OCR pack integrity mismatch')
+      throw new WorkflowError('OPERATION_HELD', 'OCR pack integrity mismatch')
     const temp = join(parent, '.ocr-' + randomUUID()),
       file = await open(temp, 'wx', 0o600)
     try {
@@ -120,10 +134,10 @@ export class OCRPacks {
       await this.validate(temp)
       await lstat(destination).then(
         () => {
-          throw new Error('OCR language already exists')
+          throw new WorkflowError('OPERATION_HELD', 'OCR language already exists')
         },
         (e) => {
-          if (e.code !== 'ENOENT') throw e
+          if (responseRecord(e)?.code !== 'ENOENT') throw e
         }
       )
       await link(temp, destination)
@@ -142,7 +156,7 @@ export class OCRPacks {
     } finally {
       await file.close().catch(() => {})
       await unlink(temp).catch((e) => {
-        if (e.code !== 'ENOENT') throw e
+        if (responseRecord(e)?.code !== 'ENOENT') throw e
       })
     }
   }

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { SimilarDocuments } from '../../companion/similarity.mjs'
 import { samples } from '../../src/domain/samples.ts'
 const text = (date = '2026-10-29', amount = '123.45') =>
@@ -15,7 +15,7 @@ function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'similar-documents-')),
     j = new ProposalJournal(join(dir, 'db.sqlite3')),
     w = new Workflow(j),
-    service = new SimilarDocuments(w),
+    service = (w.similarities = new SimilarDocuments(w)),
     seed = samples()[0].source,
     actor = { server: seed.server, account: seed.account, space: seed.space },
     files = new Map()

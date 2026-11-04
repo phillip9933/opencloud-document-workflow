@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
 import { Intake, defaultIntake } from '../../companion/intake.mjs'
 import { extractPDFBytes } from '../../companion/extract.mjs'
@@ -410,6 +410,33 @@ test('current work retains an uncertain filing intent even when the original is 
     assert.equal(page.summary.attention, 1)
     assert.equal(page.summary.total, 1)
     assert.equal(page.queue[0].retryable, false)
+  } finally {
+    s.close()
+  }
+})
+
+test('a non-Error preparation failure records a bounded hold and releases the intake worker', async () => {
+  const s = await setup()
+  try {
+    s.intake.prepare = async () => {
+      throw null
+    }
+    await s.intake.tick({ force: true })
+    s.advance()
+    await s.intake.tick({ force: true })
+    const rows = s.j.db.prepare('select state,attempts,issue from intake_queue').all()
+    assert.ok(rows.length > 0)
+    assert.ok(rows.every((row) => row.state === 'failed' && row.attempts === 1))
+    assert.ok(
+      rows.every(
+        (row) =>
+          JSON.parse(row.issue).message ===
+          'Document preparation stopped before a valid review was ready.'
+      )
+    )
+    assert.equal(s.intake.running, false)
+    assert.equal(s.intake.activeScope, null)
+    assert.equal(s.j.db.prepare('select count(*) count from workflow_locks').get().count, 0)
   } finally {
     s.close()
   }

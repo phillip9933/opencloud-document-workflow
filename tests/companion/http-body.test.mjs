@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../../src/domain/errors.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
@@ -182,5 +183,53 @@ test('API returns 400 for malformed JSON and 413 for declared overflow after ses
   } finally {
     api.close()
     rmSync(directory, { recursive: true })
+  }
+})
+
+test('typed authorization and workflow hold errors retain safe HTTP semantics', () => {
+  for (const [code, status, message] of [
+    ['AUTH_REQUIRED', 401, 'OpenCloud sign-in required'],
+    ['ACCESS_DENIED', 403, 'OpenCloud access denied'],
+    ['SOURCE_CHANGED', 409, 'Operation held. Fixture source changed'],
+    ['DEPENDENCY_UNAVAILABLE', 409, 'Operation held. Fixture source changed'],
+    ['OPERATION_HELD', 409, 'Operation held. Fixture source changed']
+  ]) {
+    const result = apiError(new WorkflowError(code, 'Fixture source changed'))
+    assert.equal(result.status, status)
+    assert.equal(result.body.error, message)
+    assert.equal(result.body.code, code)
+  }
+})
+
+test('unexpected programming and database failures return a redacted 500 instead of a review hold', () => {
+  for (const error of [
+    new WorkflowError('INTERNAL_ERROR', 'private internal detail'),
+    new TypeError('private source value'),
+    new SyntaxError('private JSON'),
+    new ReferenceError('private path'),
+    new RangeError('private range'),
+    Object.assign(new Error('private database'), { code: 'ERR_SQLITE_ERROR' })
+  ]) {
+    const result = apiError(error)
+    assert.equal(result.status, 500)
+    assert.equal(result.body.code, 'INTERNAL_ERROR')
+    assert.doesNotMatch(JSON.stringify(result), /private/)
+  }
+})
+
+test('unknown failures are redacted even when they contain short private messages or arbitrary status', () => {
+  for (const error of [
+    new Error('private document name'),
+    'private string',
+    { message: 'private credential', status: 409 },
+    { code: 'NOT_A_DOMAIN_CODE', message: 'private text' }
+  ]) {
+    assert.deepEqual(apiError(error), {
+      status: 500,
+      body: {
+        error: 'An internal error occurred. Check Activity before retrying.',
+        code: 'INTERNAL_ERROR'
+      }
+    })
   }
 })

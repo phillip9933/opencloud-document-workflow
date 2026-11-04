@@ -1,12 +1,12 @@
-import { WorkflowError } from '../../src/domain/errors.ts'
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../../src/domain/errors.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Metadata } from '../../companion/metadata.mjs'
 import { Automation } from '../../companion/automation.mjs'
 import { Intake, defaultIntake } from '../../companion/intake.mjs'
@@ -19,7 +19,7 @@ async function setup() {
     path = join(dir, 'db.sqlite3'),
     j = new ProposalJournal(path),
     w = new Workflow(j),
-    metadata = new Metadata(w),
+    metadata = (w.metadata = new Metadata(w)),
     api = new DemoAdapter(j.db)
   api.seed()
   j.db.prepare("delete from demo_files where folder=0 and resourceId<>'demo-english'").run()
@@ -55,7 +55,7 @@ async function setup() {
     processPrepared: (...args) => automation.run(...args),
     resume: (...args) => automation.resume(...args)
   })
-  automation = new Automation(w, metadata, intake)
+  automation = w.automation = new Automation(w, metadata, intake)
   intake.save(actor, { ...defaultIntake(), enabled: true, settleSeconds: 2 }, api)
   return {
     dir,
@@ -116,9 +116,9 @@ test('full automatic ingestion fills grounded fields, applies rule tags, files o
     const second = new ProposalJournal(s.path)
     try {
       const w = new Workflow(second),
-        m = new Metadata(w),
+        m = (w.metadata = new Metadata(w)),
         i = new Intake(w),
-        a = new Automation(w, m, i)
+        a = (w.automation = new Automation(w, m, i))
       assert.equal(a.statusFor(s.actor, s.id).state, 'done')
       assert.equal(i.sessions.size, 0)
       const api = new DemoAdapter(second.db)
@@ -459,5 +459,55 @@ test('explicit automatic Tags policy can apply new semantic candidates, while Re
     } finally {
       s.close()
     }
+  }
+})
+
+test('automatic document lock contention stays pending and retries without a new authorization', async () => {
+  const s = await setup()
+  const approve = s.w.approve.bind(s.w)
+  let release
+  s.w.approve = async (...args) => {
+    if (!release) release = s.w.lock(args[2])
+    return approve(...args)
+  }
+  try {
+    await s.arrivals()
+    const row = s.j.db.prepare('select * from automatic_runs where job=?').get(s.id)
+    assert.equal(row.state, 'pending')
+    assert.equal(s.w.decision(s.actor, s.id).state, 'approved')
+    assert.ok(await s.api.stat('Inbox/english.pdf'))
+    release()
+    s.w.approve = approve
+    await s.automation.resume(s.actor, s.api)
+    assert.equal(s.automation.statusFor(s.actor, s.id).state, 'done')
+    assert.equal(
+      s.j.db.prepare('select authorization from automatic_runs where job=?').get(s.id)
+        .authorization,
+      row.authorization
+    )
+  } finally {
+    release?.()
+    s.close()
+  }
+})
+
+test('non-Error automatic failures hold the operation and release ownership without filing', async () => {
+  const s = await setup()
+  try {
+    s.intake.processPrepared = undefined
+    await s.arrivals()
+    s.api.identity = async () => {
+      throw null
+    }
+    const result = await s.automation.run(s.actor, s.api, s.id)
+    assert.equal(result.state, 'held')
+    assert.equal(result.detail, 'Automatic processing needs attention')
+    assert.equal(s.automation.statusFor(s.actor, s.id).state, 'held')
+    assert.equal(s.w.decision(s.actor, s.id), undefined)
+    const release = s.w.lock('automatic:' + s.id)
+    release()
+    assert.ok(await s.api.stat('Inbox/english.pdf'))
+  } finally {
+    s.close()
   }
 })

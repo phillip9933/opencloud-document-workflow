@@ -17,7 +17,7 @@ export interface ProcessingLimits {
 }
 export interface ConfigurationOwner {
   db: DatabaseSync
-  configuration?: Configuration
+  configuration: Configuration
   scope(actor: Actor): string
   event(actor: Actor, job: string | null, kind: string, detail?: Record<string, unknown>): void
 }
@@ -28,6 +28,7 @@ export interface FileEntry {
   resourceId: string
   etag: string
   tags: string[]
+  size?: number
   folder?: boolean
 }
 export interface FileReader {
@@ -35,6 +36,7 @@ export interface FileReader {
   list(path: string): Promise<FileEntry[]>
 }
 export interface FilingAdapter {
+  get(path: string, etag?: string, limit?: number): Promise<Buffer>
   stat(path: string): Promise<FileEntry | null>
   mkdir(path: string): Promise<unknown>
   move(source: string, target: string, etag: string): Promise<unknown>
@@ -60,7 +62,7 @@ export interface FilingContext {
   target: string
   tags: string[]
   state: string
-  plan: FilingPlan
+  plan: Partial<FilingPlan>
   reconcileOnly: boolean
   check(
     api: FilingAdapter,
@@ -69,7 +71,7 @@ export interface FilingContext {
     etag?: string
   ): Promise<FileEntry | null>
   guard(): void
-  save(state: FilingState, plan: FilingPlan): void
+  save(state: FilingState, plan: Partial<FilingPlan>): void
   event(kind: string, detail?: Record<string, unknown>): void
 }
 
@@ -83,7 +85,7 @@ export interface LocationSnapshot extends LocationContext {
 }
 export interface LocationOwner extends ConfigurationOwner {
   configuration: Configuration
-  locations?: import('./locations.mjs').FiledLocations
+  locations: import('./locations.mjs').FiledLocations
   transfers: { adapter(actor: Actor, api: FileReader, space: string): Promise<FileReader> }
 }
 
@@ -103,10 +105,10 @@ export interface DocumentReadOptions {
 }
 
 export interface SimilarityReader extends DocumentReader {
-  forSpace(space: string): SimilarityReader
+  forSpace?(space: string): SimilarityReader
 }
 export interface SimilarityOwner extends ConfigurationOwner {
-  similarities?: import('./similarity.mjs').SimilarDocuments
+  similarities: import('./similarity.mjs').SimilarDocuments
   job(actor: Actor, id: string): { input: string }
   location(
     actor: Actor,
@@ -121,9 +123,9 @@ export interface MetadataAdapter extends DocumentReader {
   removeTags(resource: string, tags: string[]): Promise<unknown>
 }
 export interface MetadataOwner extends ConfigurationOwner {
-  metadata?: import('./metadata.mjs').Metadata
-  transfers?: { canonical(actor: Actor, resource: string, space?: string): string }
-  documentTrash?: {
+  metadata: import('./metadata.mjs').Metadata
+  transfers: { canonical(actor: Actor, resource: string, space?: string): string }
+  documentTrash: {
     pending(actor: Actor, resource: string): { id: string } | null
     assertAvailable(actor: Actor, resource: string): void
   }
@@ -181,14 +183,14 @@ export interface TransferApproval {
 export interface MutationOwner extends ConfigurationOwner {
   configuration: Configuration
   transfers: import('./transfers.mjs').Transfers
-  documentTrash?: import('./document-trash.mjs').DocumentTrash
-  metadata?: import('./metadata.mjs').Metadata
-  automation?: object
-  conversions?: object
-  intake?: { configuration(actor: Actor): { folder: string } }
+  documentTrash: import('./document-trash.mjs').DocumentTrash
+  metadata: import('./metadata.mjs').Metadata
+  automation: object
+  conversions: object
+  intake: { configuration(actor: Actor): { folder: string } }
   lock(key: string): () => void
   job(actor: Actor, id: string): { id: string }
-  decision(actor: Actor, id: string): { state: string } | null
+  decision(actor: Actor, id: string): { state: string } | null | undefined
   location(actor: Actor, api: MutationAdapter, id: string): Promise<FileEntry & { space: string }>
   check(
     api: MutationAdapter,
@@ -196,7 +198,7 @@ export interface MutationOwner extends ConfigurationOwner {
     source: { resourceId: string; sha256: string },
     etag?: string,
     actor?: Actor
-  ): Promise<(FileEntry & { size: number }) | null>
+  ): Promise<FileEntry | null>
   set(actor: Actor, id: string, state: string, plan: TransferPlan): void
 }
 export interface TransferRow {

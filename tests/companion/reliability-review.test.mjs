@@ -6,7 +6,7 @@ import { tmpdir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
 import { Intake, defaultIntake } from '../../companion/intake.mjs'
 import { createDraftAPI } from '../../companion/draft-api.mjs'
@@ -100,7 +100,9 @@ test('prepare contention never consumes intake attempts; release resumes the sam
       }
       const rows = intake.status(actor).queue
       assert.equal(rows.length, 3)
-      assert.ok(rows.every((row) => row.state === 'queued' && row.attempts === 0))
+      assert.ok(
+        rows.every((row) => ['queued', 'settling'].includes(row.state) && row.attempts === 0)
+      )
     } finally {
       release()
     }
@@ -350,6 +352,91 @@ test('preparation always supplies a finite download limit even without a setting
     )
     assert.equal(bounds.length, 1)
   } finally {
+    f.close()
+  }
+})
+
+test('intake stops downloading the cycle after the first busy preparation', async () => {
+  const f = fixture()
+  let now = 1000000,
+    downloads = 0
+  const actor = await f.adapter.identity(),
+    get = f.adapter.get.bind(f.adapter)
+  f.adapter.get = (...args) => {
+    downloads++
+    return get(...args)
+  }
+  const intake = new Intake(f.workflow, {
+    now: () => now,
+    prepare: async () => {
+      const release = f.workflow.lock('__prepare__')
+      release()
+      return { id: 'fixture' }
+    }
+  })
+  try {
+    intake.save(actor, { ...defaultIntake(), enabled: true, settleSeconds: 2 }, f.adapter)
+    await intake.tick({ force: true })
+    now += 3000
+    const release = f.workflow.lock('__prepare__')
+    try {
+      await intake.tick({ force: true })
+    } finally {
+      release()
+    }
+    assert.equal(downloads, 1)
+    assert.ok(intake.status(actor).queue.every((row) => row.attempts === 0))
+  } finally {
+    await intake.stop()
+    f.close()
+  }
+})
+
+test('stopping during a scan does not persist or log a false source failure', async () => {
+  const f = fixture(),
+    logged = []
+  const actor = await f.adapter.identity()
+  const intake = new Intake(f.workflow, { logger: (event) => logged.push(event) })
+  const list = f.adapter.list.bind(f.adapter)
+  try {
+    intake.save(actor, { ...defaultIntake(), enabled: true }, f.adapter)
+    await intake.tick({ force: true })
+    f.adapter.list = async (...args) => {
+      intake.stopped = true
+      return list(...args)
+    }
+    await intake.tick({ force: true })
+    assert.deepEqual(logged, [])
+    assert.equal(f.journal.db.prepare('select reason from intake_health').get().reason, null)
+    assert.equal(
+      f.journal.db.prepare("select count(*) n from activity where kind='intake_scan_held'").get().n,
+      0
+    )
+  } finally {
+    await intake.stop()
+    f.close()
+  }
+})
+
+test('intake status reuses a single record snapshot for history and current totals', async () => {
+  const f = fixture(),
+    actor = await f.adapter.identity(),
+    intake = new Intake(f.workflow)
+  try {
+    intake.save(actor, { ...defaultIntake(), enabled: true }, f.adapter)
+    await intake.tick({ force: true })
+    const records = intake.records.bind(intake)
+    let reads = 0
+    intake.records = (...args) => {
+      reads++
+      return records(...args)
+    }
+    const listing = await f.adapter.list('Inbox')
+    const status = intake.status(actor, {}, listing)
+    assert.equal(reads, 1)
+    assert.equal(status.historicalTotal, 3)
+  } finally {
+    await intake.stop()
     f.close()
   }
 })

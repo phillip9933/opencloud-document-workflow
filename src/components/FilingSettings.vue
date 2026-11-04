@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { WorkflowError } from '../domain/errors'
+
 // SPDX-License-Identifier: AGPL-3.0-only
 import { ref, onMounted } from 'vue'
 import { useLocale } from '../state/locale'
@@ -31,7 +33,8 @@ async function load() {
     const result = await store.request('filing-settings')
     rules.value = validateFilingRules(result.rules)
     targetSpace.value = result.destinationSpace ?? store.connection.value?.space ?? ''
-    if (!result.limits) throw new Error('Processing capacity is unavailable')
+    if (!result.limits)
+      throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'Processing capacity is unavailable')
     limits.value = result.limits
     languages.value = JSON.stringify(result.rules.languages, null, 2)
     error.value = ''

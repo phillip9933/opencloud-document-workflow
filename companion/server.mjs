@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { createServer } from 'node:http'
 import { handleRequest } from './http-handler.mjs'
 import { logEvent } from './logging.mjs'
@@ -14,17 +15,23 @@ const version = JSON.parse(await readFile(resolve('package.json'), 'utf8')).vers
 const port = Number(process.env.WORKFLOW_PORT || 5175)
 const origin = process.env.WORKFLOW_APP_ORIGIN || `http://127.0.0.1:${port}`
 const mode = process.env.WORKFLOW_MODE || 'demo'
-if (!['demo', 'live'].includes(mode)) throw new Error('WORKFLOW_MODE must be demo or live')
+if (mode !== 'demo' && mode !== 'live')
+  throw new WorkflowError('VALIDATION_INVALID', 'WORKFLOW_MODE must be demo or live')
 const listen = listenAddress(process.env, mode)
 const database =
   process.env.WORKFLOW_DB ||
   process.env.WORKFLOW_DRAFT_DB ||
   resolve('companion/state/draft.sqlite3')
-let session, backups, appTokens
+/** @type {SessionSupervisor|undefined} */
+let session
+/** @type {BackupManager|undefined} */
+let backups
+/** @type {AppTokenSessions|undefined} */
+let appTokens
 const api = createWorkflowAPI({
   database,
   mode,
-  origin: process.env.WORKFLOW_OPENCLOUD_ORIGIN,
+  origin: process.env.WORKFLOW_OPENCLOUD_ORIGIN ?? '',
   space: process.env.WORKFLOW_SPACE_ID || undefined,
   ollama: process.env.WORKFLOW_OLLAMA_URL,
   cloud: process.env.WORKFLOW_CLOUD_URL,
@@ -35,18 +42,27 @@ const api = createWorkflowAPI({
     appTokens?.status(actor) ??
     session?.status(actor) ?? { configured: false, state: 'not_configured' },
   backgroundConnect: (actor, value) => {
-    if (!appTokens) throw new Error('Private background token storage is not configured')
+    if (!appTokens)
+      throw new WorkflowError(
+        'DEPENDENCY_UNAVAILABLE',
+        'Private background token storage is not configured'
+      )
     return appTokens.connect(actor, value)
   },
   backgroundDisconnect: (actor) => {
-    if (!appTokens) throw new Error('Private background token storage is not configured')
+    if (!appTokens)
+      throw new WorkflowError(
+        'DEPENDENCY_UNAVAILABLE',
+        'Private background token storage is not configured'
+      )
     return appTokens.disconnect(actor)
   },
   backupStatus: () => backups?.status() ?? { configured: false, state: 'not_configured' },
   observeSession: (actor, adapter) => backups?.attach(actor, adapter),
   backupDetails: () => backups?.report() ?? { configured: false, state: 'not_configured' },
   backupConfigure: (value, actor, adapter) => {
-    if (!backups) throw new Error('Backup storage is not configured')
+    if (!backups)
+      throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'Backup storage is not configured')
     return backups.configureFor(actor, adapter, value)
   }
 })
@@ -60,6 +76,7 @@ if (process.env.WORKFLOW_BACKUP_DIRECTORY) {
   })
 }
 await api.start()
+/** @type {import('./admin-contracts.d.mts').SessionHooks} */
 const backgroundLifecycle = {
   attach: async (adapter, pin) => {
     const actor = await api.attach(adapter, pin)
@@ -74,7 +91,7 @@ const backgroundLifecycle = {
 if (mode === 'live' && process.env.WORKFLOW_APP_TOKEN_DIRECTORY) {
   appTokens = new AppTokenSessions({
     directory: process.env.WORKFLOW_APP_TOKEN_DIRECTORY,
-    origin: process.env.WORKFLOW_OPENCLOUD_ORIGIN,
+    origin: process.env.WORKFLOW_OPENCLOUD_ORIGIN ?? '',
     excludedDirectories: [
       resolve('.'),
       dirname(resolve(database)),
@@ -91,8 +108,8 @@ if (mode === 'live' && process.env.WORKFLOW_APP_TOKEN_DIRECTORY) {
 if (mode === 'live' && process.env.WORKFLOW_SESSION_FILE) {
   session = new SessionSupervisor({
     file: process.env.WORKFLOW_SESSION_FILE,
-    origin: process.env.WORKFLOW_OPENCLOUD_ORIGIN,
-    space: process.env.WORKFLOW_SPACE_ID,
+    origin: process.env.WORKFLOW_OPENCLOUD_ORIGIN ?? '',
+    space: process.env.WORKFLOW_SPACE_ID ?? '',
     account: process.env.WORKFLOW_BACKGROUND_ACCOUNT,
     tokenEndpoint: process.env.WORKFLOW_TOKEN_ENDPOINT,
     clientId: process.env.WORKFLOW_CLIENT_ID,
@@ -104,14 +121,14 @@ if (mode === 'live' && process.env.WORKFLOW_SESSION_FILE) {
 
 await backups?.start()
 const root = resolve('draft-dist'),
-  types = {
+  types = /** @type {Record<string,string>} */ ({
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript',
     '.css': 'text/css',
     '.mjs': 'text/javascript',
     '.svg': 'image/svg+xml',
     '.wasm': 'application/wasm'
-  }
+  })
 const server = createServer(
   handleRequest(async (req, res) => {
     if (healthResponse(req, res, version)) return
@@ -121,12 +138,13 @@ const server = createServer(
       res.end()
       return
     }
-    const url = new URL(req.url, origin),
+    const url = new URL(req.url ?? '/', origin),
       path = resolve(
         root,
         '.' + decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)
       )
-    if (!path.startsWith(root + '/')) throw new Error('Path outside build')
+    if (!path.startsWith(root + '/'))
+      throw new WorkflowError('OPERATION_HELD', 'Path outside build')
     const data = await readFile(path)
     res.writeHead(200, {
       'Content-Type': types[extname(path)] || 'application/octet-stream',

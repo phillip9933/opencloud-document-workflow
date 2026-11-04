@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { WorkflowError } from '../domain/errors'
+
 // SPDX-License-Identifier: AGPL-3.0-only
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useWorkspace } from '../state/workspace'
@@ -84,7 +86,8 @@ async function sortBy(column: (typeof columns)[number]) {
   try {
     const seen = new Set<string>()
     while (nextCursor.value) {
-      if (seen.has(nextCursor.value)) throw new Error('Could not load history')
+      if (seen.has(nextCursor.value))
+        throw new WorkflowError('OPERATION_HELD', 'Could not load history')
       seen.add(nextCursor.value)
       if (!(await load(true))) break
     }
@@ -152,7 +155,7 @@ async function reprocessItems(items = selectedRows.value.filter(canReprocess)) {
         typeof source.resourceId !== 'string' ||
         typeof source.etag !== 'string'
       )
-        throw new Error('The document location could not be verified')
+        throw new WorkflowError('OPERATION_HELD', 'The document location could not be verified')
       inputs.push({
         path: source.path,
         resourceId: source.resourceId,

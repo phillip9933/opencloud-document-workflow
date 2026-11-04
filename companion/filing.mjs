@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 
 /**
  * Execute an already authorized same-Space filing under the caller's job and
@@ -38,7 +39,7 @@ class FilingOperation {
       case 'done':
         return this.done()
       default:
-        throw new Error('Unexpected operation state')
+        throw new WorkflowError('INTERNAL_ERROR', 'Unexpected operation state')
     }
   }
   /** @param {import('./contracts.d.mts').FilingState} state */
@@ -48,7 +49,10 @@ class FilingOperation {
   /** @returns {never} */
   conflict() {
     this.save('conflict')
-    throw new Error('Remote state conflicts with the approved operation; no further writes made')
+    throw new WorkflowError(
+      'OPERATION_HELD',
+      'Remote state conflicts with the approved operation; no further writes made'
+    )
   }
   /** @returns {Promise<import('./contracts.d.mts').FilingStep>} */
   async approved() {
@@ -67,6 +71,7 @@ class FilingOperation {
   /** @returns {Promise<import('./contracts.d.mts').FilingStep>} */
   async foldersPending() {
     const { api, source, target, check, reconcileOnly, guard, event } = this.context
+    requireFilingPlan(this.plan)
     if (reconcileOnly) return { state: 'folders_pending', target }
     if (!(await check(api, source.path, source, source.etag))) return this.conflict()
     const folders = target.split('/').slice(0, -1)
@@ -109,7 +114,10 @@ class FilingOperation {
   async moveDone() {
     const { api, source, target, tags, check, reconcileOnly, guard, event } = this.context
     const current = await check(api, target, source)
-    if (!current || !this.plan.originalTags.every((tag) => current.tags.includes(tag)))
+    if (
+      !current ||
+      !requireFilingPlan(this.plan).originalTags.every((tag) => current.tags.includes(tag))
+    )
       return this.conflict()
     if (tags.every((tag) => current.tags.includes(tag))) {
       this.save('done')
@@ -130,9 +138,12 @@ class FilingOperation {
   async tagsIntent() {
     const { api, source, target, check } = this.context
     const current = await check(api, target, source)
-    if (!current || !this.plan.originalTags.every((tag) => current.tags.includes(tag)))
+    if (
+      !current ||
+      !requireFilingPlan(this.plan).originalTags.every((tag) => current.tags.includes(tag))
+    )
       return this.conflict()
-    if (!this.plan.expectedTags.every((tag) => current.tags.includes(tag)))
+    if (!requireFilingPlan(this.plan).expectedTags.every((tag) => current.tags.includes(tag)))
       return { state: 'tags_intent', uncertain: true, target }
     this.save('done')
     return { state: 'done', target, tags: current.tags }
@@ -141,7 +152,10 @@ class FilingOperation {
   async done() {
     const { api, source, target, check } = this.context
     const final = await check(api, target, source)
-    if (!final || !this.plan.expectedTags.every((tag) => final.tags.includes(tag)))
+    if (
+      !final ||
+      !requireFilingPlan(this.plan).expectedTags.every((tag) => final.tags.includes(tag))
+    )
       return this.conflict()
     return {
       state: 'done',
@@ -154,4 +168,38 @@ class FilingOperation {
       }
     }
   }
+}
+
+/** Read only the known shape of a stored filing plan. Missing plans are valid
+ * before approval execution, but cannot authorize a resumed write.
+ * @param {unknown} value
+ * @returns {Partial<import('./contracts.d.mts').TransferPlan>}
+ */
+export function readFilingPlan(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new WorkflowError('OPERATION_HELD', 'Recorded filing plan is invalid')
+  const record = /** @type {Record<string,unknown>} */ (value)
+  const originalTags = record.originalTags,
+    expectedTags = record.expectedTags,
+    targetResource = record.targetResource
+  if (targetResource !== undefined && typeof targetResource !== 'string')
+    throw new WorkflowError('OPERATION_HELD', 'Recorded filing plan is invalid')
+  if (
+    (originalTags !== undefined &&
+      (!Array.isArray(originalTags) || originalTags.some((tag) => typeof tag !== 'string'))) ||
+    (expectedTags !== undefined &&
+      (!Array.isArray(expectedTags) || expectedTags.some((tag) => typeof tag !== 'string')))
+  )
+    throw new WorkflowError('OPERATION_HELD', 'Recorded filing plan is invalid')
+  return {
+    ...(targetResource !== undefined ? { targetResource } : {}),
+    ...(originalTags ? { originalTags } : {}),
+    ...(expectedTags ? { expectedTags } : {})
+  }
+}
+/** @param {Partial<import('./contracts.d.mts').TransferPlan>} plan @returns {import('./contracts.d.mts').TransferPlan} */
+export function requireFilingPlan(plan) {
+  if (!plan.originalTags || !plan.expectedTags)
+    throw new WorkflowError('OPERATION_HELD', 'Recorded filing plan is incomplete')
+  return { ...plan, originalTags: plan.originalTags, expectedTags: plan.expectedTags }
 }

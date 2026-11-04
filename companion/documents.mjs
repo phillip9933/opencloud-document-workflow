@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
+import { responseRecord } from './provider-response.mjs'
 import { safePath } from '../src/domain/review.ts'
-import { FiledLocations } from './locations.mjs'
+/** @param {unknown} value */
 const fold = (value) =>
   String(value ?? '')
     .normalize('NFKC')
     .toLowerCase()
+/** @param {unknown} cursor */
 function position(cursor) {
   if (cursor === undefined || cursor === null) return null
   try {
     if (typeof cursor !== 'string' || cursor.length > 512 || !/^[A-Za-z0-9_-]+$/.test(cursor))
-      throw new Error()
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid value')
     const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
     if (
       !value ||
@@ -20,30 +23,35 @@ function position(cursor) {
       typeof value.updated !== 'string' ||
       new Date(value.updated).toISOString() !== value.updated
     )
-      throw new Error()
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid value')
     return value
   } catch {
-    throw new Error('Invalid document page; refresh the filed list')
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid document page; refresh the filed list')
   }
 }
 
 // Filing records and authenticated destination listings share no second file store.
 // Each browse read is scoped to one configured folder; the UI builds its tree.
 export class DocumentLibrary {
+  /** @param {import('./workflow.mjs').Workflow} workflow */
   constructor(workflow) {
     this.w = workflow
     this.db = workflow.db
-    new FiledLocations(workflow)
     this.db.function('workflow_contains', { deterministic: true }, (text, query) =>
       fold(text).includes(fold(query)) ? 1 : 0
     )
   }
+  configuration() {
+    return this.w.configuration
+  }
+  /** @param {import('./contracts.d.mts').Actor} actor */
   views(actor) {
     return this.db
       .prepare('select id,name,query from saved_views where scope=? order by name,id')
       .all(this.w.scope(actor))
-      .map((row) => ({ ...row, query: JSON.parse(row.query) }))
+      .map((row) => ({ ...row, query: JSON.parse(String(row.query)) }))
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {{id:unknown,name:unknown,query:unknown}} input */
   saveView(actor, { id, name, query }) {
     if (
       typeof id !== 'string' ||
@@ -53,10 +61,10 @@ export class DocumentLibrary {
       name.length > 100 ||
       !query ||
       Object.keys(query).join(',') !== 'search' ||
-      typeof query.search !== 'string' ||
-      query.search.length > 200
+      typeof responseRecord(query)?.search !== 'string' ||
+      String(responseRecord(query)?.search).length > 200
     )
-      throw new Error('Invalid saved view')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid saved view')
     this.db
       .prepare(
         'insert into saved_views values(?,?,?,?) on conflict(scope,id) do update set name=excluded.name,query=excluded.query'
@@ -65,23 +73,28 @@ export class DocumentLibrary {
     this.w.event(actor, null, 'view_saved', { id, name })
     return this.views(actor)
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {string} id */
   deleteView(actor, id) {
     this.db.prepare('delete from saved_views where scope=? and id=?').run(this.w.scope(actor), id)
     this.w.event(actor, null, 'view_deleted', { id })
     return this.views(actor)
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MutationAdapter} api @param {{path?:string}} options */
   async browse(actor, api, { path } = {}) {
-    const root = safePath(this.w.configuration.settings(actor).rules.root),
-      space = this.w.configuration.destinationSpace(actor)
+    const root = safePath(this.configuration().settings(actor).rules.root),
+      space = this.configuration().destinationSpace(actor)
     path = path === undefined ? root : safePath(path)
     if (path !== root && !path.startsWith(root + '/'))
-      throw new Error('Choose a folder inside the document destination')
-    const physical = await this.w.transfers.adapter(actor, api, space),
+      throw new WorkflowError(
+        'VALIDATION_INVALID',
+        'Choose a folder inside the document destination'
+      )
+    const physical = await this.w.requiredTransfers().adapter(actor, api, space),
       files = await physical.list(path)
     for (const file of files) {
       safePath(file.path)
       if (!file.path.startsWith(path + '/') || file.path.slice(path.length + 1).includes('/'))
-        throw new Error('Library listing outside requested folder')
+        throw new WorkflowError('OPERATION_HELD', 'Library listing outside requested folder')
     }
     return {
       root,
@@ -91,17 +104,19 @@ export class DocumentLibrary {
         path,
         resourceId,
         etag,
-        folder,
+        folder: !!folder,
         size,
         tags: tags ?? [],
-        ...(!folder ? { fields: this.w.metadata?.read(actor, resourceId)?.fields ?? {} } : {})
+        ...(!folder ? { fields: this.w.metadata.read(actor, resourceId)?.fields ?? {} } : {})
       }))
     }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MutationAdapter} api @param {{search?:string,limit?:number,cursor?:unknown}} options */
   async currentList(actor, api, options = {}) {
     await this.w.locations.refresh(actor, api)
     return this.list(actor, options)
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {{search?:string,limit?:number,cursor?:unknown}} options */
   list(actor, { search = '', limit = 50, cursor } = {}) {
     if (
       typeof search !== 'string' ||
@@ -110,12 +125,9 @@ export class DocumentLibrary {
       limit < 1 ||
       limit > 100
     )
-      throw new Error('Invalid document search or page size')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid document search or page size')
     const after = position(cursor),
-      scope = this.w.scope(actor),
-      processed = this.db
-        .prepare("select 1 from sqlite_master where type='table' and name='automatic_runs'")
-        .get()
+      scope = this.w.scope(actor)
     const rows = this.db
       .prepare(
         `WITH records AS (
@@ -126,12 +138,12 @@ export class DocumentLibrary {
     json_extract(p.result,'$.proposal.kind.value') kind,json_extract(p.input,'$.pages') extractedText,0 processed
    FROM decisions d JOIN proposals p ON p.id=d.job
    WHERE p.scope=? AND d.actor=? AND d.state='done'
-   ${processed ? `UNION ALL SELECT p.id,a.updated,json_extract(p.input,'$.source.path'),json_extract(p.input,'$.source.space'),json_extract(p.input,'$.source.path'),json_extract(p.input,'$.source.resourceId'),json_extract(p.input,'$.source.sha256'),'[]',json_extract(p.result,'$.proposal.issuer.value'),json_extract(p.result,'$.proposal.date.value'),json_extract(p.result,'$.proposal.kind.value'),json_extract(p.input,'$.pages'),1 FROM automatic_runs a JOIN proposals p ON a.job=p.id LEFT JOIN decisions d ON d.job=p.id WHERE a.scope=? AND a.state='done' AND d.job IS NULL` : ''}
-  ), canonical AS (SELECT records.*,${this.w.transfers ? 'coalesce((select l.canonical from resource_aliases l where l.scope=? and l.resource=records.resourceId),resourceId)' : 'resourceId'} canonicalResource FROM records), filed AS (SELECT canonical.*,row_number() OVER(PARTITION BY canonicalResource ORDER BY updated DESC,job DESC) revision FROM canonical), confirmed AS (SELECT f.*,l.path currentPath,l.tags currentTags,m.fields,coalesce(m.version,0) metadataVersion,
+   ${`UNION ALL SELECT p.id,a.updated,json_extract(p.input,'$.source.path'),json_extract(p.input,'$.source.space'),json_extract(p.input,'$.source.path'),json_extract(p.input,'$.source.resourceId'),json_extract(p.input,'$.source.sha256'),'[]',json_extract(p.result,'$.proposal.issuer.value'),json_extract(p.result,'$.proposal.date.value'),json_extract(p.result,'$.proposal.kind.value'),json_extract(p.input,'$.pages'),1 FROM automatic_runs a JOIN proposals p ON a.job=p.id LEFT JOIN decisions d ON d.job=p.id WHERE a.scope=? AND a.state='done' AND d.job IS NULL`}
+  ), canonical AS (SELECT records.*,coalesce((select l.canonical from resource_aliases l where l.scope=? and l.resource=records.resourceId),resourceId) canonicalResource FROM records), filed AS (SELECT canonical.*,row_number() OVER(PARTITION BY canonicalResource ORDER BY updated DESC,job DESC) revision FROM canonical), confirmed AS (SELECT f.*,l.path currentPath,l.tags currentTags,m.fields,coalesce(m.version,0) metadataVersion,
     (SELECT c.tags FROM metadata_changes c WHERE c.scope=? AND c.resource=f.canonicalResource AND c.state='done' AND c.created>=f.updated ORDER BY c.created DESC,c.id DESC LIMIT 1) metadataTags
    FROM filed f
    LEFT JOIN metadata m ON m.scope=? AND m.resource=f.canonicalResource
-   LEFT JOIN filed_locations l ON l.scope=? AND l.space=${this.w.transfers ? 'coalesce((select space from file_locations where scope=l.scope and resource=f.canonicalResource),f.physicalSpace)' : 'f.physicalSpace'} AND l.resource=${this.w.transfers ? 'coalesce((select target_resource from file_locations where scope=l.scope and resource=f.canonicalResource),f.resourceId)' : 'f.resourceId'}
+   LEFT JOIN filed_locations l ON l.scope=? AND l.space=coalesce((select space from file_locations where scope=l.scope and resource=f.canonicalResource),f.physicalSpace) AND l.resource=coalesce((select target_resource from file_locations where scope=l.scope and resource=f.canonicalResource),f.resourceId)
    WHERE revision=1) SELECT * FROM confirmed f WHERE (? IS NULL OR f.updated<? OR (f.updated=? AND f.job<?))
     AND workflow_contains(json_array(f.extractedText,coalesce(f.currentPath,f.path),f.sender,f.date,f.kind,coalesce(f.currentTags,f.tags),CASE WHEN f.currentTags IS NULL THEN f.metadataTags ELSE '[]' END,coalesce(f.fields,'{}')),?)
    ORDER BY f.updated DESC,f.job DESC LIMIT ?`
@@ -139,8 +151,8 @@ export class DocumentLibrary {
       .all(
         scope,
         actor.account,
-        ...(processed ? [scope] : []),
-        ...(this.w.transfers ? [scope] : []),
+        scope,
+        scope,
         scope,
         scope,
         scope,
@@ -165,7 +177,7 @@ export class DocumentLibrary {
               actor.space
           }
         : {}),
-      path: safePath(row.currentPath ?? row.path),
+      path: safePath(String(row.currentPath ?? row.path)),
       originalPath: row.originalPath,
       resourceId: this.w.transfers
         ? (this.db
@@ -177,19 +189,25 @@ export class DocumentLibrary {
       date: row.date,
       kind: row.kind,
       tags: row.currentTags
-        ? JSON.parse(row.currentTags)
-        : [...new Set([...JSON.parse(row.tags ?? '[]'), ...JSON.parse(row.metadataTags ?? '[]')])],
-      fields: JSON.parse(row.fields ?? '{}'),
+        ? JSON.parse(String(row.currentTags))
+        : [
+            ...new Set([
+              ...JSON.parse(String(row.tags ?? '[]')),
+              ...JSON.parse(String(row.metadataTags ?? '[]'))
+            ])
+          ],
+      fields: JSON.parse(String(row.fields ?? '{}')),
       metadataVersion: row.metadataVersion,
       processed: row.processed === 1,
       updated: row.updated
     }))
     const last = page.at(-1),
-      nextCursor = hasMore
-        ? Buffer.from(JSON.stringify({ v: 1, updated: last.updated, id: last.job })).toString(
-            'base64url'
-          )
-        : null
+      nextCursor =
+        hasMore && last
+          ? Buffer.from(JSON.stringify({ v: 1, updated: last.updated, id: last.job })).toString(
+              'base64url'
+            )
+          : null
     return { documents, nextCursor, hasMore }
   }
 }

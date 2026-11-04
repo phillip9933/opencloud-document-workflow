@@ -1,12 +1,12 @@
-import { WorkflowError } from '../../src/domain/errors.ts'
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../../src/domain/errors.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { samples } from '../../src/domain/samples.ts'
 import { defaultPolicy } from '../../src/domain/review.ts'
 test('manual-review diagnostics retain verified facts without exposing raw AI or changing the recorded review', async () => {

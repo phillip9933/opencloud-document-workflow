@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { safePath } from '../src/domain/review.ts'
 // Lists only the configured inbox. Folder-picker browsing uses the original API.
 /** @param {import('./contracts.d.mts').FileReader} api @param {{folder:string,recursive:boolean}} options */
@@ -10,12 +11,12 @@ export async function inboxFiles(api, { folder, recursive }) {
   while (pending.length) {
     const path = pending.pop()
     if (path === undefined) break
-    if (seen.has(path)) throw new Error('Repeated inbox folder')
+    if (seen.has(path)) throw new WorkflowError('OPERATION_HELD', 'Repeated inbox folder')
     seen.add(path)
     for (const file of await api.list(path)) {
       safePath(file.path)
       if (!file.path.startsWith(path + '/') || file.path.slice(path.length + 1).includes('/'))
-        throw new Error('Inbox listing outside requested folder')
+        throw new WorkflowError('OPERATION_HELD', 'Inbox listing outside requested folder')
       if (file.folder) {
         if (recursive) pending.push(file.path)
       } else files.push(file)
@@ -25,7 +26,7 @@ export async function inboxFiles(api, { folder, recursive }) {
 }
 // Inbox totals describe files that are still there. Activity retains the full
 // queue history, including trashed duplicates and superseded uploads.
-/** @param {Array<{folder?:boolean,intakeState?:string,reviewState?:string,progress?:{attention?:boolean,cancelled?:boolean,step:number}}>} files */
+/** @param {Array<{folder?:boolean,intakeState?:string|null,reviewState?:string|null,progress?:{attention?:boolean,cancelled?:boolean,step:number}}>} files */
 export function inboxSummary(files) {
   const summary = {
     total: 0,

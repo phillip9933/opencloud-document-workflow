@@ -6,7 +6,7 @@
     "component": {
       "type": "application",
       "name": "opencloud-document-workflow",
-      "version": "0.20.1"
+      "version": "0.20.2"
     },
     "properties": [
       {

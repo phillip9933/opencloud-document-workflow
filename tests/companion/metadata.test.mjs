@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
 import { Metadata } from '../../companion/metadata.mjs'
 import { suggestMetadata } from '../../src/domain/metadata.ts'
@@ -16,7 +16,7 @@ async function setup() {
     api = new DemoAdapter(j.db)
   api.seed()
   const actor = await api.identity(),
-    m = new Metadata(w)
+    m = (w.metadata = new Metadata(w))
   m.saveSchema(actor, {
     fields: [
       { id: 'invoice', label: 'Invoice', type: 'text', aliases: ['Invoice number'], choices: [] }

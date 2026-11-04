@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Transfers } from '../../companion/transfers.mjs'
 import { Configuration } from '../../companion/configuration.mjs'
 import { Metadata } from '../../companion/metadata.mjs'
@@ -24,9 +24,9 @@ async function setup() {
   api.seed()
   target.seed()
   const actor = await api.identity(),
-    config = new Configuration(w),
-    metadata = new Metadata(w),
-    transfers = new Transfers(w),
+    config = (w.configuration = new Configuration(w)),
+    metadata = (w.metadata = new Metadata(w)),
+    transfers = (w.transfers = new Transfers(w)),
     library = new DocumentLibrary(w),
     s = await api.stat('Inbox/english.pdf'),
     input = await extractPDFBytes(await api.get(s.path), {
@@ -159,8 +159,8 @@ test('lost PUT response never adopts matching bytes or repeats upload/Trash, inc
     assert.equal(s.trashes, 0)
     const j = new ProposalJournal(s.path),
       w = new Workflow(j)
-    new Configuration(w)
-    new Transfers(w)
+    w.configuration = new Configuration(w)
+    w.transfers = new Transfers(w)
     try {
       assert.equal((await w.apply(s.actor, s.api, s.result.id)).uncertain, true)
       assert.equal(s.puts, 1)
@@ -394,8 +394,8 @@ test('two cross-Space transfers preserve historical identity aliases, canonical 
     assert.equal((await s.w.location(s.actor, s.api, s.result.id)).resourceId, returned.resourceId)
     const j = new ProposalJournal(s.path),
       w = new Workflow(j)
-    new Configuration(w)
-    const transfers = new Transfers(w),
+    w.configuration = new Configuration(w)
+    const transfers = (w.transfers = new Transfers(w)),
       library = new DocumentLibrary(w)
     try {
       assert.equal(transfers.canonical(s.actor, firstFile.resourceId, 'local-archive'), canonical)
@@ -444,6 +444,38 @@ test('a transferred resource cannot bypass a newer approved review through its c
       /Finish or verify/
     )
     assert.equal(s.w.decision(s.actor, fresh.id).state, 'approved')
+  } finally {
+    s.close()
+  }
+})
+
+test('destination lock remains held through asynchronous final verification and alias recording', async () => {
+  const s = await setup()
+  try {
+    await s.approve()
+    const get = s.target.get.bind(s.target)
+    let checked = false
+    s.target.get = async (...args) => {
+      const result = await get(...args)
+      const transfer = s.j.db
+        .prepare('select state,resource from cross_transfers where job=?')
+        .get(s.result.id)
+      if (transfer?.state === 'done' && s.w.decision(s.actor, s.result.id)?.state !== 'done') {
+        await Promise.resolve()
+        checked = true
+        assert.throws(
+          () => {
+            const release = s.w.lock(`resource:${s.w.scope(s.actor)}:${transfer.resource}`)
+            release()
+          },
+          { code: 'WORKFLOW_BUSY' }
+        )
+      }
+      return result
+    }
+    assert.equal((await s.w.apply(s.actor, s.api, s.result.id)).state, 'done')
+    assert.equal(checked, true)
+    assert.equal(s.j.db.prepare('select count(*) count from workflow_locks').get().count, 0)
   } finally {
     s.close()
   }

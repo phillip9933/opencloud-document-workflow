@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Metadata } from '../../companion/metadata.mjs'
 import { Automation } from '../../companion/automation.mjs'
 import { Intake, defaultIntake } from '../../companion/intake.mjs'
@@ -54,7 +54,7 @@ async function setup({ receipt = false, yearLines = [] } = {}) {
     path = join(dir, 'db.sqlite3'),
     journal = new ProposalJournal(path),
     workflow = new Workflow(journal),
-    metadata = new Metadata(workflow),
+    metadata = (workflow.metadata = new Metadata(workflow)),
     api = new DemoAdapter(journal.db)
   api.seed()
   journal.db.prepare('delete from demo_files where folder=0').run()
@@ -70,7 +70,7 @@ async function setup({ receipt = false, yearLines = [] } = {}) {
     ...yearLines
   ])
   const uploaded = await api.put('Inbox/fixture.pdf', bytes),
-    configuration = new Configuration(workflow),
+    configuration = (workflow.configuration = new Configuration(workflow)),
     rules = defaultFilingRules()
   rules.root = 'Archive'
   rules.folders = [
@@ -101,7 +101,7 @@ async function setup({ receipt = false, yearLines = [] } = {}) {
     resume: (...args) => automation.resume(...args)
   })
   configuration.save(actor, { rules, limits: defaultLimits() })
-  automation = new Automation(workflow, metadata, intake)
+  automation = workflow.automation = new Automation(workflow, metadata, intake)
   const prepare = journal.prepare.bind(journal)
   journal.prepare = (input, settings, options) =>
     prepare(input, settings, {

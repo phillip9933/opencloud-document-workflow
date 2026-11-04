@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { safePath } from '../src/domain/review.ts'
 export const defaultIntake = () => ({
   enabled: false,
@@ -11,7 +12,7 @@ export const defaultIntake = () => ({
 /** @param {unknown} value */
 export function validateIntake(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('Invalid intake settings')
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid intake settings')
   const c = /** @type {Record<string,unknown>} */ (value)
   if (
     !c ||
@@ -29,8 +30,9 @@ export function validateIntake(value) {
     c.settleSeconds < 2 ||
     c.settleSeconds > 3600
   )
-    throw new Error('Invalid intake settings')
-  if (typeof c.folder !== 'string') throw new Error('Invalid intake settings')
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid intake settings')
+  if (typeof c.folder !== 'string')
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid intake settings')
   safePath(c.folder)
   return structuredClone(/** @type {ReturnType<typeof defaultIntake>} */ (c))
 }

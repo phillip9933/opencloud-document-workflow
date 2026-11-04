@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from './errors.ts'
 import {
   defaultLanguageProfile,
   languageProfile,
@@ -42,21 +43,25 @@ function validateTemplate(template: string, allowed: readonly string[]) {
     template.length > 400 ||
     /[\x00-\x1f\x7f]/.test(template)
   )
-    throw new Error('Invalid filing template')
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid filing template')
   const remaining = template.replace(/\{([^}]+)\}/g, (_, key) => {
-    if (!allowed.includes(key)) throw new Error('Unknown filing template token: ' + key)
+    if (!allowed.includes(key))
+      throw new WorkflowError('VALIDATION_INVALID', 'Unknown filing template token: ' + key)
     return 'example'
   })
-  if (/[{}]/.test(remaining)) throw new Error('Invalid filing template token')
+  if (/[{}]/.test(remaining))
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid filing template token')
   safePath(remaining)
 }
-export function validateFilingRules(value: FilingRules): FilingRules {
+export function validateFilingRules(input: unknown): FilingRules {
+  // Treat this as an untrusted candidate; every field is validated below.
+  const value = input as FilingRules
   if (
     !value ||
     Object.keys(value).sort().join(',') !==
       'folderTemplate,folders,languages,nameTemplate,root,tags'
   )
-    throw new Error('Unexpected filing settings')
+    throw new WorkflowError('VALIDATION_INVALID', 'Unexpected filing settings')
   safePath(value.root)
   for (const [template, allowed] of [
     [value.folderTemplate, ['category', 'year', 'month', 'day']],
@@ -65,7 +70,7 @@ export function validateFilingRules(value: FilingRules): FilingRules {
     validateTemplate(template, allowed)
   }
   if (value.nameTemplate.includes('/') || !value.nameTemplate.toLowerCase().endsWith('.pdf'))
-    throw new Error('Filename template must be one PDF filename')
+    throw new WorkflowError('VALIDATION_INVALID', 'Filename template must be one PDF filename')
   for (const [key, max] of [
     ['folders', 200],
     ['tags', 50]
@@ -77,10 +82,10 @@ export function validateFilingRules(value: FilingRules): FilingRules {
       rows.length > max ||
       new Set(rows.map((r) => r?.value)).size !== rows.length
     )
-      throw new Error('Invalid or duplicate classification rules')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid or duplicate classification rules')
     for (const row of rows) {
       if (!row || typeof row !== 'object' || Array.isArray(row))
-        throw new Error('Invalid classification rule')
+        throw new WorkflowError('VALIDATION_INVALID', 'Invalid classification rule')
       const allowed =
         key === 'folders'
           ? [
@@ -103,9 +108,9 @@ export function validateFilingRules(value: FilingRules): FilingRules {
         !['word', 'substring'].includes(row.match) ||
         !Array.isArray(row.terms) ||
         row.terms.length > 100 ||
-        row.terms.some((t) => typeof t !== 'string' || !t.trim() || t.length > 150)
+        row.terms.some((t: unknown) => typeof t !== 'string' || !t.trim() || t.length > 150)
       )
-        throw new Error('Invalid classification rule')
+        throw new WorkflowError('VALIDATION_INVALID', 'Invalid classification rule')
       if (key === 'folders') {
         safePath(row.value)
         const folder = row as FolderClassificationRule
@@ -133,13 +138,19 @@ export function validateFilingRules(value: FilingRules): FilingRules {
                 /[\x00-\x1f\x7f]/.test(label)
             )
           )
-            throw new Error('Tax-year folders need explicit, unique tax-year labels')
+            throw new WorkflowError(
+              'VALIDATION_INVALID',
+              'Tax-year folders need explicit, unique tax-year labels'
+            )
         }
       }
     }
   }
   if (!value.folders.some((r) => r.value === 'Other'))
-    throw new Error('Keep an Other category for documents without a match')
+    throw new WorkflowError(
+      'VALIDATION_INVALID',
+      'Keep an Other category for documents without a match'
+    )
   languageProfile(value.languages)
   return JSON.parse(JSON.stringify(value)) as FilingRules
 }
@@ -182,9 +193,10 @@ export function renderFilingTemplate(template: string, values: Record<string, st
   return safePath(
     template.replace(/\{([^}]+)\}/g, (_, key) => {
       const value = values[key]
-      if (value === undefined) throw new Error('Missing filing template value')
+      if (value === undefined)
+        throw new WorkflowError('VALIDATION_INVALID', 'Missing filing template value')
       if (key !== 'category' && value.includes('/'))
-        throw new Error('A filename fact contains a path separator')
+        throw new WorkflowError('VALIDATION_INVALID', 'A filename fact contains a path separator')
       return value
     })
   )
@@ -230,7 +242,8 @@ export function taxYearFromPages(pages: string[], labels: string[]): string {
       }
     }
   if (invalid || years.size !== 1)
-    throw new Error(
+    throw new WorkflowError(
+      'VALIDATION_INVALID',
       years.size > 1
         ? 'Conflicting tax years need review. Choose the destination folder.'
         : 'An unambiguous labelled tax year is required. Choose the destination folder.'

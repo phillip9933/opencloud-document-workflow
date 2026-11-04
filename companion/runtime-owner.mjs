@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { DatabaseSync } from 'node:sqlite'
 import { chmodSync, realpathSync } from 'node:fs'
 
@@ -20,8 +21,8 @@ export function acquireRuntime(database) {
       guard.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE')
     } catch (cause) {
       guard.close()
-      throw Object.assign(new Error('Another companion process owns this journal', { cause }), {
-        code: 'RUNTIME_BUSY'
+      throw new WorkflowError('RUNTIME_BUSY', 'Another companion process owns this journal', {
+        cause
       })
     }
     runtime = {

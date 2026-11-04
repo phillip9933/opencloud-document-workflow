@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError, errorCode } from '../domain/errors'
 import { errorMessageKey } from '../domain/error-messages'
 interface RequestContext {
   token(): string
@@ -17,11 +18,17 @@ export function createCompanionRequest(context: RequestContext) {
     let verifiedBearer = bearer
     const checkSession = async () => {
       if (generation !== context.generation())
-        throw new Error('The workspace changed. Reload its current state before continuing.')
+        throw new WorkflowError(
+          'SOURCE_CHANGED',
+          'The workspace changed. Reload its current state before continuing.'
+        )
       if (verifiedBearer === context.token()) return
       const renewed = context.token()
       if (!pin || !renewed)
-        throw new Error('The workspace changed. Reload its current state before continuing.')
+        throw new WorkflowError(
+          'SOURCE_CHANGED',
+          'The workspace changed. Reload its current state before continuing.'
+        )
       // Token renewal is normal during OCR. Re-authenticate the current session
       // before exposing a response produced under the earlier credential.
       const check = await fetch('/_workflow/api/status', {
@@ -42,7 +49,10 @@ export function createCompanionRequest(context: RequestContext) {
         !actor ||
         JSON.stringify([actor.server, actor.account, actor.space]) !== pin
       )
-        throw new Error('The workspace changed. Reload its current state before continuing.')
+        throw new WorkflowError(
+          'SOURCE_CHANGED',
+          'The workspace changed. Reload its current state before continuing.'
+        )
       verifiedBearer = renewed
     }
     const response = await fetch(`/_workflow/api/${operation}`, {
@@ -65,14 +75,18 @@ export function createCompanionRequest(context: RequestContext) {
     try {
       result = await response.json()
     } catch {
-      throw new Error(
+      throw new WorkflowError(
+        'OPERATION_HELD',
         'Companion is not connected. Start the companion server or configure its same-origin route.'
       )
     }
     await checkSession()
     if (!response.ok)
       throw Object.assign(
-        new Error(errorMessageKey(result.code) ?? result.error ?? 'Companion request failed'),
+        new WorkflowError(
+          errorCode(result) ?? 'UPSTREAM_FAILURE',
+          errorMessageKey(result.code) ?? result.error ?? 'Companion request failed'
+        ),
         operation === 'document-trash' && result.trashRecorded === false
           ? { trashRecorded: false }
           : {}

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Conversions } from '../../companion/conversions.mjs'
 const actor = { server: 'https://example.org', account: 'owner', space: 'one' },
   pdf = Buffer.from('%PDF-1.7 synthetic conversion fixture')
@@ -54,7 +54,7 @@ function fixture() {
       files.delete(source)
     }
   }
-  const service = new Conversions(w, { render: async () => pdf })
+  const service = (w.conversions = new Conversions(w, { render: async () => pdf }))
   service.wait = async () => {}
   const input = { path: 'Inbox/sub/photo.jpg', resourceId: 'source', etag: '"v1"' }
   return {
@@ -138,9 +138,9 @@ test('lost MOVE response reconciles read-only, never moving or creating twice', 
     }
     const result = await f.service.convert(actor, f.api, f.input)
     assert.equal(result.state, 'held')
-    const restored = new Conversions(f.w, {
+    const restored = (f.w.conversions = new Conversions(f.w, {
       render: async () => assert.fail('No repeated conversion')
-    })
+    }))
     assert.equal((await restored.reconcile(actor, f.api, result.id)).state, 'done')
     assert.deepEqual(f.counts(), { puts: 1, moves: 1 })
   } finally {
@@ -321,6 +321,26 @@ test('a lost backup-tag response is verified before the first replacement, witho
     assert.equal((await f.service.reformat(actor, f.api, f.conversion.id)).state, 'done')
     assert.equal(tags, 1)
     assert.equal(replacements, 1)
+  } finally {
+    f.close()
+  }
+})
+
+test('non-Error post-upload failures hold the recorded conversion and do not replay it', async () => {
+  const f = fixture()
+  try {
+    f.api.addTags = async () => {
+      throw null
+    }
+    const result = await f.service.convert(actor, f.api, f.input)
+    assert.equal(result.state, 'held')
+    assert.equal(result.error, 'Conversion needs verification')
+    assert.equal(result.uncertain, true)
+    assert.deepEqual(f.counts(), { puts: 1, moves: 0 })
+    const verified = await f.service.reconcile(actor, f.api, result.id)
+    assert.equal(verified.state, 'held')
+    assert.deepEqual(f.counts(), { puts: 1, moves: 0 })
+    assert.ok(f.files.has(f.input.path))
   } finally {
     f.close()
   }

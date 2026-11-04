@@ -28,7 +28,8 @@ const validEraBound = (s: string) =>
   Number.isFinite(Date.parse(s + 'T00:00:00Z')) &&
   new Date(s + 'T00:00:00Z').toISOString().slice(0, 10) === s
 export function languageProfile(packs: LanguagePack[]): LanguageProfile {
-  if (!Array.isArray(packs) || packs.length > 100) throw new Error('Invalid language profile')
+  if (!Array.isArray(packs) || packs.length > 100)
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid language profile')
   const seen = new Set<string>()
   for (const pack of packs) {
     if (
@@ -37,16 +38,16 @@ export function languageProfile(packs: LanguagePack[]): LanguageProfile {
       !Number.isInteger(pack.version) ||
       pack.version < 1
     )
-      throw new Error('Invalid or duplicate language pack')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid or duplicate language pack')
     seen.add(pack.id)
     if (pack.termMatch && !['word', 'substring'].includes(pack.termMatch))
-      throw new Error('Invalid category matching mode')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid category matching mode')
     if (
       !Array.isArray(pack.dates) ||
       pack.dates.length > 20 ||
       pack.dates.some((v) => typeof v !== 'string' || v.length > 100)
     )
-      throw new Error('Invalid date patterns')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid date patterns')
     for (const pattern of pack.dates) {
       const tokens = pattern.match(/\{[^}]+\}/g) || []
       if (
@@ -55,11 +56,14 @@ export function languageProfile(packs: LanguagePack[]): LanguageProfile {
         tokens.filter((t) => t === '{month}' || t === '{monthName}').length !== 1 ||
         tokens.length !== 3
       )
-        throw new Error('Date patterns need year, month and day tokens')
+        throw new WorkflowError(
+          'VALIDATION_INVALID',
+          'Date patterns need year, month and day tokens'
+        )
     }
     if (pack.eras) {
       if (!Array.isArray(pack.eras) || pack.eras.length > 50)
-        throw new Error('Invalid calendar eras')
+        throw new WorkflowError('VALIDATION_INVALID', 'Invalid calendar eras')
       for (const era of pack.eras) {
         if (
           !era.name ||
@@ -79,7 +83,7 @@ export function languageProfile(packs: LanguagePack[]): LanguageProfile {
           ) ||
           era.format.replace(/\{(era|year|month|day)\}/g, '').includes('{')
         )
-          throw new Error('Invalid calendar era')
+          throw new WorkflowError('VALIDATION_INVALID', 'Invalid calendar era')
       }
     }
     if (
@@ -93,12 +97,15 @@ export function languageProfile(packs: LanguagePack[]): LanguageProfile {
             new Set(Array.from(d)).size !== 10
         ))
     )
-      throw new Error('Digit sets must contain ten distinct decimal digits')
+      throw new WorkflowError(
+        'VALIDATION_INVALID',
+        'Digit sets must contain ten distinct decimal digits'
+      )
     if (pack.dates.some((p) => p.includes('{monthName}')) && !Object.keys(pack.months).length)
-      throw new Error('Named-month rules need month aliases')
+      throw new WorkflowError('VALIDATION_INVALID', 'Named-month rules need month aliases')
     for (const [name, month] of Object.entries(pack.months)) {
       if (!name || name.length > 60 || !Number.isInteger(month) || month < 1 || month > 12)
-        throw new Error('Invalid month alias')
+        throw new WorkflowError('VALIDATION_INVALID', 'Invalid month alias')
     }
     for (const [id, terms] of Object.entries(pack.terms)) {
       if (
@@ -109,7 +116,7 @@ export function languageProfile(packs: LanguagePack[]): LanguageProfile {
         terms.length > 100 ||
         terms.some((t) => typeof t !== 'string' || !t.trim() || t.length > 100)
       )
-        throw new Error('Invalid category terms')
+        throw new WorkflowError('VALIDATION_INVALID', 'Invalid category terms')
     }
   }
   return { packs: JSON.parse(JSON.stringify(packs)) as LanguagePack[] }

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Operations } from '../../companion/operations.mjs'
 const actor = { server: 'https://example.org', account: 'person', space: 'one' }
 test('bulk work retains per-document results and cannot be replayed using the same operation ID', async () => {
@@ -104,7 +104,7 @@ test('bulk filing verifies each plan, preserves successful files around a collis
     j = new ProposalJournal(path),
     w = new Workflow(j),
     api = new DemoAdapter(j.db),
-    metadata = new Metadata(w)
+    metadata = (w.metadata = new Metadata(w))
   api.seed()
   const actor = await api.identity(),
     original = j.db.prepare("select data from demo_files where resourceId='demo-english'").get()
@@ -522,6 +522,76 @@ test('current-inbox batch retry excludes absent, changed and other-Space sources
     )
     assert.ok(results.slice(1).every((item) => item.result.error === 'Original held result'))
     assert.equal(operations.processingSummary(actor, []).waiting, 1)
+  } finally {
+    await operations.stop()
+    j.close()
+    rmSync(dir, { recursive: true })
+  }
+})
+
+test('bulk prepare contention leaves the batch queued and resumes after the lock releases', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-bulk-busy-'))
+  const j = new ProposalJournal(join(dir, 'db.sqlite3')),
+    w = new Workflow(j)
+  let calls = 0
+  const operations = new Operations(w, {
+    prepare: async () => {
+      calls++
+      const release = w.lock('__prepare__')
+      release()
+      return { state: 'needs_review' }
+    }
+  })
+  const api = { identity: async () => actor }
+  const request = {
+    id: randomUUID(),
+    kind: 'prepare',
+    items: [{ path: 'Inbox/one.pdf' }, { path: 'Inbox/two.pdf' }]
+  }
+  const release = w.lock('__prepare__')
+  try {
+    operations.start(actor, api, request)
+    await operations.active.get(request.id)
+    assert.deepEqual(
+      operations.status(actor, request.id).items.map((i) => i.state),
+      ['queued', 'queued']
+    )
+    assert.equal(calls, 1)
+    release()
+    t.mock.timers.tick(1000)
+    await operations.active.get(request.id)
+    assert.deepEqual(
+      operations.status(actor, request.id).items.map((i) => i.state),
+      ['done', 'done']
+    )
+    assert.equal(j.db.prepare('select count(*) n from decisions').get().n, 0)
+  } finally {
+    release()
+    await operations.stop()
+    j.close()
+    rmSync(dir, { recursive: true })
+  }
+})
+
+test('a pending automatic result is not recorded as completed by its batch', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-bulk-pending-'))
+  const j = new ProposalJournal(join(dir, 'db.sqlite3')),
+    w = new Workflow(j)
+  let calls = 0
+  w.automation = { run: async () => ({ state: ++calls === 1 ? 'pending' : 'done' }) }
+  const operations = new Operations(w, {})
+  const api = { identity: async () => actor }
+  const request = { id: randomUUID(), kind: 'automatic', items: [{ id: 'synthetic-job' }] }
+  try {
+    operations.start(actor, api, request)
+    await operations.active.get(request.id)
+    assert.equal(operations.status(actor, request.id).items[0].state, 'queued')
+    t.mock.timers.tick(1000)
+    await operations.active.get(request.id)
+    assert.equal(operations.status(actor, request.id).items[0].state, 'done')
+    assert.equal(calls, 2)
   } finally {
     await operations.stop()
     j.close()

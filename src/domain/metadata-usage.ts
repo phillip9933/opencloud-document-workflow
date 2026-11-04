@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { LibraryEntry } from './library'
+import type { LibraryEntry } from './library.ts'
 export interface MetadataUsage {
   fields: Record<string, number>
   tags: Record<string, number>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { WorkflowError } from '../domain/errors'
+
 // SPDX-License-Identifier: AGPL-3.0-only
 import { ref, nextTick, onBeforeUnmount, onMounted, useId } from 'vue'
 import { useWorkspace } from '../state/workspace'
@@ -123,13 +125,19 @@ async function open() {
       source = detail.source
     if (!alive || scope() !== pin) return
     if (detail.pending?.length)
-      throw Error('Verify the pending metadata change before moving this document to Trash')
+      throw new WorkflowError(
+        'OPERATION_HELD',
+        'Verify the pending metadata change before moving this document to Trash'
+      )
     if (
       (location.resourceId && location.resourceId !== source.resourceId) ||
       (location.etag && location.etag !== source.etag) ||
       (props.sha256 && props.sha256 !== source.sha256)
     )
-      throw Error('The document changed. Reopen it before moving it to Trash')
+      throw new WorkflowError(
+        'SOURCE_CHANGED',
+        'The document changed. Reopen it before moving it to Trash'
+      )
     target.value = {
       ...source,
       space: location.space ?? source.space ?? store.connection.value?.space

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { WorkflowError } from '../domain/errors'
+
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useLocale } from '../state/locale'
 import { actions, reviewDigest, validateBundle, validateManualActions } from '../domain/review'
@@ -40,7 +42,8 @@ async function inspectConversion() {
   error.value = ''
   try {
     conversion.value = await store.request('conversion-settings')
-    if (!conversion.value.available) throw new Error('The conversion service is not configured')
+    if (!conversion.value.available)
+      throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'The conversion service is not configured')
   } catch (e) {
     conversion.value = null
     error.value = e instanceof Error ? e.message : 'Could not load conversion settings'
@@ -56,7 +59,8 @@ async function convertSelected() {
     const items = []
     for (const doc of convertible.value) {
       const r = await store.request('metadata', { path: doc.path })
-      if (r.source.resourceId !== doc.resourceId) throw new Error('A selected document changed')
+      if (r.source.resourceId !== doc.resourceId)
+        throw new WorkflowError('SOURCE_CHANGED', 'A selected document changed')
       items.push({ path: doc.path, resourceId: r.source.resourceId, etag: r.source.etag })
     }
     busy.value = false
@@ -158,7 +162,10 @@ async function inspect() {
       })
       if (generation !== selectionGeneration || !alive) return
       if (r.source.resourceId !== doc.resourceId || r.pending.length)
-        throw new Error('A selected document changed or has an unconfirmed save')
+        throw new WorkflowError(
+          'SOURCE_CHANGED',
+          'A selected document changed or has an unconfirmed save'
+        )
       rows.push({
         path: r.source.path,
         ...(doc.space ? { documentSpace: doc.space } : {}),
@@ -217,9 +224,10 @@ async function inspectFiling() {
       let job = store.jobs.value.find((job) => job.source.resourceId === doc.resourceId)
       if (!job && doc.reviewJob) job = (await store.request('job', { id: doc.reviewJob })).job
       if (generation !== selectionGeneration || !alive) return
-      if (!job?.bundle || job.decision) throw new Error('Open the document before continuing')
+      if (!job?.bundle || job.decision)
+        throw new WorkflowError('OPERATION_HELD', 'Open the document before continuing')
       if (store.fieldDrafts.value[JSON.stringify([job.source.resourceId, job.source.sha256])])
-        throw new Error('Save field changes before filing')
+        throw new WorkflowError('OPERATION_HELD', 'Save field changes before filing')
       const review = validateBundle(job.bundle),
         draft = store.filingDrafts.value[job.id],
         manual = draft
@@ -237,7 +245,7 @@ async function inspectFiling() {
             )
           : undefined,
         plan = actions(review, policy, manual)
-      if (!plan) throw new Error('Text recognition required')
+      if (!plan) throw new WorkflowError('OPERATION_HELD', 'Text recognition required')
       rows.push({
         id: job.id,
         path: doc.path,

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // SPDX-License-Identifier: AGPL-3.0-only
+import type { MetadataMutationResult } from '../domain/document-details'
 import { ref, watch, onBeforeUnmount } from 'vue'
 import { useWorkspace } from '../state/workspace'
 import { useLocale } from '../state/locale'
@@ -10,7 +11,7 @@ const props = defineProps<{
   disabled?: boolean
 }>()
 const emit = defineEmits<{
-    changed: [result?: any]
+    changed: [result?: MetadataMutationResult]
     state: [value: { busy: boolean; uncertain: boolean }]
   }>(),
   store = useWorkspace(),

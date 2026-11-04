@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     && cp /usr/share/tesseract-ocr/5/tessdata/*.traineddata /workflow-tessdata/ \
     && chown -R 65534:65534 /workflow-tessdata
 # Keep release metadata below the stable runtime layer so upgrades reuse it.
-ARG WORKFLOW_VERSION=0.20.1
+ARG WORKFLOW_VERSION=0.20.2
 LABEL org.opencontainers.image.version="${WORKFLOW_VERSION}"
 COPY artifacts/draft-stage/ /app/
 COPY deploy/container/Dockerfile /distribution/Dockerfile

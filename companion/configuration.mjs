@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { validateSpace } from '../src/domain/review.ts'
 import { defaultFilingRules, validateFilingRules } from '../src/domain/filing.ts'
 export const defaultLimits = () => ({
@@ -18,7 +19,7 @@ export function validateLimits(value) {
     contextTokens: [8192, 1048576]
   }
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('Invalid processing capacity settings')
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid processing capacity settings')
   const record = /** @type {Record<string,unknown>} */ (value)
   if (
     Object.keys(record).sort().join(',') !== Object.keys(bounds).sort().join(',') ||
@@ -30,7 +31,7 @@ export function validateLimits(value) {
         record[key] > max
     )
   ) {
-    throw new Error('Invalid processing capacity settings')
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid processing capacity settings')
   }
   return structuredClone(/** @type {import('./contracts.d.mts').ProcessingLimits} */ (value))
 }
@@ -39,8 +40,6 @@ export class Configuration {
   constructor(workflow) {
     this.w = workflow
     this.db = workflow.db
-
-    workflow.configuration = this
   }
   /** @param {import('./contracts.d.mts').Actor} actor */
   settings(actor) {
@@ -71,7 +70,7 @@ export class Configuration {
       .run(this.w.scope(actor), checked)
     this.w.event(actor, null, 'destination_space_saved', { space: checked })
   }
-  /** @param {import('./contracts.d.mts').Actor} actor @param {{rules:import('../src/domain/filing.ts').FilingRules,limits:unknown}} input */
+  /** @param {import('./contracts.d.mts').Actor} actor @param {{rules:unknown,limits:unknown}} input */
   save(actor, { rules, limits }) {
     const checkedRules = validateFilingRules(rules)
     const checkedLimits = validateLimits(limits)
@@ -85,7 +84,10 @@ export class Configuration {
         current.enabled &&
         (current.folder === checkedRules.root || current.folder.startsWith(checkedRules.root + '/'))
       )
-        throw new Error('Pause ingestion and select an inbox outside the filing destination first')
+        throw new WorkflowError(
+          'OPERATION_HELD',
+          'Pause ingestion and select an inbox outside the filing destination first'
+        )
     }
     this.db
       .prepare(

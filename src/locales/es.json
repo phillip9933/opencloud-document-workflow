@@ -733,5 +733,6 @@
   "Operation held. {reason}": "Operación en espera. {reason}",
   "OpenCloud returned HTTP {status}.": "OpenCloud devolvió HTTP {status}.",
   "Companion request failed": "Falló la solicitud al servicio auxiliar",
-  "Companion is not connected. Start the companion server or configure its same-origin route.": "El servicio auxiliar no está conectado. Inícialo o configura su ruta en el mismo origen."
+  "Companion is not connected. Start the companion server or configure its same-origin route.": "El servicio auxiliar no está conectado. Inícialo o configura su ruta en el mismo origen.",
+  "An internal error occurred. Check Activity before retrying.": "Se produjo un error interno. Revisa la actividad antes de volver a intentarlo."
 }

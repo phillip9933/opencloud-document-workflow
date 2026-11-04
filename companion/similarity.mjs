@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { createHash } from 'node:crypto'
 import {
   documentFingerprint,
@@ -14,7 +15,6 @@ export class SimilarDocuments {
     this.db = workflow.db
     /** @type {Map<string,Set<string>>} */
     this.signals = new Map()
-    workflow.similarities = this
   }
   /** @param {string} id @param {import('../src/domain/review.ts').DocumentInput} input */
   signal(id, input) {
@@ -47,8 +47,9 @@ export class SimilarDocuments {
     // Filing may change the path or ETag. Only recorded locations with the same
     // bytes can connect historical OCR to a currently accessible file.
     const location = await this.w.location(actor, api, id),
-      physical = location.space === actor.space ? api : api.forSpace(location.space)
-    const limit = (this.w.configuration?.settings(actor).limits.maxMiB ?? 100) * 1024 * 1024,
+      physical = location.space === actor.space ? api : api.forSpace?.(location.space)
+    if (!physical) throw new WorkflowError('OPERATION_HELD', 'A Space adapter is required')
+    const limit = (this.w.configuration.settings(actor).limits.maxMiB ?? 100) * 1024 * 1024,
       bytes = await physical.get(location.path, location.etag, limit)
     if (createHash('sha256').update(bytes).digest('hex') !== source.sha256) return null
     const after = await physical.stat(location.path)

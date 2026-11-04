@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { Bundle, Claim } from './review'
+import type { Bundle, Claim } from './review.ts'
 const claim = (value: string, quote = value): Claim => ({ value, evidence: [{ page: 1, quote }] })
 export function samples(): Bundle[] {
   const source = (name: string, hash: string) => ({

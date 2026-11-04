@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { createReadStream } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { defaultLimits, validateLimits } from './configuration.mjs'
@@ -15,7 +16,7 @@ export async function extractPDF(path, source, limits = defaultLimits()) {
   for await (const chunk of createReadStream(path)) {
     total += chunk.length
     if (total > limits.maxMiB * 1024 * 1024)
-      throw new Error('PDF exceeds the configured processing size')
+      throw new WorkflowError('VALIDATION_INVALID', 'PDF exceeds the configured processing size')
     chunks.push(chunk)
   }
   const data = Buffer.concat(chunks)
@@ -32,7 +33,10 @@ export async function extractPDFBytes(data, source, limits = defaultLimits()) {
     data.length > limits.maxMiB * 1024 * 1024 ||
     !data.subarray(0, 5).equals(Buffer.from('%PDF-'))
   )
-    throw new Error('Expected a PDF within the configured processing size')
+    throw new WorkflowError(
+      'OPERATION_HELD',
+      'Expected a PDF within the configured processing size'
+    )
   // Feed exactly the bytes hashed, not a path that could change between reads.
   const { spawn } = await import('node:child_process')
   const text = await new Promise(
@@ -49,18 +53,20 @@ export async function extractPDFBytes(data, source, limits = defaultLimits()) {
         clearTimeout(timer)
         if (error) reject(error)
         else if (result !== undefined) resolve(result)
-        else reject(new Error('Extraction returned no result'))
+        else reject(new WorkflowError('UPSTREAM_FAILURE', 'Extraction returned no result'))
       }
       const timer = setTimeout(() => {
         child.kill('SIGKILL')
-        finish(new Error('PDF extraction timed out'))
+        finish(new WorkflowError('UPSTREAM_FAILURE', 'PDF extraction timed out'))
       }, 30_000)
-      child.on('error', () => finish(new Error('Poppler pdftotext is required')))
+      child.on('error', () =>
+        finish(new WorkflowError('DEPENDENCY_UNAVAILABLE', 'Poppler pdftotext is required'))
+      )
       child.stdout.on('data', (chunk) => {
         bytes += chunk.length
         if (bytes > limits.maxCharacters * 4) {
           child.kill('SIGKILL')
-          finish(new Error('PDF extracted text exceeds limit'))
+          finish(new WorkflowError('VALIDATION_INVALID', 'PDF extracted text exceeds limit'))
         } else chunks.push(chunk)
       })
       child.stderr.resume()
@@ -68,7 +74,7 @@ export async function extractPDFBytes(data, source, limits = defaultLimits()) {
       child.on('close', (code) =>
         code === 0
           ? finish(null, Buffer.concat(chunks).toString('utf8'))
-          : finish(new Error('PDF extraction failed'))
+          : finish(new WorkflowError('UPSTREAM_FAILURE', 'PDF extraction failed'))
       )
       child.stdin.end(data)
     }
@@ -79,7 +85,10 @@ export async function extractPDFBytes(data, source, limits = defaultLimits()) {
     pages.length > limits.maxPages ||
     pages.reduce((n, p) => n + p.length, 0) > limits.maxCharacters
   )
-    throw new Error('PDF exceeds configured page or text capacity; adjust Processing settings')
+    throw new WorkflowError(
+      'VALIDATION_INVALID',
+      'PDF exceeds configured page or text capacity; adjust Processing settings'
+    )
   return validateDocumentInput({
     schemaVersion: 1,
     source: { ...source, sha256: createHash('sha256').update(data).digest('hex') },

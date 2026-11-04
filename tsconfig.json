@@ -5,7 +5,9 @@
       "vitest/globals"
     ],
     "allowImportingTsExtensions": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "checkJs": false
   },
   "include": [
     "src/**/*.ts",

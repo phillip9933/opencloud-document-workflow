@@ -1,21 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { errorProperty } from './error-properties.mjs'
+import { WorkflowError } from '../src/domain/errors.ts'
+import { logEvent } from './logging.mjs'
 import { constants } from 'node:fs'
 import { open, lstat, realpath, rename, unlink } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { OpenCloudAdapter } from './opencloud.mjs'
 
+/** @param {string} value */
 const digest = (value) => createHash('sha256').update(value).digest('hex')
+/** @param {unknown} value @returns {value is string} */
 const token = (value) =>
   typeof value === 'string' &&
   value.length > 0 &&
   value.length <= 16384 &&
   !/[\x00-\x20\x7f]/.test(value)
-const reason = (code) => Object.assign(new Error(code), { sessionReason: code })
+/** @param {string} code */
+const reason = (code) =>
+  Object.assign(new WorkflowError('OPERATION_HELD', code), { sessionReason: code })
 
 // This store is intentionally separate from document state and backups. It is
 // provisioned by the operator, never by a document or a browser API request.
 export class PrivateSessionFile {
+  /** @param {string} path @param {{excludedDirectory?:string;excludedDirectories?:string[]}} options */
   constructor(path, { excludedDirectory, excludedDirectories = [] } = {}) {
     this.path = resolve(path)
     this.intent = this.path + '.refresh-intent'
@@ -35,6 +43,7 @@ export class PrivateSessionFile {
     )
       throw reason('private_file_required')
   }
+  /** @param {string} path */
   async readFile(path) {
     await this.checkDirectory()
     const f = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
@@ -52,6 +61,7 @@ export class PrivateSessionFile {
       await f.close()
     }
   }
+  /** @returns {Promise<import('./admin-contracts.d.mts').SessionRecord>} */
   async read() {
     const raw = await this.readFile(this.path)
     let value
@@ -94,7 +104,7 @@ export class PrivateSessionFile {
         throw reason('refresh_uncertain')
       return value
     } catch (e) {
-      if (e.code === 'ENOENT') return null
+      if (errorProperty(e, 'code') === 'ENOENT') return null
       throw reason('refresh_uncertain')
     }
   }
@@ -106,6 +116,7 @@ export class PrivateSessionFile {
       await directory.close()
     }
   }
+  /** @param {string} hash */
   async begin(hash) {
     await this.checkDirectory()
     const f = await open(
@@ -136,6 +147,7 @@ export class PrivateSessionFile {
       await f.close()
     }
   }
+  /** @param {import('./admin-contracts.d.mts').SessionRecord} previous @param {import('./admin-contracts.d.mts').SessionValue} value */
   async replace(previous, value) {
     const current = await this.read()
     if (current.hash !== previous.hash) throw reason('credential_changed')
@@ -171,6 +183,7 @@ export class PrivateSessionFile {
 }
 
 export class SessionSupervisor {
+  /** @param {import('./admin-contracts.d.mts').SessionOptions} options */
   constructor({
     file,
     origin,
@@ -185,38 +198,43 @@ export class SessionSupervisor {
     fetcher = fetch,
     adapterFactory = (options) => new OpenCloudAdapter(options),
     now = () => Date.now(),
-    intervalMs = 30000
+    intervalMs = 30000,
+    logger = logEvent
   }) {
     if (!account || typeof account !== 'string')
-      throw new Error('Background access requires an explicit account ID')
+      throw new WorkflowError('OPERATION_HELD', 'Background access requires an explicit account ID')
     if (tokenEndpoint) {
       const u = new URL(tokenEndpoint)
       if (u.protocol !== 'https:' || u.username || u.password || u.hash || u.search || !clientId)
-        throw new Error(
+        throw new WorkflowError(
+          'OPERATION_HELD',
           'Background renewal requires an explicit HTTPS token endpoint and client ID'
         )
     }
     this.store = new PrivateSessionFile(file, { excludedDirectory, excludedDirectories })
-    Object.assign(this, {
-      origin,
-      space,
-      account,
-      attach,
-      detach,
-      tokenEndpoint,
-      clientId,
-      fetcher,
-      adapterFactory,
-      now,
-      intervalMs
-    })
+    this.origin = origin
+    this.space = space
+    this.account = account
+    this.attach = attach
+    this.detach = detach
+    this.tokenEndpoint = tokenEndpoint
+    this.clientId = clientId
+    this.fetcher = fetcher
+    this.adapterFactory = adapterFactory
+    this.now = now
+    this.intervalMs = intervalMs
+    this.logger = logger
+    /** @type {import('./api-contracts.d.mts').ServiceAdapter|null} */
     this.current = null
+    /** @type {Promise<void>|null} */
     this.active = null
     this.stopped = false
     this.nextAttempt = 0
     this.failures = 0
+    /** @type {{state:string;expiresAt:number|null;lastSuccess:number|null;reason:string|null}} */
     this.health = { state: 'starting', expiresAt: null, lastSuccess: null, reason: null }
   }
+  /** @param {import('./contracts.d.mts').Actor|undefined} actor */
   status(actor) {
     if (actor && (actor.account !== this.account || actor.server !== this.origin))
       return { configured: false, state: 'not_configured' }
@@ -227,6 +245,7 @@ export class SessionSupervisor {
       renewable: !!this.tokenEndpoint && this.hasRefresh === true
     }
   }
+  /** @param {string} code */
   async hold(code) {
     const prior = this.current
     this.current = null
@@ -236,8 +255,10 @@ export class SessionSupervisor {
     this.nextAttempt =
       this.now() + Math.min(300000, this.intervalMs * 2 ** Math.min(this.failures - 1, 4))
   }
+  /** @param {import('./admin-contracts.d.mts').SessionRecord} record */
   async renew(record) {
-    if (!this.tokenEndpoint || !record.value.refresh_token) throw reason('sign_in_required')
+    if (!this.tokenEndpoint || !this.clientId || !record.value.refresh_token)
+      throw reason('sign_in_required')
     await this.store.begin(record.hash)
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
@@ -296,7 +317,7 @@ export class SessionSupervisor {
       await this.store.clear()
       return this.store.read()
     } catch (e) {
-      throw e.sessionReason ? e : reason('refresh_uncertain')
+      throw errorProperty(e, 'sessionReason') ? e : reason('refresh_uncertain')
     }
   }
   async run() {
@@ -340,13 +361,16 @@ export class SessionSupervisor {
         reason: null
       }
     } catch (e) {
+      this.logger('session_failed', e)
       await this.hold(
-        e.sessionReason ??
-          ([401, 403].includes(e.status)
-            ? 'sign_in_required'
-            : e.code === 'ENOENT'
-              ? 'credential_missing'
-              : 'connection_unavailable')
+        String(
+          errorProperty(e, 'sessionReason') ??
+            ([401, 403].includes(Number(errorProperty(e, 'status')))
+              ? 'sign_in_required'
+              : errorProperty(e, 'code') === 'ENOENT'
+                ? 'credential_missing'
+                : 'connection_unavailable')
+        )
       )
     }
   }

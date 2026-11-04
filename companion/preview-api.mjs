@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { localPort } from './development-server.mjs'
 // Local development bridge. No production service, remote documents, cloud calls or file mutation.
 import { resolve } from 'node:path'
 import { ProposalJournal } from './journal.mjs'
 import { listModels, localEndpoint } from './ollama.mjs'
 import { samples } from '../src/domain/samples.ts'
 import { defaultPolicy } from '../src/domain/review.ts'
+/** @returns {import('vite').Plugin} */
 export function localAIPlugin() {
   return {
     name: 'local-workflow-ai',
@@ -13,13 +15,15 @@ export function localAIPlugin() {
         ? localEndpoint(process.env.WORKFLOW_OLLAMA_URL)
         : null
       const db = process.env.WORKFLOW_JOURNAL || resolve('companion/state/preview.sqlite3')
-      let journal,
-        busy = false
+      /** @type {ProposalJournal|undefined} */
+      let journal
+      let busy = false
       server.httpServer?.once('close', () => journal?.close())
       server.middlewares.use(async (req, res, next) => {
         if (!req.url?.startsWith('/_workflow/local/')) return next()
-        const port = server.httpServer.address().port,
+        const port = localPort(server),
           origin = `http://127.0.0.1:${port}`
+        /** @param {number} status @param {unknown} data */
         const send = (status, data) => {
           res.writeHead(status, {
             'Content-Type': 'application/json',

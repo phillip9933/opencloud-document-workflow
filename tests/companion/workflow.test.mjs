@@ -1,5 +1,5 @@
-import { WorkflowError } from '../../src/domain/errors.ts'
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../../src/domain/errors.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
 import { extractPDFBytes } from '../../companion/extract.mjs'
 import { defaultAIConfig } from '../../src/domain/ai.ts'
@@ -216,7 +216,10 @@ test('manual tag removal after completion is held without silently reapplying', 
     await approve(s)
     const done = await s.w.apply(s.actor, s.api, s.result.id)
     s.j.db.prepare('update demo_files set tags=? where path=?').run('[]', done.target)
-    await assert.rejects(s.w.apply(s.actor, s.api, s.result.id), /conflicts/)
+    await assert.rejects(
+      s.w.apply(s.actor, s.api, s.result.id),
+      (error) => error.code === 'SOURCE_CHANGED'
+    )
     assert.deepEqual((await s.api.stat(done.target)).tags, [])
   } finally {
     s.close()
@@ -230,7 +233,7 @@ test('a conflicted filed document is located by resource identity before a fresh
     s.j.db.prepare('update demo_files set tags=? where path=?').run('[]', done.target)
     await assert.rejects(
       s.w.apply(s.actor, s.api, s.result.id, { reconcileOnly: true }),
-      /conflicts/
+      (error) => error.code === 'SOURCE_CHANGED'
     )
     const current = await s.w.location(s.actor, s.api, s.result.id)
     assert.equal(current.path, done.target)
@@ -264,7 +267,7 @@ test('a conflicted filed document is located by resource identity before a fresh
       })
     const fresh = await s.w.prepare(s.actor, s.api, current.path, config, { newReview: true })
     assert.notEqual(fresh.id, s.result.id)
-    assert.equal(s.w.decision(s.actor, s.result.id).state, 'conflict')
+    assert.equal(s.w.decision(s.actor, s.result.id).state, 'done')
     assert.equal(s.w.decision(s.actor, fresh.id), undefined)
     await assert.rejects(
       s.w.location({ ...s.actor, account: 'other' }, s.api, s.result.id),
@@ -388,7 +391,7 @@ test('unconfirmed metadata holds filing before any folder, MOVE or tag write and
   const s = await setup()
   try {
     const { Metadata } = await import('../../companion/metadata.mjs'),
-      metadata = new Metadata(s.w)
+      metadata = (s.w.metadata = new Metadata(s.w))
     metadata.saveSchema(s.actor, {
       fields: [{ id: 'invoice', label: 'Invoice', type: 'text', aliases: [], choices: [] }],
       tags: []
@@ -629,7 +632,15 @@ test('semantic discovery snapshots authenticated tags without writes and still n
     assert.equal(writes, 0)
     assert.deepEqual(captured.tagDiscovery, {
       mode: 'create',
-      catalog: ['Energy', 'Invoices', 'Keep existing']
+      catalog: [
+        'Electricity',
+        'Energy',
+        'Invoice',
+        'Invoices',
+        'Keep existing',
+        'Synthetic',
+        'Water'
+      ]
     })
     assert.equal(prepared.bundle.proposal.tags[0].value, 'Home utilities')
     await assert.rejects(s.w.apply(s.actor, s.api, prepared.id), /approval/)
@@ -760,7 +771,7 @@ test('uncertain metadata writes must be reconciled before explicit reprocessing'
   const s = await setup()
   try {
     const { Metadata } = await import('../../companion/metadata.mjs'),
-      metadata = new Metadata(s.w),
+      metadata = (s.w.metadata = new Metadata(s.w)),
       source = await metadata.inspect(s.actor, s.api, 'Inbox/english.pdf')
     s.api.addTags = async () => {
       throw Error('Lost tag response')
@@ -795,9 +806,9 @@ test('a completed document moved externally retains fields, history and read-onl
       { Metadata } = await import('../../companion/metadata.mjs'),
       { DocumentLibrary } = await import('../../companion/documents.mjs')
     const attach = () => {
-      new Configuration(s.w)
-      new Transfers(s.w)
-      new Metadata(s.w)
+      s.w.configuration = new Configuration(s.w)
+      s.w.transfers = new Transfers(s.w)
+      s.w.metadata = new Metadata(s.w)
       return new DocumentLibrary(s.w)
     }
     let library = attach()
@@ -859,9 +870,9 @@ test('an explicitly unassigned tag updates current verification without altering
       { Transfers } = await import('../../companion/transfers.mjs'),
       { Metadata } = await import('../../companion/metadata.mjs'),
       { DocumentLibrary } = await import('../../companion/documents.mjs')
-    new Configuration(s.w)
-    new Transfers(s.w)
-    const metadata = new Metadata(s.w)
+    s.w.configuration = new Configuration(s.w)
+    s.w.transfers = new Transfers(s.w)
+    const metadata = (s.w.metadata = new Metadata(s.w))
     new DocumentLibrary(s.w)
     await approve(s)
     const filed = await s.w.apply(s.actor, s.api, s.result.id),
@@ -935,6 +946,31 @@ test('read-only verification of approved and folder-pending filing never begins 
       'folders_pending'
     )
     assert.equal(s.j.db.prepare('select count(*) n from workflow_locks').get().n, 0)
+  } finally {
+    s.close()
+  }
+})
+
+test('an incomplete resumed filing plan is held before creating folders or moving a file', async () => {
+  const s = await setup()
+  try {
+    await approve(s)
+    s.j.db
+      .prepare("update decisions set state='folders_pending',plan='{}' where job=?")
+      .run(s.result.id)
+    const writes = []
+    for (const method of ['mkdir', 'move', 'addTags'])
+      s.api[method] = async () => {
+        writes.push(method)
+        throw new Error('Unexpected write')
+      }
+    await assert.rejects(
+      s.w.apply(s.actor, s.api, s.result.id),
+      /Recorded filing plan is incomplete/
+    )
+    assert.deepEqual(writes, [])
+    assert.equal(s.w.decision(s.actor, s.result.id).state, 'folders_pending')
+    assert.equal(s.j.db.prepare('select count(*) count from workflow_locks').get().count, 0)
   } finally {
     s.close()
   }

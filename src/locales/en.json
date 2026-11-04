@@ -733,5 +733,6 @@
   "Operation held. {reason}": "Operation held. {reason}",
   "OpenCloud returned HTTP {status}.": "OpenCloud returned HTTP {status}.",
   "Companion request failed": "Companion request failed",
-  "Companion is not connected. Start the companion server or configure its same-origin route.": "Companion is not connected. Start the companion server or configure its same-origin route."
+  "Companion is not connected. Start the companion server or configure its same-origin route.": "Companion is not connected. Start the companion server or configure its same-origin route.",
+  "An internal error occurred. Check Activity before retrying.": "An internal error occurred. Check Activity before retrying."
 }

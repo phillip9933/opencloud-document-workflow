@@ -90,3 +90,22 @@ test('async callbacks are refused before execution and synchronous thenables rol
     db.close()
   }
 })
+
+test('SQLite automatic rollback preserves the original constraint error', () => {
+  const db = fixture()
+  try {
+    db.exec("INSERT INTO records VALUES(1,'original')")
+    assert.throws(
+      () =>
+        withTransaction(db, () => {
+          db.exec("INSERT INTO records VALUES(2,'partial')")
+          db.exec("INSERT OR ROLLBACK INTO records VALUES(1,'duplicate')")
+        }),
+      /UNIQUE constraint failed/
+    )
+    assert.equal(db.isTransaction, false)
+    assert.equal(db.prepare('SELECT count(*) n FROM records').get().n, 1)
+  } finally {
+    db.close()
+  }
+})

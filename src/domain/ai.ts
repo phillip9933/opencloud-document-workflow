@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from './errors.ts'
 export const aiTasks = [
   {
     id: 'facts',
@@ -24,7 +25,11 @@ export function defaultAIConfig(): AIConfig {
     modelOverrides: { facts: '', filing: '', tags: '' }
   }
 }
-export function validateAIConfig(config: AIConfig): AIConfig {
+export function validateAIConfig(input: unknown): AIConfig {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    throw new WorkflowError('VALIDATION_INVALID', 'Unexpected AI configuration fields.')
+  // The candidate is returned only after all provider/task fields are checked.
+  const config = input as AIConfig
   const exact = (value: unknown, keys: string[]) => {
     if (
       !value ||
@@ -32,7 +37,7 @@ export function validateAIConfig(config: AIConfig): AIConfig {
       Array.isArray(value) ||
       Object.keys(value).sort().join(',') !== [...keys].sort().join(',')
     )
-      throw new Error('Unexpected AI configuration fields.')
+      throw new WorkflowError('VALIDATION_INVALID', 'Unexpected AI configuration fields.')
   }
   exact(config, [
     'local',
@@ -42,7 +47,7 @@ export function validateAIConfig(config: AIConfig): AIConfig {
     ...('tagDiscovery' in config ? ['tagDiscovery'] : [])
   ])
   if ('tagDiscovery' in config && !['off', 'existing', 'create'].includes(config.tagDiscovery!))
-    throw new Error('Invalid tag discovery mode.')
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid tag discovery mode.')
   exact(
     config.tasks,
     aiTasks.map((t) => t.id)
@@ -54,7 +59,7 @@ export function validateAIConfig(config: AIConfig): AIConfig {
   for (const key of ['local', 'cloud'] as const) {
     exact(config[key], ['endpoint', 'model'])
     if (typeof config[key].endpoint !== 'string' || typeof config[key].model !== 'string')
-      throw new Error('Invalid provider configuration.')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid provider configuration.')
   }
   const normalized = structuredClone(config)
   for (const provider of ['local', 'cloud'] as const) {
@@ -68,33 +73,47 @@ export function validateAIConfig(config: AIConfig): AIConfig {
         url.search ||
         url.hash
       )
-        throw new Error('Use an HTTP endpoint without credentials, query parameters or fragments.')
+        throw new WorkflowError(
+          'VALIDATION_INVALID',
+          'Use an HTTP endpoint without credentials, query parameters or fragments.'
+        )
       if (provider === 'local') {
         if (url.pathname !== '/')
-          throw new Error('Ollama needs a server origin without an API path.')
+          throw new WorkflowError(
+            'VALIDATION_INVALID',
+            'Ollama needs a server origin without an API path.'
+          )
         p.endpoint = url.origin
       }
       if (provider === 'cloud' && url.protocol !== 'https:')
-        throw new Error('Cloud endpoints require HTTPS.')
-      if (p.endpoint.length > 500) throw new Error('Endpoint is too long.')
+        throw new WorkflowError('VALIDATION_INVALID', 'Cloud endpoints require HTTPS.')
+      if (p.endpoint.length > 500)
+        throw new WorkflowError('VALIDATION_INVALID', 'Endpoint is too long.')
     }
     if (p.model.length > 150 || /[\x00-\x1f\x7f]/.test(p.model))
-      throw new Error('Invalid model identifier.')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid model identifier.')
   }
   for (const task of aiTasks) {
     const override = config.modelOverrides[task.id]
     if (typeof override !== 'string' || override.length > 150 || /[\x00-\x1f\x7f]/.test(override))
-      throw new Error('Invalid task model identifier.')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid task model identifier.')
     const target = config.tasks[task.id]
-    if (!['off', 'local', 'cloud'].includes(target)) throw new Error('Unknown AI task destination.')
+    if (!['off', 'local', 'cloud'].includes(target))
+      throw new WorkflowError('VALIDATION_INVALID', 'Unknown AI task destination.')
     if (
       target !== 'off' &&
       (!config[target].endpoint.trim() || !(override.trim() || config[target].model.trim()))
     )
-      throw new Error('Set an endpoint and model before assigning a task to that provider.')
+      throw new WorkflowError(
+        'VALIDATION_INVALID',
+        'Set an endpoint and model before assigning a task to that provider.'
+      )
   }
   if (config.tagDiscovery && config.tagDiscovery !== 'off' && config.tasks.tags === 'off')
-    throw new Error('Choose a provider for AI tags before enabling semantic tag review.')
+    throw new WorkflowError(
+      'VALIDATION_INVALID',
+      'Choose a provider for AI tags before enabling semantic tag review.'
+    )
   return normalized
 }
 

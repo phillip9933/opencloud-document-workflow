@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { WorkflowError } from '../domain/errors'
+
 // SPDX-License-Identifier: AGPL-3.0-only
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useWorkspace } from '../state/workspace'
@@ -43,7 +45,7 @@ async function load() {
     const result = await store.request('ocr-languages')
     if (!alive) return
     if (!Array.isArray(result.installed) || !Array.isArray(result.selected))
-      throw new Error('OCR language list unavailable')
+      throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'OCR language list unavailable')
     installed.value = result.installed
     if (!dirty.value) {
       selected.value = result.selected

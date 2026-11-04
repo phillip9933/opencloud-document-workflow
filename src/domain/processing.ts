@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { canContinueFiling, needsFilingVerification } from './decision-state.ts'
 export interface ProcessingProgress {
   step: number
   total: number
@@ -38,13 +39,13 @@ export function processingProgress(item: ProcessingItem): ProcessingProgress {
   if (state === 'trashed' || state === 'removed') return progress(5, 'In OpenCloud Trash')
   if (decision === 'done') return progress(5, 'Filed')
   if (automatic === 'done' || state === 'processed') return progress(5, 'Processed')
-  if (decision && ['approved', 'folders_pending', 'move_done', 'transfer_ready'].includes(decision))
+  if (canContinueFiling(decision))
     return progress(
       4,
       'Filing',
       item.state === 'cancelled' || automatic === 'held' ? { attention: true } : {}
     )
-  if (decision && ['move_intent', 'tags_intent', 'copy_intent', 'conflict'].includes(decision))
+  if (needsFilingVerification(decision) || decision === 'conflict')
     return progress(4, 'Verify filing outcome', { attention: true })
   const stage =
     item.stage === 'review'

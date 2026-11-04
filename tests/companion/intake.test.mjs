@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
 import { Intake, defaultIntake, validateIntake } from '../../companion/intake.mjs'
 async function setup() {

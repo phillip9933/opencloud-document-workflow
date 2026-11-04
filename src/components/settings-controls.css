@@ -1,0 +1,50 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+label {
+  display: block;
+  margin: 16px 0 8px;
+  font-size: 13px;
+}
+label:first-child {
+  margin-top: 0;
+}
+.automation-panel > select,
+.model-body > select {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+}
+.advanced-settings {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.setting-row {
+  padding: 16px 0;
+  gap: 24px;
+}
+.setting-row > div {
+  min-width: 0;
+}
+.setting-row label {
+  margin: 0;
+}
+.task-routing .setting-row:first-of-type {
+  border-top: 0;
+}
+.automation-panel > .settings-footer,
+.model-settings > .settings-footer {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+@media (max-width: 700px) {
+  .setting-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .setting-row > select {
+    width: 100%;
+  }
+}

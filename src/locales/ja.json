@@ -733,5 +733,6 @@
   "Operation held. {reason}": "操作を保留しました。{reason}",
   "OpenCloud returned HTTP {status}.": "OpenCloudがHTTP {status}を返しました。",
   "Companion request failed": "コンパニオンへのリクエストに失敗しました",
-  "Companion is not connected. Start the companion server or configure its same-origin route.": "コンパニオンに接続されていません。サーバーを起動するか、同一オリジンのルートを設定してください。"
+  "Companion is not connected. Start the companion server or configure its same-origin route.": "コンパニオンに接続されていません。サーバーを起動するか、同一オリジンのルートを設定してください。",
+  "An internal error occurred. Check Activity before retrying.": "内部エラーが発生しました。再試行する前にアクティビティを確認してください。"
 }

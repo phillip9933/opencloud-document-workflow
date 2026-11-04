@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { withTransaction } from './transactions.mjs'
 import { existingTagName, tagNameKey } from '../src/domain/tag-names.ts'
 import { createHash, randomUUID } from 'node:crypto'
@@ -13,7 +14,6 @@ const hash = (b) => createHash('sha256').update(b).digest('hex')
 export class Metadata {
   /** @param {import('./contracts.d.mts').MetadataOwner} workflow */
   constructor(workflow) {
-    workflow.metadata = this
     this.w = workflow
     this.db = workflow.db
   }
@@ -46,12 +46,15 @@ export class Metadata {
       }))
     }
     if (new Set(checked.tags.map((rule) => tagNameKey(rule.tag))).size !== checked.tags.length)
-      throw new Error('Tag rules must be unique, ignoring capitalization')
+      throw new WorkflowError(
+        'VALIDATION_INVALID',
+        'Tag rules must be unique, ignoring capitalization'
+      )
     return this.saveSchema(actor, checked)
   }
   /** @param {import('./contracts.d.mts').Actor} actor @param {string} resource */
   key(actor, resource) {
-    return this.w.transfers?.canonical(actor, resource) ?? resource
+    return this.w.transfers.canonical(actor, resource)
   }
   /** @param {import('./contracts.d.mts').Actor} actor @param {string} resource @returns {import('./contracts.d.mts').MetadataRecord} */
   read(actor, resource) {
@@ -70,15 +73,15 @@ export class Metadata {
   /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').DocumentReader} api @param {string} path */
   async inspect(actor, api, path) {
     const f = await api.stat(path)
-    if (!f || f.folder) throw new Error('Document not found')
+    if (!f || f.folder) throw new WorkflowError('OPERATION_HELD', 'Document not found')
     const bytes = await api.get(
       path,
       f.etag,
-      (this.w.configuration?.settings(actor).limits.maxMiB ?? 100) * 1024 * 1024
+      (this.w.configuration.settings(actor).limits.maxMiB ?? 100) * 1024 * 1024
     )
     const after = await api.stat(path)
     if (after?.etag !== f.etag || after?.resourceId !== f.resourceId)
-      throw new Error('Document changed')
+      throw new WorkflowError('SOURCE_CHANGED', 'Document changed')
     return { ...f, ...(api.space ? { space: api.space } : {}), sha256: hash(bytes) }
   }
   /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').DocumentReader} api @param {string} path */
@@ -96,7 +99,7 @@ export class Metadata {
       .all(this.w.scope(actor), this.key(actor, source.resourceId))
     return {
       source,
-      trash: this.w.documentTrash?.pending(actor, source.resourceId) ?? null,
+      trash: this.w.documentTrash.pending(actor, source.resourceId) ?? null,
       schema: this.schema(actor),
       record: this.read(actor, source.resourceId),
       suggestions: this.suggestions(actor, job ? JSON.parse(String(job.input)).pages : []),
@@ -115,12 +118,13 @@ export class Metadata {
   async save(actor, api, { path, resourceId, etag, sha256, version, fields, addTags }) {
     const release = this.w.lock(`resource:${this.w.scope(actor)}:${this.key(actor, resourceId)}`)
     try {
-      this.w.documentTrash?.assertAvailable(actor, resourceId)
+      this.w.documentTrash.assertAvailable(actor, resourceId)
       const current = await this.inspect(actor, api, path)
       if (current.resourceId !== resourceId || current.etag !== etag || current.sha256 !== sha256)
-        throw new Error('Document changed; reload metadata')
+        throw new WorkflowError('SOURCE_CHANGED', 'Document changed; reload metadata')
       const record = this.read(actor, resourceId)
-      if (record.version !== version) throw new Error('Metadata changed; reload before saving')
+      if (record.version !== version)
+        throw new WorkflowError('SOURCE_CHANGED', 'Metadata changed; reload before saving')
       if (
         this.db
           .prepare(
@@ -128,7 +132,7 @@ export class Metadata {
           )
           .get(this.w.scope(actor), this.key(actor, resourceId))
       )
-        throw new Error('Recheck the pending tag operation first')
+        throw new WorkflowError('OPERATION_HELD', 'Recheck the pending tag operation first')
       const schema = this.schema(actor),
         values = { ...record.fields }
       for (const f of schema.fields) delete values[f.id]
@@ -145,7 +149,7 @@ export class Metadata {
             /[\x00-\x1f\x7f]/.test(t)
         )
       )
-        throw new Error('Invalid tags')
+        throw new WorkflowError('VALIDATION_INVALID', 'Invalid tags')
       if (addTags.length) {
         const names = await api.listTags()
         addTags = [...new Set(addTags.map((tag) => existingTagName(tag, names)))]
@@ -178,14 +182,18 @@ export class Metadata {
   async removeTag(actor, api, { path, resourceId, etag, sha256, version, tag }) {
     const release = this.w.lock(`resource:${this.w.scope(actor)}:${this.key(actor, resourceId)}`)
     try {
-      this.w.documentTrash?.assertAvailable(actor, resourceId)
+      this.w.documentTrash.assertAvailable(actor, resourceId)
       const current = await this.inspect(actor, api, path),
         record = this.read(actor, resourceId)
       if (current.resourceId !== resourceId || current.etag !== etag || current.sha256 !== sha256)
-        throw new Error('Document changed; reload metadata')
-      if (record.version !== version) throw new Error('Metadata changed; reload before saving')
+        throw new WorkflowError('SOURCE_CHANGED', 'Document changed; reload metadata')
+      if (record.version !== version)
+        throw new WorkflowError('SOURCE_CHANGED', 'Metadata changed; reload before saving')
       if (typeof tag !== 'string' || !current.tags.includes(tag))
-        throw new Error('Choose a tag currently applied to this document')
+        throw new WorkflowError(
+          'VALIDATION_INVALID',
+          'Choose a tag currently applied to this document'
+        )
       if (
         this.db
           .prepare(
@@ -193,7 +201,7 @@ export class Metadata {
           )
           .get(this.w.scope(actor), this.key(actor, resourceId))
       )
-        throw new Error('Recheck the pending tag operation first')
+        throw new WorkflowError('OPERATION_HELD', 'Recheck the pending tag operation first')
       const id = randomUUID(),
         expected = current.tags.filter((value) => value !== tag)
       withTransaction(this.db, () => {
@@ -248,12 +256,12 @@ export class Metadata {
         .prepare('select * from metadata_changes where id=? and scope=?')
         .get(id, this.w.scope(actor))
     )
-    if (!change) throw new Error('Metadata operation not found')
+    if (!change) throw new WorkflowError('OPERATION_HELD', 'Metadata operation not found')
     if (change.state !== 'intent')
       return { state: change.state, record: this.read(actor, change.resource) }
     const current = await this.inspect(actor, api, change.path)
     if (this.key(actor, current.resourceId) !== change.resource || current.sha256 !== change.sha)
-      throw new Error('Document changed; metadata operation held')
+      throw new WorkflowError('SOURCE_CHANGED', 'Document changed; metadata operation held')
     const removal = this.db
       .prepare('select tag from metadata_tag_removals where change_id=?')
       .get(id)
@@ -266,7 +274,7 @@ export class Metadata {
       const latest = this.db.prepare('select state from metadata_changes where id=?').get(id)
       if (latest?.state === 'done') return
       if (this.read(actor, change.resource).version !== change.base)
-        throw new Error('Metadata version conflict')
+        throw new WorkflowError('SOURCE_CHANGED', 'Metadata version conflict')
       this.db
         .prepare(
           'insert into metadata values(?,?,?,?,?) on conflict(scope,resource) do update set version=excluded.version,fields=excluded.fields,updated=excluded.updated'

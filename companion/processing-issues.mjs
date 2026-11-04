@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { responseRecord } from './provider-response.mjs'
 import { selectBulkPreparation } from './bulk-preparation.mjs'
 import { manualReviewReason } from '../src/domain/errors.ts'
 // Persist a useful, bounded diagnosis without copying provider bodies or secrets.
+/** @param {unknown} error */
 export function preparationIssue(error) {
   const reason = manualReviewReason(error)
-  const text = typeof error?.message === 'string' ? error.message : '',
-    result = (message, nextStep) => ({
-      message,
-      nextStep,
-      settings: '/document-workflow/settings/processing'
-    })
+  const raw = responseRecord(error)
+  const text = typeof raw.message === 'string' ? raw.message : ''
+  /** @param {string} message @param {string} nextStep */
+  const result = (message, nextStep) => ({
+    message,
+    nextStep,
+    settings: '/document-workflow/settings/processing'
+  })
   if (
-    ['TimeoutError', 'AbortError'].includes(error?.name) ||
+    ['TimeoutError', 'AbortError'].includes(String(raw.name)) ||
     /^(The operation was aborted due to timeout|The operation was aborted)$/.test(text) ||
     /^(OCR command timed out|PDF extraction timed out|OCR document time limit reached)$/.test(text)
   )
@@ -114,13 +118,11 @@ export function preparationIssue(error) {
   )
 }
 // Only pinned preparation reads establish the currently displayed attempt.
+/** @param {import('./workflow.mjs').Workflow} workflow
+ * @param {import('./contracts.d.mts').Actor} actor
+ * @param {{path:string,resourceId:string,etag:string,space?:string}} source
+ */
 export function bulkPreparation(workflow, actor, source) {
-  if (
-    !workflow.db
-      .prepare("select 1 from sqlite_master where type='table' and name='bulk_items'")
-      .get()
-  )
-    return null
   const row = workflow.db
     .prepare(
       "select i.state,i.result,o.state operationState,o.updated from bulk_items i join bulk_operations o on o.id=i.operation where o.scope=? and o.kind='prepare' and json_extract(i.input,'$.resourceId')=? and json_extract(i.input,'$.etag')=? order by o.created desc,o.id desc limit 1"
@@ -131,32 +133,42 @@ export function bulkPreparation(workflow, actor, source) {
       "select updated from proposals where scope=? and json_extract(input,'$.source.resourceId')=? and json_extract(input,'$.source.etag')=? order by updated desc,id desc limit 1"
     )
     .get(workflow.scope(actor), source.resourceId, source.etag)
-  return selectBulkPreparation(row, latest)
+  return selectBulkPreparation(
+    row
+      ? {
+          state: String(row.state),
+          result: row.result === null ? null : String(row.result),
+          operationState: String(row.operationState),
+          updated: String(row.updated)
+        }
+      : undefined,
+    latest ? { updated: String(latest.updated) } : undefined
+  )
 }
 
+/** @param {import('./workflow.mjs').Workflow} workflow
+ * @param {import('./contracts.d.mts').Actor} actor
+ * @param {{path:string,resourceId:string,etag:string,space?:string}} source
+ */
 export function processingIssue(workflow, actor, source) {
   // Original-format files can be filed manually; a missing PDF is not a failure.
   if (!/\.pdf$/i.test(source.path)) return null
-  const hasIntake = workflow.db
-    .prepare("select 1 from sqlite_master where type='table' and name='intake_queue'")
-    .get()
-  const row = hasIntake
-    ? workflow.db
-        .prepare(
-          'select id,state,job,stage,issue from intake_queue where scope=? and resource=? and etag=? order by first_seen desc limit 1'
-        )
-        .get(workflow.scope(actor), source.resourceId, source.etag)
-    : null
-  const decision = row?.job ? workflow.decision(actor, row.job) : null,
-    automatic = row?.job ? workflow.automation?.statusFor(actor, row.job) : null
+  const row = workflow.db
+    .prepare(
+      'select id,state,job,stage,issue from intake_queue where scope=? and resource=? and etag=? order by first_seen desc limit 1'
+    )
+    .get(workflow.scope(actor), source.resourceId, source.etag)
+  const decision = row?.job ? workflow.decision(actor, String(row.job)) : null,
+    automatic = row?.job ? workflow.automation.statusFor(actor, String(row.job)) : null
   if (decision?.state === 'done' || automatic?.state === 'done') return null
+  /** @param {string} message @param {string} nextStep @param {string} settings @param {boolean} retryable */
   const result = (
     message,
     nextStep,
     settings = '/document-workflow/settings/processing',
     retryable = false
   ) => ({ ...(row ? { queueId: row.id } : {}), message, nextStep, settings, retryable })
-  if (['move_intent', 'tags_intent', 'copy_intent'].includes(decision?.state))
+  if (['move_intent', 'tags_intent', 'copy_intent'].includes(decision?.state ?? ''))
     return result(
       'The last filing request has an unconfirmed outcome.',
       'Use Verify outcome before retrying. The app will check the existing file without repeating the write.',
@@ -173,7 +185,8 @@ export function processingIssue(workflow, actor, source) {
       'select state,issue from preparation_attempts where scope=? and space=? and resource=? and etag=?'
     )
     .get(workflow.scope(actor), source.space ?? actor.space, source.resourceId, source.etag)
-  if (attempt) return attempt.state === 'failed' && attempt.issue ? JSON.parse(attempt.issue) : null
+  if (attempt)
+    return attempt.state === 'failed' && attempt.issue ? JSON.parse(String(attempt.issue)) : null
   const batch = bulkPreparation(workflow, actor, source)
   if (batch && ['queued', 'running'].includes(batch.state)) return null
   if (batch?.state === 'held')
@@ -182,35 +195,13 @@ export function processingIssue(workflow, actor, source) {
       settings: '/document-workflow/activity',
       retryable: false
     }
-  if (!row) return null
-  if (['queued', 'settling', 'running'].includes(row.state)) return null
-  if (automatic?.state === 'held')
-    return result(
-      automatic.detail || 'Automatic filing needs review.',
-      'Review the filing details and fields. Verify any existing filing decision before continuing.',
-      '/document-workflow/settings/processing',
-      !decision
-    )
-  if (row.state === 'failed')
-    return {
-      ...result(
-        'This earlier processing attempt stopped. Its detailed reason was not recorded.',
-        'Check AI and OCR settings, then retry to record a fresh result.',
-        '/document-workflow/settings/processing',
-        !decision
-      ),
-      ...(row.issue ? JSON.parse(row.issue) : {})
-    }
-  if (row.job && workflow.journal.get(row.job)?.state === 'needs_ocr')
-    return result(
-      'Some PDF pages have no readable text.',
-      'Enable text recognition and choose the document languages in Processing settings, then prepare it again.',
-      '/document-workflow/settings/processing',
-      !decision
-    )
-  return null
+  return queueIssue(workflow, row, automatic, decision, result)
 }
 
+/** @param {import('./workflow.mjs').Workflow} workflow
+ * @param {import('./contracts.d.mts').Actor} actor
+ * @param {{path:string,resourceId:string,etag:string,space?:string}} source
+ */
 export function preparationState(workflow, actor, source) {
   const row = workflow.db
     .prepare(
@@ -220,10 +211,11 @@ export function preparationState(workflow, actor, source) {
   if (row) {
     const live =
       row.state === 'running' &&
+      typeof row.owner === 'string' &&
       workflow.preparationOwners.has(row.owner) &&
       workflow.db.prepare('select 1 from workflow_locks where owner=?').get(row.owner)
     let state = row.state,
-      issue = row.issue ? JSON.parse(row.issue) : null
+      issue = row.issue ? JSON.parse(String(row.issue)) : null
     if (state === 'running' && !live) {
       state = 'failed'
       issue = {
@@ -253,20 +245,15 @@ export function preparationState(workflow, actor, source) {
           ? { ...preparationIssue({ message: batch.result.error }), retryable: false }
           : null
     }
-  const hasIntake = workflow.db
-    .prepare("select 1 from sqlite_master where type='table' and name='intake_queue'")
-    .get()
-  const rowIntake = hasIntake
-    ? workflow.db
-        .prepare(
-          'select state,stage,job from intake_queue where scope=? and resource=? and etag=? order by first_seen desc limit 1'
-        )
-        .get(workflow.scope(actor), source.resourceId, source.etag)
-    : null
+  const rowIntake = workflow.db
+    .prepare(
+      'select state,stage,job from intake_queue where scope=? and resource=? and etag=? order by first_seen desc limit 1'
+    )
+    .get(workflow.scope(actor), source.resourceId, source.etag)
   return rowIntake
     ? {
         ...rowIntake,
-        paused: workflow.intake?.paused(actor) ?? false,
+        paused: workflow.intake.paused(actor) ?? false,
         processingIssue: processingIssue(workflow, actor, source)
       }
     : {
@@ -275,4 +262,40 @@ export function preparationState(workflow, actor, source) {
         job: null,
         processingIssue: processingIssue(workflow, actor, source)
       }
+}
+
+/** @param {import('./workflow.mjs').Workflow} workflow
+ * @param {Record<string,import('node:sqlite').SQLOutputValue>|undefined} row
+ * @param {import('./workflow-contracts.d.mts').AutomationStatus|null|undefined} automatic
+ * @param {import('./workflow-contracts.d.mts').DecisionRow|null|undefined} decision
+ * @param {(message:string,nextStep:string,settings?:string,retryable?:boolean)=>object} result
+ */
+function queueIssue(workflow, row, automatic, decision, result) {
+  if (!row) return null
+  if (['queued', 'settling', 'running'].includes(String(row.state))) return null
+  if (automatic?.state === 'held')
+    return result(
+      automatic.detail || 'Automatic filing needs review.',
+      'Review the filing details and fields. Verify any existing filing decision before continuing.',
+      '/document-workflow/settings/processing',
+      !decision
+    )
+  if (row.state === 'failed')
+    return {
+      ...result(
+        'This earlier processing attempt stopped. Its detailed reason was not recorded.',
+        'Check AI and OCR settings, then retry to record a fresh result.',
+        '/document-workflow/settings/processing',
+        !decision
+      ),
+      ...(row.issue ? JSON.parse(String(row.issue)) : {})
+    }
+  if (row.job && workflow.journal.get(String(row.job))?.state === 'needs_ocr')
+    return result(
+      'Some PDF pages have no readable text.',
+      'Enable text recognition and choose the document languages in Processing settings, then prepare it again.',
+      '/document-workflow/settings/processing',
+      !decision
+    )
+  return null
 }

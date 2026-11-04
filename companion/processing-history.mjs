@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 /** @param {Pick<import('./contracts.d.mts').ConfigurationOwner,'db'|'scope'>} workflow @param {import('./contracts.d.mts').Actor} actor @param {string} id */
 export function processingHistory(workflow, actor, id) {
   const db = workflow.db,
@@ -8,7 +9,10 @@ export function processingHistory(workflow, actor, id) {
         'select id,path,resource,etag,attempts,state,detail,stage,first_seen from intake_queue where id=? and scope=?'
       )
       .get(id, scope)
-  if (!row) throw Object.assign(new Error('Processing record not found'), { status: 404 })
+  if (!row)
+    throw Object.assign(new WorkflowError('RESOURCE_NOT_FOUND', 'Processing record not found'), {
+      status: 404
+    })
   const jobs = db
       .prepare(
         "select id,state,attempts,updated,result,error from proposals where scope=? and json_extract(input,'$.source.resourceId')=? order by updated desc,id desc"

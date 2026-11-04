@@ -18,14 +18,26 @@ export const workflowErrorCodes = [
   'WORKFLOW_CONTEXT_CAPACITY',
   'WORKFLOW_BUSY',
   'REQUEST_INVALID',
-  'REQUEST_TOO_LARGE'
+  'REQUEST_TOO_LARGE',
+  'OPERATION_HELD',
+  'SOURCE_CHANGED',
+  'DEPENDENCY_UNAVAILABLE',
+  'AUTH_REQUIRED',
+  'ACCESS_DENIED',
+  'RESOURCE_NOT_FOUND',
+  'UPSTREAM_FAILURE',
+  'PROVIDER_RESPONSE_INVALID',
+  'SCHEMA_MISMATCH',
+  'SCHEMA_VERSION',
+  'RUNTIME_BUSY',
+  'INTERNAL_ERROR'
 ] as const
 export type WorkflowErrorCode = (typeof workflowErrorCodes)[number]
 const codes = new Set<string>(workflowErrorCodes)
 export class WorkflowError extends Error {
   readonly code: WorkflowErrorCode
-  constructor(code: WorkflowErrorCode, message: string) {
-    super(message)
+  constructor(code: WorkflowErrorCode, message: string, options?: ErrorOptions) {
+    super(message, options)
     this.code = code
   }
 }

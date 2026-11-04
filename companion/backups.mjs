@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { errorProperty } from './error-properties.mjs'
+import { WorkflowError } from '../src/domain/errors.ts'
+import { logEvent } from './logging.mjs'
 import { withTransaction } from './transactions.mjs'
 import { DatabaseSync, backup } from 'node:sqlite'
 import { constants, createReadStream } from 'node:fs'
@@ -11,17 +14,19 @@ import {
   readdir,
   copyFile,
   stat,
-  unlink,
   readFile,
   rm
 } from 'node:fs/promises'
 import { resolve, join, dirname, basename } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
-import { hostname } from 'node:os'
+import { lockBackupStorage, cleanBackupStages, backupFailure } from './backup-storage.mjs'
 import { safePath } from '../src/domain/review.ts'
 
-const fail = (code) => Object.assign(new Error(code), { backupReason: code })
-export function validateBackupSettings(value) {
+const fail = backupFailure
+/** @param {unknown} input @returns {import('./admin-contracts.d.mts').BackupSettings} */
+export function validateBackupSettings(input) {
+  const value =
+    input && typeof input === 'object' ? /** @type {Record<string,unknown>} */ (input) : {}
   if (
     !value ||
     typeof value !== 'object' ||
@@ -31,40 +36,58 @@ export function validateBackupSettings(value) {
       'destination,enabled,intervalMinutes,maxMiB,maxSnapshots'
     ].includes(Object.keys(value).sort().join(',')) ||
     typeof value.enabled !== 'boolean' ||
-    !Number.isSafeInteger(value.intervalMinutes) ||
-    value.intervalMinutes < 1 ||
-    value.intervalMinutes > 43200 ||
-    !Number.isSafeInteger(value.maxSnapshots) ||
-    value.maxSnapshots < 1 ||
-    value.maxSnapshots > 1000 ||
-    !Number.isSafeInteger(value.maxMiB) ||
-    value.maxMiB < 1 ||
-    value.maxMiB > 8192
+    !boundedInteger(value.intervalMinutes, 43200) ||
+    !boundedInteger(value.maxSnapshots, 1000) ||
+    !boundedInteger(value.maxMiB, 8192)
   )
-    throw new Error('Invalid backup settings')
-  const destination = value.destination
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid backup settings')
+  const destination = validateBackupDestination(value.destination)
+  return {
+    enabled: value.enabled,
+    intervalMinutes: value.intervalMinutes,
+    maxSnapshots: value.maxSnapshots,
+    maxMiB: value.maxMiB,
+    ...(destination
+      ? {
+          destination: /** @type {import('./admin-contracts.d.mts').BackupDestination} */ ({
+            ...destination
+          })
+        }
+      : {})
+  }
+}
+/** @param {unknown} value @param {number} maximum @returns {value is number} */
+function boundedInteger(value, maximum) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 && value <= maximum
+}
+/** @param {unknown} input */
+function validateBackupDestination(input) {
+  const destination =
+    /** @type {Partial<import('./admin-contracts.d.mts').BackupDestination>|undefined} */ (input)
   if (destination !== undefined) {
     if (
       !destination ||
       Object.keys(destination).sort().join(',') !== 'account,folder,server,space' ||
       typeof destination.server !== 'string' ||
-      new URL(destination.server).origin !== destination.server ||
-      !destination.server.startsWith('https://') ||
+      !validBackupOrigin(destination.server) ||
       typeof destination.account !== 'string' ||
       !destination.account ||
       typeof destination.space !== 'string' ||
       !destination.space ||
       /[/\\?#%\x00-\x20]/.test(destination.space)
     )
-      throw new Error('Invalid backup destination')
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid backup destination')
+    if (typeof destination.folder !== 'string') throw fail('backup_settings_invalid')
     safePath(destination.folder)
   }
-  return {
-    enabled: value.enabled,
-    intervalMinutes: value.intervalMinutes,
-    maxSnapshots: value.maxSnapshots,
-    maxMiB: value.maxMiB,
-    ...(destination ? { destination: { ...destination } } : {})
+  return destination
+}
+/** @param {string} value */
+function validBackupOrigin(value) {
+  try {
+    return value.startsWith('https://') && new URL(value).origin === value
+  } catch {
+    return false
   }
 }
 const required = [
@@ -78,22 +101,26 @@ const required = [
   'intake_queue',
   'preferences'
 ]
+/** @param {string} path @param {{create?:boolean}} options */
 async function privateDirectory(path, { create = false } = {}) {
   if (create) await mkdir(path, { recursive: true, mode: 0o700 })
   const s = await lstat(path)
   if (!s.isDirectory() || s.isSymbolicLink() || s.mode & 0o077 || (await realpath(path)) !== path)
     throw fail('private_directory_required')
 }
+/** @param {string} path */
 async function privateFile(path) {
   const s = await lstat(path)
   if (!s.isFile() || s.isSymbolicLink() || s.mode & 0o077) throw fail('private_file_required')
   return s
 }
+/** @param {string} path */
 async function hash(path) {
   const h = createHash('sha256')
   for await (const chunk of createReadStream(path)) h.update(chunk)
   return h.digest('hex')
 }
+/** @param {string} path */
 async function syncDirectory(path) {
   const f = await open(path, constants.O_RDONLY)
   try {
@@ -102,6 +129,7 @@ async function syncDirectory(path) {
     await f.close()
   }
 }
+/** @param {string} path @param {unknown} value @param {{exclusive?:boolean}} options */
 async function durableJSON(path, value, { exclusive = false } = {}) {
   const tmp = exclusive ? path : path + '.pending-' + randomUUID()
   const f = await open(
@@ -118,6 +146,7 @@ async function durableJSON(path, value, { exclusive = false } = {}) {
   if (!exclusive) await rename(tmp, path)
   await syncDirectory(dirname(path))
 }
+/** @param {import('node:sqlite').DatabaseSync} db */
 function inspect(db) {
   const integrity = db.prepare('PRAGMA integrity_check').all()
   if (integrity.length !== 1 || Object.values(integrity[0])[0] !== 'ok')
@@ -129,10 +158,11 @@ function inspect(db) {
     .all()
   if (required.some((name) => !schema.some((s) => s.name === name))) throw fail('schema_incomplete')
   const counts = Object.fromEntries(
-    required.map((name) => [name, db.prepare(`select count(*) n from ${name}`).get().n])
+    required.map((name) => [name, Number(db.prepare(`select count(*) n from ${name}`).get()?.n)])
   )
   return { schemaHash: createHash('sha256').update(JSON.stringify(schema)).digest('hex'), counts }
 }
+/** @param {string} directory */
 async function usage(directory) {
   let bytes = 0,
     count = 0
@@ -149,6 +179,7 @@ async function usage(directory) {
   return { bytes, count }
 }
 
+/** @param {string} directory @returns {Promise<import('./admin-contracts.d.mts').BackupManifest & {file:string}>} */
 export async function verifySnapshot(directory) {
   directory = resolve(directory)
   await privateDirectory(directory)
@@ -156,6 +187,7 @@ export async function verifySnapshot(directory) {
   const m = await privateFile(manifestPath)
   if (m.size > 32768) throw fail('manifest_invalid')
   const f = await open(manifestPath, constants.O_RDONLY | constants.O_NOFOLLOW)
+  /** @type {import('./admin-contracts.d.mts').BackupManifest} */
   let manifest
   try {
     manifest = JSON.parse(await f.readFile('utf8'))
@@ -194,6 +226,7 @@ export async function verifySnapshot(directory) {
 
 // Restoring always creates a NEW local database. It never activates a service,
 // contacts OpenCloud, overwrites a current journal, or resumes an old worker.
+/** @param {string} snapshot @param {string} target */
 export async function restoreSnapshot(snapshot, target) {
   const manifest = await verifySnapshot(snapshot)
   target = resolve(target)
@@ -203,7 +236,7 @@ export async function restoreSnapshot(snapshot, target) {
       await lstat(path)
       throw fail('restore_target_exists')
     } catch (e) {
-      if (e.code !== 'ENOENT') throw e
+      if (errorProperty(e, 'code') !== 'ENOENT') throw e
     }
   }
   await copyFile(manifest.file, target, constants.COPYFILE_EXCL)
@@ -213,7 +246,7 @@ export async function restoreSnapshot(snapshot, target) {
     before = inspect(db)
     withTransaction(db, () => {
       for (const row of db.prepare('select scope,value from intake_settings').all()) {
-        const config = JSON.parse(row.value)
+        const config = JSON.parse(String(row.value))
         config.enabled = false
         db.prepare('update intake_settings set value=?,last_scan=0 where scope=?').run(
           JSON.stringify(config),
@@ -242,6 +275,7 @@ export async function restoreSnapshot(snapshot, target) {
 }
 
 export class BackupManager {
+  /** @param {import('./admin-contracts.d.mts').BackupOptions} options */
   constructor({
     database,
     directory,
@@ -249,7 +283,8 @@ export class BackupManager {
     maxSnapshots = 28,
     maxBytes = 1024 ** 3,
     now = () => Date.now(),
-    copy = backup
+    copy = backup,
+    logger = logEvent
   }) {
     if (
       !Number.isSafeInteger(intervalMs) ||
@@ -262,19 +297,20 @@ export class BackupManager {
       maxBytes < 1024 * 1024 ||
       maxBytes > 8 * 1024 ** 3
     )
-      throw new Error('Invalid backup limits')
-    Object.assign(this, {
-      database: resolve(database),
-      directory: resolve(directory),
-      intervalMs,
-      maxSnapshots,
-      maxBytes,
-      now,
-      copy
-    })
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid backup limits')
+    this.database = resolve(database)
+    this.directory = resolve(directory)
+    this.intervalMs = intervalMs
+    this.maxSnapshots = maxSnapshots
+    this.maxBytes = maxBytes
+    this.now = now
+    this.copy = copy
+    this.logger = logger
     this.nextAttempt = 0
+    /** @type {Promise<import('./admin-contracts.d.mts').BackupResult|null>|null} */
     this.active = null
     this.stopped = false
+    /** @type {{configured:boolean;state:string;lastAttempt:number|null;lastSuccess:number|null;reason:string|null}} */
     this.health = {
       configured: true,
       state: 'starting',
@@ -285,9 +321,13 @@ export class BackupManager {
     this.initialized = false
     this.enabled = true
     this.settingsLoaded = false
+    /** @type {Promise<unknown>} */
     this.settingsOperations = Promise.resolve()
+    /** @type {Map<string,import('./admin-contracts.d.mts').BackupAdapter>} */
     this.sessions = new Map()
+    /** @type {Map<string,import('./admin-contracts.d.mts').BackupAdapter>} */
     this.backgroundSessions = new Map()
+    /** @type {import('./admin-contracts.d.mts').BackupDestination|null} */
     this.destination = null
     this.remoteStorage = null
   }
@@ -319,27 +359,35 @@ export class BackupManager {
     }
     return { ...this.status(), storage, storageType: this.destination ? 'opencloud' : 'local' }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./admin-contracts.d.mts').BackupAdapter} api @param {{background?:boolean}} options */
   attach(actor, api, { background = false } = {}) {
     const key = JSON.stringify([actor.server, actor.account])
     if (background) this.backgroundSessions.set(key, api)
     this.sessions.set(key, this.backgroundSessions.get(key) ?? api)
     if (this.health.reason === 'backup_access_required') this.nextAttempt = 0
   }
+  /** @param {import('./admin-contracts.d.mts').BackupAdapter} api */
   detach(api) {
     for (const [key, value] of this.backgroundSessions)
       if (value === api) this.backgroundSessions.delete(key)
     for (const [key, value] of this.sessions) if (value === api) this.sessions.delete(key)
   }
+  requiredDestination() {
+    if (!this.destination) throw fail('backup_access_required')
+    return this.destination
+  }
   async remoteAPI() {
-    const target = this.destination,
-      session = this.sessions.get(JSON.stringify([target.server, target.account]))
+    const target = this.destination
+    if (!target) throw fail('backup_access_required')
+    const session = this.sessions.get(JSON.stringify([target.server, target.account]))
     if (!session) throw fail('backup_access_required')
     const api = session.space === target.space ? session : session.forSpace(target.space)
     let actor
     try {
       actor = await api.identity()
     } catch (e) {
-      if ([401, 403].includes(e.status)) throw fail('backup_access_required')
+      if ([401, 403].includes(Number(errorProperty(e, 'status'))))
+        throw fail('backup_access_required')
       throw e
     }
     if (
@@ -353,34 +401,40 @@ export class BackupManager {
   }
   async remoteUsage() {
     const api = await this.remoteAPI(),
-      files = await api.list(this.destination.folder),
+      files = await api.list(this.requiredDestination().folder),
       owned = files.filter(
         (f) => !f.folder && /^workflow-[0-9TZ-]+-[a-f0-9-]+\.(sqlite3|json)$/.test(basename(f.path))
       )
+    if (owned.some((f) => typeof f.size !== 'number' || !Number.isFinite(f.size) || f.size < 0))
+      throw fail('backup_upload_held')
     return {
       count: owned.filter((f) => f.path.endsWith('.sqlite3')).length,
-      bytes: owned.reduce((n, f) => n + f.size, 0)
+      bytes: owned.reduce((n, f) => n + Number(f.size ?? 0), 0)
     }
   }
+  /** @param {string|null} [stage] @param {import('./admin-contracts.d.mts').BackupManifest} [manifest] @returns {Promise<import('./admin-contracts.d.mts').BackupResult|null>} */
   async publishRemote(stage, manifest) {
     const path = join(this.directory, 'backup-upload.json')
-    let intent
+    /** @type {import('./admin-contracts.d.mts').BackupIntent|null} */
+    let intent = null
     try {
       await privateFile(path)
       intent = JSON.parse(await readFile(path, 'utf8'))
+      if (!intent) throw fail('backup_upload_held')
       if (intent.state === 'done') intent = null
     } catch (e) {
-      if (e.code !== 'ENOENT') throw fail('backup_upload_held')
+      if (errorProperty(e, 'code') !== 'ENOENT') throw fail('backup_upload_held')
     }
     if (!intent) {
       if (!stage) return null
+      if (!manifest) throw fail('backup_upload_held')
       const name =
         'workflow-' + new Date(this.now()).toISOString().replace(/[:.]/g, '-') + '-' + randomUUID()
       intent = {
         state: 'pending',
         stage,
         manifest: { ...manifest, database: name + '.sqlite3' },
-        destination: { ...this.destination },
+        destination: { ...this.requiredDestination() },
         name,
         databaseIntent: false,
         manifestIntent: false
@@ -403,7 +457,8 @@ export class BackupManager {
     )
       throw fail('backup_upload_held')
     const manifestBytes = Buffer.from(JSON.stringify(intent.manifest, null, 2) + '\n')
-    for (const item of [
+    /** @type {import('./admin-contracts.d.mts').BackupUploadItem[]} */
+    const items = [
       {
         suffix: '.sqlite3',
         file,
@@ -420,40 +475,9 @@ export class BackupManager {
         type: 'application/json',
         key: 'manifestIntent'
       }
-    ]) {
-      const target = intent.destination.folder + '/' + intent.name + item.suffix
-      let found = await api.stat(target)
-      if (!found) {
-        if (intent[item.key]) throw fail('backup_upload_held')
-        intent[item.key] = true
-        await durableJSON(path, intent)
-        try {
-          if (item.file && api.putFile)
-            await api.putFile(target, item.file, { contentType: item.type })
-          else
-            await api.put(target, item.bytes ?? (await readFile(item.file)), {
-              contentType: item.type
-            })
-        } catch {
-          /* Read-only verification after a lost response; no PUT replay. */
-        }
-        found = await api.stat(target)
-      }
-      if (!found || found.folder || found.size !== item.size) throw fail('backup_upload_held')
-      let actual
-      if (api.digest) actual = await api.digest(target, found.etag, item.size + 1)
-      else {
-        const data = await api.get(target, found.etag, item.size + 1)
-        actual = { bytes: data.length, sha256: createHash('sha256').update(data).digest('hex') }
-      }
-      const after = await api.stat(target)
-      if (
-        actual.bytes !== item.size ||
-        actual.sha256 !== item.sha ||
-        after?.resourceId !== found.resourceId ||
-        after?.etag !== found.etag
-      )
-        throw fail('backup_upload_held')
+    ]
+    for (const item of items) {
+      await this.publishItem(api, path, intent, item)
     }
     intent.state = 'done'
     await durableJSON(path, intent)
@@ -466,6 +490,43 @@ export class BackupManager {
     await rm(intent.stage, { recursive: true })
     return result
   }
+  /** @param {import('./admin-contracts.d.mts').BackupAdapter} api @param {string} path @param {import('./admin-contracts.d.mts').BackupIntent} intent @param {import('./admin-contracts.d.mts').BackupUploadItem} item */
+  async publishItem(api, path, intent, item) {
+    const target = intent.destination.folder + '/' + intent.name + item.suffix
+    let found = await api.stat(target)
+    if (!found) {
+      if (intent[item.key]) throw fail('backup_upload_held')
+      intent[item.key] = true
+      await durableJSON(path, intent)
+      try {
+        if (item.file && api.putFile)
+          await api.putFile(target, item.file, { contentType: item.type })
+        else
+          await api.put(target, item.bytes ?? (await readFile(item.file ?? '')), {
+            contentType: item.type
+          })
+      } catch {
+        /* Read-only verification after a lost response; no PUT replay. */
+      }
+      found = await api.stat(target)
+    }
+    if (!found || found.folder || found.size !== item.size) throw fail('backup_upload_held')
+    let actual
+    if (api.digest) actual = await api.digest(target, found.etag, item.size + 1)
+    else {
+      const data = await api.get(target, found.etag, item.size + 1)
+      actual = { bytes: data.length, sha256: createHash('sha256').update(data).digest('hex') }
+    }
+    const after = await api.stat(target)
+    if (
+      actual.bytes !== item.size ||
+      actual.sha256 !== item.sha ||
+      after?.resourceId !== found.resourceId ||
+      after?.etag !== found.etag
+    )
+      throw fail('backup_upload_held')
+  }
+  /** @param {import('./admin-contracts.d.mts').BackupSettings} value */
   applySettings(value) {
     if (JSON.stringify(this.destination) !== JSON.stringify(value.destination ?? null))
       this.health = { ...this.health, state: 'starting', lastSuccess: null, reason: null }
@@ -495,48 +556,55 @@ export class BackupManager {
         throw fail('backup_settings_invalid')
       this.applySettings(validateBackupSettings(value.settings))
     } catch (e) {
-      if (e.code !== 'ENOENT') throw fail('backup_settings_invalid')
+      if (errorProperty(e, 'code') !== 'ENOENT') throw fail('backup_settings_invalid')
     }
     this.settingsLoaded = true
   }
-  async configureFor(actor, api, value) {
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./admin-contracts.d.mts').BackupAdapter} api @param {unknown} input */
+  async configureFor(actor, api, input) {
+    let value =
+      input && typeof input === 'object' ? /** @type {Record<string,unknown>} */ (input) : {}
     await this.loadSettings()
     if (!value?.enabled)
       value = { ...value, ...(this.destination ? { destination: this.destination } : {}) }
     else {
-      if (!value.destination) throw new Error('Choose an OpenCloud backup destination')
+      if (!value.destination)
+        throw new WorkflowError('VALIDATION_INVALID', 'Choose an OpenCloud backup destination')
       value = {
         ...value,
         destination: {
           server: actor.server,
           account: actor.account,
-          space: value.destination.space,
-          folder: value.destination.folder
+          space: /** @type {Record<string,unknown>} */ (value.destination).space,
+          folder: /** @type {Record<string,unknown>} */ (value.destination).folder
         }
       }
     }
-    value = validateBackupSettings(value)
-    if (value.enabled) {
-      const scoped = api.forSpace(value.destination.space),
+    const settings = validateBackupSettings(value)
+    if (settings.enabled) {
+      if (!settings.destination) throw fail('backup_settings_invalid')
+      const scoped = api.forSpace(settings.destination.space),
         verified = await scoped.identity()
       if (
         verified.server !== actor.server ||
         verified.account !== actor.account ||
-        verified.space !== value.destination.space
+        verified.space !== settings.destination.space
       )
-        throw new Error('Backup Space unavailable')
-      const parts = value.destination.folder.split('/')
+        throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'Backup Space unavailable')
+      const parts = settings.destination.folder.split('/')
       for (let n = 1; n <= parts.length; n++) await scoped.mkdir(parts.slice(0, n).join('/'))
       this.attach(actor, api)
     }
-    return this.configure(value)
+    return this.configure(settings)
   }
+  /** @param {unknown} value */
   configure(value) {
     const settings = validateBackupSettings(value)
     const task = this.settingsOperations
       .catch(() => {})
       .then(async () => {
-        if (this.stopped) throw new Error('Backup service is stopping')
+        if (this.stopped)
+          throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'Backup service is stopping')
         this.reconfiguring = true
         try {
           await this.active
@@ -545,13 +613,16 @@ export class BackupManager {
           try {
             pending = JSON.parse(await readFile(join(this.directory, 'backup-upload.json'), 'utf8'))
           } catch (e) {
-            if (e.code !== 'ENOENT') throw e
+            if (errorProperty(e, 'code') !== 'ENOENT') throw e
           }
           if (
             pending?.state === 'pending' &&
             JSON.stringify(settings.destination ?? null) !== JSON.stringify(this.destination)
           )
-            throw new Error('Verify the pending backup before changing its destination')
+            throw new WorkflowError(
+              'OPERATION_HELD',
+              'Verify the pending backup before changing its destination'
+            )
           await durableJSON(join(this.directory, 'backup-settings.json'), { version: 1, settings })
           this.applySettings(settings)
           return await this.report()
@@ -563,42 +634,6 @@ export class BackupManager {
     return task
   }
 
-  async lock() {
-    const path = join(this.directory, '.backup-lock'),
-      value = JSON.stringify({ host: hostname(), pid: process.pid, nonce: randomUUID() })
-    for (let attempt = 0; attempt < 2; attempt++)
-      try {
-        const f = await open(path, 'wx', 0o600)
-        try {
-          await f.writeFile(value)
-          await f.sync()
-        } finally {
-          await f.close()
-        }
-        return async () => {
-          if ((await readFile(path, 'utf8')) === value) await unlink(path)
-        }
-      } catch (e) {
-        if (e.code !== 'EEXIST') throw e
-        await privateFile(path)
-        let owner
-        try {
-          owner = JSON.parse(await readFile(path, 'utf8'))
-        } catch {
-          throw fail('backup_busy')
-        }
-        if (owner.host !== hostname() || !Number.isSafeInteger(owner.pid) || owner.pid < 1)
-          throw fail('backup_busy')
-        try {
-          process.kill(owner.pid, 0)
-          throw fail('backup_busy')
-        } catch (e) {
-          if (e.code !== 'ESRCH') throw e
-        }
-        await unlink(path)
-      }
-    throw fail('backup_busy')
-  }
   async initialize() {
     if (this.initialized) return
     await this.loadSettings()
@@ -608,7 +643,7 @@ export class BackupManager {
       .sort()
     if (names.length > 1000) throw fail('capacity_hold')
     if (names.length && !this.destination) {
-      const latest = await verifySnapshot(join(this.directory, names.at(-1))),
+      const latest = await verifySnapshot(join(this.directory, names[names.length - 1])),
         when = Date.parse(latest.created)
       if (!Number.isFinite(when) || when > this.now() + 60000) throw fail('backup_clock_mismatch')
       this.health = { ...this.health, state: 'ready', lastSuccess: when }
@@ -626,17 +661,19 @@ export class BackupManager {
           this.nextAttempt = h.lastSuccess + this.intervalMs
         }
       } catch (e) {
-        if (e.code !== 'ENOENT') throw e
+        if (errorProperty(e, 'code') !== 'ENOENT') throw e
       }
     }
     this.initialized = true
   }
+  /** @returns {Promise<import('./admin-contracts.d.mts').BackupResult|null>} */
   async run() {
     this.health = { ...this.health, state: 'running', lastAttempt: this.now(), reason: null }
     let source, stage, release
     try {
       await this.initialize()
-      release = await this.lock()
+      release = await lockBackupStorage(this.directory)
+      await cleanBackupStages(this.directory)
       await privateFile(this.database)
       if (this.destination) {
         const pending = await this.publishRemote()
@@ -652,8 +689,8 @@ export class BackupManager {
       }
       const used = this.destination ? await this.remoteUsage() : await usage(this.directory)
       source = new DatabaseSync(this.database, { readOnly: true })
-      const pages = source.prepare('PRAGMA page_count').get().page_count,
-        pageSize = source.prepare('PRAGMA page_size').get().page_size
+      const pages = Number(source.prepare('PRAGMA page_count').get()?.page_count),
+        pageSize = Number(source.prepare('PRAGMA page_size').get()?.page_size)
       if (used.count >= this.maxSnapshots || used.bytes + pages * pageSize + 32768 > this.maxBytes)
         throw fail('capacity_hold')
       stage = join(this.directory, '.pending-snapshot-' + randomUUID())
@@ -712,10 +749,11 @@ export class BackupManager {
       })
       return { ...manifest, directory: final }
     } catch (e) {
+      this.logger('backup_failed', e)
       this.health = {
         ...this.health,
         state: 'held',
-        reason: e.backupReason ?? 'backup_unavailable'
+        reason: String(errorProperty(e, 'backupReason') ?? 'backup_unavailable')
       }
       this.nextAttempt = this.now() + Math.min(this.intervalMs, 300000)
       if (this.initialized)
@@ -726,10 +764,23 @@ export class BackupManager {
       return null
     } finally {
       source?.close()
+      if (release) {
+        try {
+          await cleanBackupStages(this.directory)
+        } catch (error) {
+          this.logger('backup_cleanup_failed', error)
+          this.health = {
+            ...this.health,
+            state: 'held',
+            reason: String(errorProperty(error, 'backupReason') ?? 'backup_unavailable')
+          }
+        }
+      }
       if (release)
         try {
           await release()
-        } catch {
+        } catch (error) {
+          this.logger('backup_unlock_failed', error)
           this.health = { ...this.health, state: 'held', reason: 'backup_busy' }
         }
     }
@@ -741,10 +792,11 @@ export class BackupManager {
       try {
         await this.initialize()
       } catch (e) {
+        this.logger('backup_failed', e)
         this.health = {
           ...this.health,
           state: 'held',
-          reason: e.backupReason ?? 'backup_unavailable'
+          reason: String(errorProperty(e, 'backupReason') ?? 'backup_unavailable')
         }
         return null
       }

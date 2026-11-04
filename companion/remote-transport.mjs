@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 /** @typedef {{origin:string,base:string,trashBase:string,account?:string,auth:string,fetcher:typeof fetch}} RemoteContext */
-export class RemoteError extends Error {
+export class RemoteError extends WorkflowError {
   /** @param {number} status */
   constructor(status) {
-    super(`OpenCloud HTTP ${status}`)
+    super(
+      status === 401
+        ? 'AUTH_REQUIRED'
+        : status === 403
+          ? 'ACCESS_DENIED'
+          : status === 404
+            ? 'RESOURCE_NOT_FOUND'
+            : 'UPSTREAM_FAILURE',
+      `OpenCloud HTTP ${status}`
+    )
     this.status = status
   }
 }
@@ -14,7 +24,7 @@ export function assertRemoteURL(context, method, url) {
   const parsed = new URL(url),
     base = new URL(context.base)
   if (parsed.origin !== context.origin || parsed.username || parsed.password || parsed.hash)
-    throw new Error('URL outside configured endpoints')
+    throw new WorkflowError('OPERATION_HELD', 'URL outside configured endpoints')
   const directory = ['/graph/v1.0/me/drives', '/graph/v1.0/me/drives/'].includes(parsed.pathname)
   const ownRoles =
     method === 'GET' &&
@@ -30,7 +40,7 @@ export function assertRemoteURL(context, method, url) {
     url !== `${context.origin}/graph/v1.0/extensions/org.libregraph/tags` &&
     !parsed.pathname.startsWith(base.pathname)
   )
-    throw new Error('URL outside configured endpoints')
+    throw new WorkflowError('OPERATION_HELD', 'URL outside configured endpoints')
 }
 /** @param {RemoteContext} context @param {string} method @param {string} url
  * @param {{body?:NonNullable<Parameters<typeof fetch>[1]>['body'],headers?:Record<string,string>,timeout?:number,duplex?:'half',statuses?:number[]}} [options]
@@ -62,7 +72,7 @@ export async function responseBytes(response, max = 25 * 1024 * 1024) {
   let size = 0
   for await (const chunk of response.body ?? []) {
     size += chunk.length
-    if (size > max) throw new Error('Remote response exceeds limit')
+    if (size > max) throw new WorkflowError('VALIDATION_INVALID', 'Remote response exceeds limit')
     parts.push(chunk)
   }
   return Buffer.concat(parts)

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { withTransaction } from './transactions.mjs'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -163,11 +164,9 @@ export function verifyJournalSchema(db) {
   const actual = new Map(schemaShape(db).map((object) => [object.name, object]))
   for (const object of expected) {
     if (JSON.stringify(actual.get(object.name)) !== JSON.stringify(object)) {
-      throw Object.assign(
-        new Error(
-          'Unsupported journal schema; restore compatible code or inspect the database offline'
-        ),
-        { code: 'SCHEMA_MISMATCH' }
+      throw new WorkflowError(
+        'SCHEMA_MISMATCH',
+        'Unsupported journal schema; restore compatible code or inspect the database offline'
       )
     }
   }
@@ -177,11 +176,9 @@ export function verifyJournalSchema(db) {
 export function migrateJournal(db) {
   const version = Number(db.prepare('PRAGMA user_version').get()?.user_version)
   if (!Number.isInteger(version) || version < 0 || version > JOURNAL_SCHEMA_VERSION) {
-    throw Object.assign(
-      new Error(
-        'Journal was created by an unsupported schema version; use compatible companion code'
-      ),
-      { code: 'SCHEMA_VERSION' }
+    throw new WorkflowError(
+      'SCHEMA_VERSION',
+      'Journal was created by an unsupported schema version; use compatible companion code'
     )
   }
   if (version === JOURNAL_SCHEMA_VERSION) {

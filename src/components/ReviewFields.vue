@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { WorkflowError } from '../domain/errors'
+
 // SPDX-License-Identifier: AGPL-3.0-only
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useWorkspace } from '../state/workspace'
@@ -101,7 +103,10 @@ async function load() {
     })
     if (version !== generation || !alive) return
     if (result.source.resourceId !== props.resourceId || result.source.sha256 !== props.sha256)
-      throw new Error('The source document changed. Refresh its review before editing fields.')
+      throw new WorkflowError(
+        'SOURCE_CHANGED',
+        'The source document changed. Refresh its review before editing fields.'
+      )
     data.value = result
     baseline.value = Object.fromEntries(
       result.schema.fields.map((field) => [field.id, result.record.fields[field.id] ?? ''])

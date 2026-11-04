@@ -793,3 +793,20 @@ it('disables only AI suggestions while OCR, fields and matching tags remain usab
     s.w.unmount()
   }
 })
+it('keeps unsaved processing choices when switching settings tabs', async () => {
+  const s = await setup()
+  try {
+    await s.w.get('#rename').setValue('off')
+    await s.w.get('#tag-discovery').setValue('create')
+    await s.router.push('/document-workflow/settings/folders')
+    await flushPromises()
+    expect(s.w.find('#rename').exists()).toBe(false)
+    await s.router.push('/document-workflow/settings/processing')
+    await flushPromises()
+    expect(s.w.get('#rename').element).toHaveProperty('value', 'off')
+    expect(s.w.get('#tag-discovery').element).toHaveProperty('value', 'create')
+    expect(s.request.mock.calls.some((c) => c[0] === 'preferences')).toBe(false)
+  } finally {
+    s.w.unmount()
+  }
+})

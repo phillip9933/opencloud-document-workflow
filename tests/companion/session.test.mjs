@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SessionSupervisor, PrivateSessionFile } from '../../companion/session.mjs'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Intake, defaultIntake } from '../../companion/intake.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
 
@@ -431,6 +431,26 @@ test('renewal never sends a rotating grant before its intent directory is durabl
     assert.equal(f.fetchCount, 0)
   } finally {
     await s.stop()
+    await f.close()
+  }
+})
+
+test('background session failures emit private-safe diagnostics', async () => {
+  const { createLogger } = await import('../../companion/logging.mjs')
+  const f = await fixture(),
+    lines = []
+  const manager = new SessionSupervisor({
+    ...f.options,
+    logger: createLogger((line) => lines.push(line))
+  })
+  try {
+    f.deny()
+    await manager.tick({ force: true })
+    assert.equal(JSON.parse(lines[0]).event, 'session_failed')
+    assert.equal(JSON.parse(lines[0]).level, 'warn')
+    assert.doesNotMatch(lines.join(''), /private revoked|fixture-old-access|fixture-old-refresh/)
+  } finally {
+    await manager.stop()
     await f.close()
   }
 })

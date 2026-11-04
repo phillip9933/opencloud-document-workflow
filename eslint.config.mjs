@@ -45,5 +45,43 @@ export default [
   // Existing dynamic Vue/API test fixtures are typed incrementally; domain TS
   // retains the no-explicit-any rule. This is not a claim of backend type safety.
   { files: ['**/*.vue', 'tests/**/*.ts'], rules: { '@typescript-eslint/no-explicit-any': 'off' } },
+  {
+    files: ['companion/**/*.mjs', 'src/**/*.{ts,vue}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "NewExpression[callee.name='Error']",
+          message: 'Use WorkflowError with an explicit code; unknown failures are internal errors.'
+        },
+        {
+          selector: "ThrowStatement > CallExpression[callee.name='Error']",
+          message: 'Use WorkflowError with an explicit code.'
+        }
+      ]
+    }
+  },
+  // Bound orchestration growth while allowing explicit boundary validation branches.
+  {
+    files: ['companion/**/*.mjs', 'src/state/**/*.ts', 'src/views/**/*.vue'],
+    rules: { complexity: ['error', 25] }
+  },
+  // Keep the newly separated recovery and operation paths small as they evolve.
+  {
+    files: [
+      'companion/backup-storage.mjs',
+      'companion/automatic-fields.mjs',
+      'companion/operations.mjs'
+    ],
+    rules: { complexity: ['error', 15] }
+  },
+  {
+    files: ['companion/automation.mjs', 'companion/conversions.mjs', 'companion/duplicates.mjs'],
+    rules: { complexity: ['error', 20] }
+  },
+  {
+    files: ['companion/*-routes.mjs', 'companion/draft-api.mjs'],
+    rules: { complexity: ['error', 25] }
+  },
   { files: ['src/views/*.vue'], rules: { 'vue/multi-word-component-names': 'off' } }
 ]

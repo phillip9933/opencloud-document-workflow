@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { WorkflowError } from '../domain/errors'
+
 // SPDX-License-Identifier: AGPL-3.0-only
 import { ref, computed, onBeforeUnmount } from 'vue'
 import { useWorkspace } from '../state/workspace'
@@ -80,7 +82,8 @@ async function file() {
         reviewDigest: await reviewDigest(row.review, policy, row.manual),
         ...(row.manual ? { manualActions: row.manual } : {})
       })
-    if (!items.length) throw new Error('Choose at least one current review')
+    if (!items.length)
+      throw new WorkflowError('VALIDATION_INVALID', 'Choose at least one current review')
     const value = await store.request('operation-start', {
       id: crypto.randomUUID(),
       kind: 'file',

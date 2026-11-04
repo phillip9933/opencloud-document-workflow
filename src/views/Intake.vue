@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { WorkflowError } from '../domain/errors'
+
 // SPDX-License-Identifier: AGPL-3.0-only
 import { ref, computed, onMounted } from 'vue'
 import { useWorkspace, preparationProblem } from '../state/workspace'
@@ -47,7 +49,8 @@ async function load() {
   try {
     if (!store.connection.value) await store.connect()
     const value = await store.request('intake')
-    if (!value?.configuration?.folder) throw new Error('Inbox settings unavailable')
+    if (!value?.configuration?.folder)
+      throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'Inbox settings unavailable')
     configuration.value = value.configuration
     duplicateAction.value = value.duplicateAction ?? 'keep'
     configured.value = value.configured ?? true
@@ -86,13 +89,17 @@ async function save() {
   message.value = ''
   error.value = ''
   try {
-    if (configuration.value.enabled && readiness.value) throw new Error(readiness.value)
+    if (configuration.value.enabled && readiness.value)
+      throw new WorkflowError('OPERATION_HELD', readiness.value)
     if (
       configuration.value.enabled &&
       store.cloudProcessing.value &&
       !configuration.value.cloudConsent
     )
-      throw new Error('Allow cloud processing for this inbox before enabling it')
+      throw new WorkflowError(
+        'OPERATION_HELD',
+        'Allow cloud processing for this inbox before enabling it'
+      )
     await store.request('intake-settings', {
       configuration: JSON.parse(JSON.stringify(configuration.value)),
       duplicateAction: duplicateAction.value

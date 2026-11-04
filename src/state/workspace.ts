@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../domain/errors'
+import { createReviewCollection, retainPinnedReview } from './review-collection'
 import { createCompanionRequest } from './companion-request'
-import { inject, ref, computed, toRaw } from 'vue'
+import { inject, ref, computed } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 import type { InjectionKey } from 'vue'
 import { defaultPolicy, validateBundle, validatePolicy } from '../domain/review'
@@ -148,9 +150,9 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     filesGeneration = 0,
     pinnedJobId: string | null = null
   const capabilities = ref({ cloudEnabled: false, atomicPreferencePause: false })
-  const reviews = ref<Review[]>([]),
-    selected = ref(0),
-    policy = ref(defaultPolicy()),
+  const collection = createReviewCollection()
+  const { jobs, reviews, selected, jobsById, installJobs, jobFor } = collection
+  const policy = ref(defaultPolicy()),
     ai = ref(defaultAIConfig())
   const cloudProcessing = computed(
     () =>
@@ -167,7 +169,6 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
       username?: string
       spaceName?: string
     } | null>(null),
-    jobs = ref<DraftJob[]>([]),
     files = ref<DraftFile[]>([]),
     folder = ref('Inbox'),
     inbox = ref('Inbox'),
@@ -179,39 +180,6 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     generation: () => workspaceGeneration,
     connection: () => connection.value
   })
-  let reviewJobs = new WeakMap<Review, string>()
-  const jobsById = computed(() => new Map(jobs.value.map((job) => [job.id, job])))
-  function installJobs(rows: DraftJob[]) {
-    const previous = reviews.value[selected.value]
-    const previousId = previous && jobFor(previous)?.id
-    jobs.value = [...new Map(rows.map((job) => [job.id, job])).values()]
-    reviewJobs = new WeakMap()
-    reviews.value = []
-    for (const job of jobs.value) {
-      if (!job.bundle) continue
-      const review = validateBundle(job.bundle)
-      reviewJobs.set(review, job.id)
-      reviews.value.push(review)
-    }
-    const retained = reviews.value.findIndex((review) => jobFor(review)?.id === previousId)
-    const sameSource = previous
-      ? reviews.value.findIndex((review) => {
-          const a = review.bundle.source,
-            b = previous.bundle.source
-          return (
-            a.server === b.server &&
-            a.account === b.account &&
-            a.space === b.space &&
-            a.resourceId === b.resourceId
-          )
-        })
-      : -1
-    const waiting = reviews.value.findIndex(
-      (review) => review.proposal && !jobFor(review)?.decision
-    )
-    selected.value =
-      retained >= 0 ? retained : sameSource >= 0 ? sameSource : waiting >= 0 ? waiting : 0
-  }
   async function loadSpaces() {
     try {
       const result = await request('spaces')
@@ -229,9 +197,7 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     connectGeneration++
     filesGeneration++
     connection.value = null
-    jobs.value = []
-    reviews.value = []
-    reviewJobs = new WeakMap()
+    collection.clear()
     files.value = []
     inboxSearch.value = ''
     inboxNavigation.value = null
@@ -256,7 +222,7 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
   async function switchSpace(id: string) {
     if (switchingSpace.value) return
     if (!spaces.value.some((space) => space.id === id))
-      throw new Error('Choose one of your available Spaces')
+      throw new WorkflowError('VALIDATION_INVALID', 'Choose one of your available Spaces')
     switchingSpace.value = true
     spaceError.value = ''
     const previous = activeSpace.value
@@ -313,26 +279,7 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
           connection.value.space
         ]) === JSON.stringify([status.actor.server, status.actor.account, status.actor.space])
       const pinned = sameScope ? jobs.value.find((job) => job.id === pinnedJobId) : undefined
-      const rows = status.jobs.map((job: DraftJob) =>
-        pinned &&
-        job.id === pinned.id &&
-        job.state === pinned.state &&
-        job.decision === pinned.decision &&
-        job.updated === pinned.updated &&
-        job.source.etag === pinned.source.etag &&
-        !Object.hasOwn(job, 'processingIssue')
-          ? {
-              ...job,
-              potentialDuplicates: pinned.potentialDuplicates,
-              duplicateCheck: pinned.duplicateCheck,
-              preparationReview: pinned.preparationReview,
-              processingIssue: pinned.processingIssue
-            }
-          : job
-      )
-      installJobs(
-        pinned && !rows.some((job: DraftJob) => job.id === pinned.id) ? [pinned, ...rows] : rows
-      )
+      installJobs(retainPinnedReview(status.jobs, pinned))
       intakeQueue.value = intake.queue || []
       intakeSummary.value = intake.summary ?? null
       intakePaused.value = intake.paused === true
@@ -420,7 +367,8 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
         }
       } catch (e) {
         if (paused)
-          throw new Error(
+          throw new WorkflowError(
+            'OPERATION_HELD',
             'Automatic preparation is paused. Could not confirm the settings save; reload saved settings before retrying.',
             { cause: e }
           )
@@ -445,7 +393,7 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     } = {}
   ) {
     const issue = preparationProblem(storedPreferences.value, capabilities.value.cloudEnabled)
-    if (issue) throw new Error(issue)
+    if (issue) throw new WorkflowError('OPERATION_HELD', issue)
     const result = await request('prepare', { path, ...options })
     await refresh()
     const index = reviews.value.findIndex((review) => jobFor(review)?.id === result.id)
@@ -453,15 +401,11 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     else await openJob(result.id)
     return result
   }
-  function jobFor(review: Review) {
-    const id = reviewJobs.get(toRaw(review))
-    return id ? jobsById.value.get(id) : undefined
-  }
   async function openJob(id: string, expected?: DraftFile) {
     const scope =
       connection.value &&
       JSON.stringify([connection.value.server, connection.value.account, connection.value.space])
-    if (!scope) throw new Error('Connect the document workspace first')
+    if (!scope) throw new WorkflowError('OPERATION_HELD', 'Connect the document workspace first')
     const result = await request('job', { id }),
       job: DraftJob = result.job
     if (
@@ -469,7 +413,7 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
       scope !==
         JSON.stringify([connection.value.server, connection.value.account, connection.value.space])
     )
-      throw new Error('The workspace changed. Open the document again.')
+      throw new WorkflowError('SOURCE_CHANGED', 'The workspace changed. Open the document again.')
     if (
       !job?.bundle ||
       job.id !== id ||
@@ -480,17 +424,17 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
           job.workflowSpace ?? job.source.space
         ])
     )
-      throw new Error('The saved document does not match this workspace')
+      throw new WorkflowError('OPERATION_HELD', 'The saved document does not match this workspace')
     if (
       expected &&
       (job.source.resourceId !== expected.resourceId || job.source.etag !== expected.etag)
     )
-      throw new Error('The document changed. Refresh the inbox.')
+      throw new WorkflowError('SOURCE_CHANGED', 'The document changed. Refresh the inbox.')
     if (
       job.bundle.source.resourceId !== job.source.resourceId ||
       job.bundle.source.etag !== job.source.etag
     )
-      throw new Error('The saved document does not match this workspace')
+      throw new WorkflowError('OPERATION_HELD', 'The saved document does not match this workspace')
     validateBundle(job.bundle)
     pinnedJobId = id
     installJobs([job, ...jobs.value.filter((value) => value.id !== id)])
@@ -512,7 +456,7 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     if (id && !['failed', 'running', 'pending'].includes(state ?? '')) {
       const job = await openJob(id, file)
       if (job.source.resourceId !== file.resourceId)
-        throw new Error('The document changed. Refresh the inbox.')
+        throw new WorkflowError('SOURCE_CHANGED', 'The document changed. Refresh the inbox.')
       return { path: '/document-workflow/inbox', query: { job: id } }
     }
     return { path: '/document-workflow/details', query: { path: file.path, return: 'inbox' } }

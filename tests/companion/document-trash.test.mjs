@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Metadata } from '../../companion/metadata.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
 import { defaultLimits } from '../../companion/configuration.mjs'
@@ -21,12 +21,12 @@ async function setup() {
   api.seed()
   const actor = await api.identity()
   await api.move('Inbox/english.pdf', 'Docs/invoice.pdf', '"v1"')
-  new Metadata(w)
+  w.metadata = new Metadata(w)
   w.configuration = {
     settings: () => ({ rules: { root: 'Docs' }, limits: { maxMiB: 100 } }),
     destinationSpace: () => actor.space
   }
-  const trash = new DocumentTrash(w),
+  const trash = (w.documentTrash = new DocumentTrash(w)),
     source = await api.stat('Docs/invoice.pdf'),
     bytes = await api.get(source.path),
     input = {
@@ -159,7 +159,7 @@ test('an unknown Trash outcome remains read-only across restart and blocks new r
     )
     const j = new ProposalJournal(s.dbPath),
       w = new Workflow(j),
-      trash = new DocumentTrash(w)
+      trash = (w.documentTrash = new DocumentTrash(w))
     try {
       s.api.trash = async () => {
         throw Error('must not execute')

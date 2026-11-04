@@ -19,7 +19,11 @@ export function withTransaction(db, work) {
     db.exec('COMMIT')
     return result
   } catch (error) {
-    db.exec('ROLLBACK')
+    try {
+      if (db.isTransaction) db.exec('ROLLBACK')
+    } catch {
+      // Preserve the original failure, including when storage also prevents rollback.
+    }
     throw error
   }
 }

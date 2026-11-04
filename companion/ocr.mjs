@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { defaultLimits, validateLimits } from './configuration.mjs'
 import { spawn } from 'node:child_process'
 import { mkdtemp, writeFile, rm, stat } from 'node:fs/promises'
@@ -19,25 +20,27 @@ export function runOCRTool(command, args, { limit = 240000, timeout = 30000 } = 
       clearTimeout(timer)
       if (error) reject(error)
       else if (result !== undefined) resolve(result)
-      else reject(new Error('OCR returned no result'))
+      else reject(new WorkflowError('UPSTREAM_FAILURE', 'OCR returned no result'))
     }
     const timer = setTimeout(() => {
       child.kill('SIGKILL')
-      finish(new Error('OCR command timed out'))
+      finish(new WorkflowError('UPSTREAM_FAILURE', 'OCR command timed out'))
     }, timeout)
-    child.on('error', () => finish(new Error(`OCR requires ${command}`)))
+    child.on('error', () =>
+      finish(new WorkflowError('DEPENDENCY_UNAVAILABLE', `OCR requires ${command}`))
+    )
     child.stderr.resume()
     child.stdout.on('data', (c) => {
       total += c.length
       if (total > limit) {
         child.kill('SIGKILL')
-        finish(new Error('OCR output exceeds limit'))
+        finish(new WorkflowError('VALIDATION_INVALID', 'OCR output exceeds limit'))
       } else chunks.push(c)
     })
     child.on('close', (code) =>
       code === 0
         ? finish(null, Buffer.concat(chunks).toString('utf8'))
-        : finish(new Error('OCR command failed'))
+        : finish(new WorkflowError('UPSTREAM_FAILURE', 'OCR command failed'))
     )
   })
 }
@@ -114,17 +117,17 @@ export async function ocrPages(
     indices.some((index) => !Number.isInteger(index) || index < 0 || index >= pages.length) ||
     new Set(indices).size !== indices.length
   )
-    throw new Error('Invalid OCR page selection')
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid OCR page selection')
   if (
     !Array.isArray(languages) ||
     !languages.length ||
     languages.length > 10 ||
     languages.some((v) => typeof v !== 'string' || !/^[A-Za-z0-9_/-]+$/.test(v) || v.includes('..'))
   )
-    throw new Error('Choose OCR languages')
+    throw new WorkflowError('VALIDATION_INVALID', 'Choose OCR languages')
   const installed = await ocrLanguages()
   if (languages.some((l) => !installed.includes(l)))
-    throw new Error('Selected OCR language data is not installed')
+    throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'Selected OCR language data is not installed')
   const dir = await mkdtemp(join(tmpdir(), 'workflow-ocr-'))
   try {
     await writeFile(join(dir, 'input.pdf'), bytes, { mode: 0o600 })
@@ -133,7 +136,7 @@ export async function ocrPages(
     for (let i = 0; i < pages.length; i++) {
       if (!indices.includes(i)) continue
       if (Date.now() - start > Math.max(240000, pages.length * 90000))
-        throw new Error('OCR document time limit reached')
+        throw new WorkflowError('OPERATION_HELD', 'OCR document time limit reached')
       const prefix = join(dir, 'page')
       await runOCRTool('pdftoppm', [
         '-f',
@@ -151,7 +154,7 @@ export async function ocrPages(
         prefix
       ])
       if ((await stat(prefix + '.png')).size > 16 * 1024 * 1024)
-        throw new Error('OCR raster exceeds limit')
+        throw new WorkflowError('VALIDATION_INVALID', 'OCR raster exceeds limit')
       let recognized = await runOCRTool(
         'tesseract',
         [prefix + '.png', 'stdout', '-l', languages.join('+'), '--psm', '3'],
@@ -177,7 +180,7 @@ export async function ocrPages(
       result[i] = pages[i].trim() ? pages[i] + '\n' + recognized : recognized
       await rm(prefix + '.png')
       if (result.reduce((n, p) => n + p.length, 0) > limits.maxCharacters)
-        throw new Error('OCR text exceeds limit')
+        throw new WorkflowError('VALIDATION_INVALID', 'OCR text exceeds limit')
     }
     return result
   } finally {

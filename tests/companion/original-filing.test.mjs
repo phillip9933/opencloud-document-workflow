@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Metadata } from '../../companion/metadata.mjs'
 import { Transfers } from '../../companion/transfers.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
@@ -23,8 +23,8 @@ async function setup() {
     w = new Workflow(j),
     api = new DemoAdapter(j.db)
   api.seed()
-  new Metadata(w)
-  new Transfers(w)
+  w.metadata = new Metadata(w)
+  w.transfers = new Transfers(w)
   const actor = await api.identity(),
     bytes = Buffer.from('SYNTHETIC CAD ORIGINAL: never a PDF')
   j.db

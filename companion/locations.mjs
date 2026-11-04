@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { safePath } from '../src/domain/review.ts'
 
 // A read-only, complete metadata snapshot of the configured filing tree. Paths
@@ -9,7 +10,6 @@ export class FiledLocations {
     this.w = workflow
     /** @type {Map<string,Promise<import('./contracts.d.mts').LocationSnapshot>>} */
     this.pending = new Map()
-    workflow.locations = this
   }
   /** @param {import('./contracts.d.mts').Actor} actor */
   context(actor) {
@@ -44,17 +44,19 @@ export class FiledLocations {
     while (pending.length) {
       const batch = pending.splice(0, 4)
       for (const path of batch) {
-        if (folders.has(path)) throw new Error('Repeated folder in document listing')
+        if (folders.has(path))
+          throw new WorkflowError('OPERATION_HELD', 'Repeated folder in document listing')
         folders.add(path)
       }
-      if (folders.size > 10000) throw new Error('Document folder listing exceeds limit')
+      if (folders.size > 10000)
+        throw new WorkflowError('VALIDATION_INVALID', 'Document folder listing exceeds limit')
       const results = await Promise.all(batch.map((path) => physical.list(path)))
       for (let i = 0; i < batch.length; i++)
         for (const file of results[i]) {
           const path = safePath(file.path),
             parent = batch[i]
           if (!path.startsWith(parent + '/') || path.slice(parent.length + 1).includes('/'))
-            throw new Error('Document listing outside requested folder')
+            throw new WorkflowError('OPERATION_HELD', 'Document listing outside requested folder')
           if (file.folder) {
             pending.push(path)
             continue
@@ -66,16 +68,20 @@ export class FiledLocations {
             !file.etag ||
             resources.has(file.resourceId)
           )
-            throw new Error('Document identity is incomplete or repeated')
+            throw new WorkflowError('OPERATION_HELD', 'Document identity is incomplete or repeated')
           if (!Array.isArray(file.tags) || file.tags.some((tag) => typeof tag !== 'string'))
-            throw new Error('Document tags are incomplete')
+            throw new WorkflowError('OPERATION_HELD', 'Document tags are incomplete')
           resources.set(file.resourceId, { ...file, path, space })
-          if (resources.size > 100000) throw new Error('Document listing exceeds limit')
+          if (resources.size > 100000)
+            throw new WorkflowError('VALIDATION_INVALID', 'Document listing exceeds limit')
         }
     }
     // Do not publish partial results or results from a changed configuration.
     if (JSON.stringify(this.context(actor)) !== JSON.stringify(context))
-      throw new Error('The filing destination changed. Refresh documents.')
+      throw new WorkflowError(
+        'SOURCE_CHANGED',
+        'The filing destination changed. Refresh documents.'
+      )
     const db = this.w.db
     db.exec('SAVEPOINT filed_location_snapshot')
     try {

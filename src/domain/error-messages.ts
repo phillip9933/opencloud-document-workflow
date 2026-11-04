@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { WorkflowErrorCode } from './errors'
 /** Stable, translatable display messages. Never used to authorize a retry or write. */
-const messages: Record<WorkflowErrorCode, string> = {
+const messages: Record<WorkflowErrorCode, string | undefined> = {
   VALIDATION_INVALID: 'The document details are invalid. Review them before continuing.',
   INVALID_OBJECT: 'The AI returned an incomplete or unsupported result.',
   INVALID_FIELDS: 'The AI returned an incomplete or unsupported result.',
@@ -20,11 +20,26 @@ const messages: Record<WorkflowErrorCode, string> = {
   WORKFLOW_CONTEXT_CAPACITY: 'The document is too large for the configured AI context.',
   WORKFLOW_BUSY: 'This document is busy. Wait for its current operation to finish.',
   REQUEST_INVALID: 'Invalid request',
-  REQUEST_TOO_LARGE: 'Request exceeds limit'
+  REQUEST_TOO_LARGE: 'Request exceeds limit',
+  RESOURCE_NOT_FOUND: undefined,
+  UPSTREAM_FAILURE: undefined,
+  PROVIDER_RESPONSE_INVALID: undefined,
+  SCHEMA_MISMATCH: undefined,
+  SCHEMA_VERSION: undefined,
+  RUNTIME_BUSY: undefined,
+  INTERNAL_ERROR: 'An internal error occurred. Check Activity before retrying.',
+  AUTH_REQUIRED: 'OpenCloud sign-in required',
+  ACCESS_DENIED: 'OpenCloud access denied',
+  // These codes cover multiple guarded stages; retain their specific safe detail.
+  OPERATION_HELD: undefined,
+  SOURCE_CHANGED: undefined,
+  DEPENDENCY_UNAVAILABLE: undefined
 }
 export function errorMessageKey(code: unknown): string | undefined {
   return typeof code === 'string' && Object.hasOwn(messages, code)
     ? messages[code as WorkflowErrorCode]
     : undefined
 }
-export const errorMessageKeys = [...new Set(Object.values(messages))]
+export const errorMessageKeys = [
+  ...new Set(Object.values(messages).filter((value): value is string => value !== undefined))
+]

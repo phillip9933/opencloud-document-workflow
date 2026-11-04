@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Metadata } from '../../companion/metadata.mjs'
 import { Intake, defaultIntake } from '../../companion/intake.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
@@ -20,7 +20,7 @@ test('new scanned arrival → background OCR → review → approved filing → 
     api = new DemoAdapter(j.db)
   api.seed()
   const actor = await api.identity(),
-    m = new Metadata(w),
+    m = (w.metadata = new Metadata(w)),
     file = api.addScannedFixture(),
     original = await api.get(file.path)
   m.saveSchema(actor, {
@@ -125,7 +125,7 @@ test('new scanned arrival → background OCR → review → approved filing → 
     }
     assert.equal((await w.apply(actor, api, queued.job)).state, 'done')
     assert.equal(writes, 0)
-    assert.equal(new Metadata(w).read(actor, file.resourceId).fields.amount, 120.5)
+    assert.equal((w.metadata = new Metadata(w)).read(actor, file.resourceId).fields.amount, 120.5)
     assert.equal(
       w.history(actor).filter((e) => e.kind === 'done' && e.job === queued.job).length,
       1

@@ -1392,3 +1392,83 @@ test('status reads one coherent job page and inherited names cannot dispatch han
     rmSync(directory, { recursive: true })
   }
 })
+
+test('typed queue request parsing rejects malformed selections before changing any queue state', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-queue-contract-')),
+    database = join(dir, 'db.sqlite3'),
+    api = createDraftAPI({ database, mode: 'demo', allowOrigin: 'http://127.0.0.1:5175' })
+  try {
+    const actor = (await call(api, 'status')).data.actor,
+      db = new DatabaseSync(database),
+      scope = JSON.stringify([actor.server, actor.account, actor.space])
+    db.prepare(
+      "insert into intake_queue(id,scope,resource,path,etag,first_seen,state,attempts) values(?,?,?,?,?,?,'failed',3)"
+    ).run('own-item', scope, 'resource', 'Inbox/scan.pdf', 'v1', 1)
+    for (const body of [
+      { action: 'retry', ids: ['own-item', 3] },
+      { action: 'cancel', ids: [] },
+      { action: 'pause', ids: ['own-item'] },
+      { action: { unexpected: true } },
+      { action: 'cancel', ids: null }
+    ]) {
+      const result = await call(api, 'intake-control', body)
+      assert.equal(result.status, 409)
+      assert.equal(result.data.code, 'VALIDATION_INVALID')
+      assert.deepEqual(
+        { ...db.prepare('select state,attempts from intake_queue where id=?').get('own-item') },
+        { state: 'failed', attempts: 3 }
+      )
+      assert.equal(db.prepare('select count(*) count from intake_control').get().count, 0)
+    }
+    assert.equal((await call(api, 'intake', { limit: '20' })).status, 409)
+    const valid = await call(api, 'intake-control', { action: 'retry', ids: ['own-item'] })
+    assert.equal(valid.status, 200)
+    assert.equal(valid.data.affected, 1)
+    assert.deepEqual(
+      { ...db.prepare('select state,attempts from intake_queue where id=?').get('own-item') },
+      { state: 'queued', attempts: 0 }
+    )
+    db.close()
+  } finally {
+    api.close()
+    rmSync(dir, { recursive: true })
+  }
+})
+
+test('typed route boundaries reject malformed batch and preference inputs before queuing or saving', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-route-input-')),
+    api = createDraftAPI({
+      database: join(dir, 'db'),
+      mode: 'demo',
+      allowOrigin: 'http://127.0.0.1:5175'
+    })
+  try {
+    for (const body of [
+      { id: '10bde5a1-2032-4ce5-bd30-e067130b5efe', kind: 'prepare', items: [{ path: 3 }] },
+      {
+        id: '10bde5a1-2032-4ce5-bd30-e067130b5efe',
+        kind: 'prepare',
+        items: [{ path: 'Inbox/english.pdf', newReview: 'yes' }]
+      },
+      { id: '10bde5a1-2032-4ce5-bd30-e067130b5efe', kind: 'file', items: [{ id: 'job' }] },
+      {
+        id: '10bde5a1-2032-4ce5-bd30-e067130b5efe',
+        kind: 'convert',
+        items: [{ path: 'Inbox/photo.png' }]
+      }
+    ]) {
+      const result = await call(api, 'operation-start', body)
+      assert.equal(result.status, 409)
+      assert.equal(result.data.code, 'VALIDATION_INVALID')
+    }
+    assert.deepEqual((await call(api, 'operations')).data.operations, [])
+    const preferences = (await call(api, 'status')).data.preferences
+    for (const configuration of [null, [], { ai: null, policy: {} }]) {
+      assert.equal((await call(api, 'preferences', { configuration })).status, 409)
+      assert.deepEqual((await call(api, 'status')).data.preferences, preferences)
+    }
+  } finally {
+    api.close()
+    rmSync(dir, { recursive: true })
+  }
+})

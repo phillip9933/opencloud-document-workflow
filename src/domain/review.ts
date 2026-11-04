@@ -748,7 +748,9 @@ export async function createApproval(
   }
 }
 export async function approvalMatches(
-  approval: Awaited<ReturnType<typeof createApproval>>,
+  approval: Omit<Awaited<ReturnType<typeof createApproval>>, 'reviewedAt'> & {
+    reviewedAt?: string
+  },
   bundle: Bundle,
   policy: Policy
 ) {

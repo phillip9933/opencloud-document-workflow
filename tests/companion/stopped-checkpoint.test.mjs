@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Metadata } from '../../companion/metadata.mjs'
 import { DocumentLibrary } from '../../companion/documents.mjs'
 import { Intake } from '../../companion/intake.mjs'
@@ -20,7 +20,7 @@ test('stopped WAL-mode journals checkpoint from read-only source storage without
   await mkdir(source, { mode: 0o700 })
   const journal = new ProposalJournal(database),
     w = new Workflow(journal)
-  new Metadata(w)
+  w.metadata = new Metadata(w)
   new DocumentLibrary(w)
   new Intake(w)
   journal.db

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
 import { Intake, defaultIntake } from '../../companion/intake.mjs'
 import { Duplicates } from '../../companion/duplicates.mjs'
@@ -292,6 +292,30 @@ test('duplicate actions and authorization are isolated by account, Space and inb
     assert.equal(s.duplicates.action(s.actor), 'keep')
     assert.equal((await s.duplicates.process(s.actor, s.api, s.item().id)).state, 'duplicate')
     assert.equal(s.deletes, 0)
+  } finally {
+    s.close()
+  }
+})
+
+test('non-Error duplicate verification failures retain both copies and release all locks', async () => {
+  const s = await setup()
+  try {
+    const item = s.item()
+    s.api.listTrash = async () => {
+      throw null
+    }
+    const result = await s.duplicates.process(s.actor, s.api, item.id)
+    assert.equal(result.state, 'duplicate')
+    assert.equal(result.uncertain, false)
+    assert.equal(s.deletes, 0)
+    assert.ok(await s.api.stat('Inbox/extra.pdf'))
+    for (const key of [
+      'duplicate:' + s.w.scope(s.actor) + ':' + item.id,
+      'resource:' + s.w.scope(s.actor) + ':extra-copy'
+    ]) {
+      const release = s.w.lock(key)
+      release()
+    }
   } finally {
     s.close()
   }

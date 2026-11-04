@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { defaultLimits, validateLimits } from './configuration.mjs'
 import { extractPDFBytes } from './extract.mjs'
 import { ocrPages, ocrCandidatePages } from './ocr.mjs'
-import { manualReviewReason } from '../src/domain/errors.ts'
+import { WorkflowError, manualReviewReason } from '../src/domain/errors.ts'
 import { validateBundle } from '../src/domain/review.ts'
 
 /** Read exactly the pinned bytes; keep source checks ahead of OCR and inference.
@@ -23,7 +23,7 @@ export async function readDocument({
     bytes = await api.get(path, before.etag, limits.maxMiB * 1024 * 1024),
     after = await api.stat(path)
   if (after?.resourceId !== before.resourceId || after?.etag !== before.etag)
-    throw new Error('Source changed during reading')
+    throw new WorkflowError('SOURCE_CHANGED', 'Source changed during reading')
   const source = {
     server: actor.server,
     account: actor.account,
@@ -55,7 +55,10 @@ export function validatePreparedReview(input, bundle) {
   const validated = validateBundle(bundle)
   const { proposal, manualReview, ...returnedInput } = validated.bundle
   if (JSON.stringify(returnedInput) !== JSON.stringify(input))
-    throw new Error('Provider result changed source identity or extracted pages')
+    throw new WorkflowError(
+      'SOURCE_CHANGED',
+      'Provider result changed source identity or extracted pages'
+    )
   return validated
 }
 

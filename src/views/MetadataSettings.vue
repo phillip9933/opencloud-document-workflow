@@ -1,5 +1,9 @@
 <script setup lang="ts">
+import { WorkflowError } from '../domain/errors'
+
 // SPDX-License-Identifier: AGPL-3.0-only
+import MetadataFieldDefinition from '../components/MetadataFieldDefinition.vue'
+import MetadataTagDefinition from '../components/MetadataTagDefinition.vue'
 import { ref, onMounted, nextTick, onBeforeUnmount, watch, useId } from 'vue'
 import { useLocale } from '../state/locale'
 import { useWorkspace } from '../state/workspace'
@@ -75,7 +79,7 @@ async function loadUsage() {
           )
       )
     )
-      throw new Error('Counts unavailable')
+      throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'Counts unavailable')
     if (alive && generation === usageGeneration && pin === JSON.stringify(store.connection.value))
       usage.value = result
   } catch {
@@ -172,16 +176,6 @@ function confirmRemoval() {
   }
   cancelRemoval()
 }
-function split(value: string) {
-  return value
-    .split(',')
-    .map((v) => v.trim())
-    .filter(Boolean)
-}
-function setTagMatch(rule: TagRule, event: Event) {
-  if ((event.target as HTMLSelectElement).value === 'name') rule.match = 'name'
-  else delete rule.match
-}
 async function save() {
   if (busy.value) return
   busy.value = true
@@ -265,75 +259,17 @@ async function save() {
         }}
       </p>
 
-      <details
+      <MetadataFieldDefinition
         v-for="(field, i) in schema.fields"
         :key="i"
-        class="definition-card"
+        :field="field"
         :open="editingField === field"
-      >
-        <summary @click.prevent="editingField = editingField === field ? null : field">
-          <span class="definition-title">{{ field.label || field.id }}</span
-          ><span class="definition-summary">{{
-            t(
-              ({ text: 'Text', number: 'Number', date: 'Date', choice: 'Choice' } as const)[
-                field.type
-              ]
-            )
-          }}</span
-          ><span
-            class="usage-count"
-            :aria-label="usageLabel(usage?.fields[field.id])"
-            :title="usageLabel(usage?.fields[field.id])"
-            >{{ usage ? (usage.fields[field.id] ?? 0) : usageLoading ? '…' : '—' }}</span
-          >
-        </summary>
-        <div class="definition-body">
-          <div class="definition-fields">
-            <label
-              >{{ t('Stable ID') }}<input v-model="field.id" placeholder="invoice_number"
-            /></label>
-            <label>{{ t('Label') }}<input v-model="field.label" /></label>
-            <label
-              >{{ t('Type')
-              }}<select v-model="field.type">
-                <option value="text">{{ t('Text') }}</option>
-                <option value="number">{{ t('Number') }}</option>
-                <option value="date">{{ t('Date') }}</option>
-                <option value="choice">{{ t('Choice') }}</option>
-              </select></label
-            >
-            <label
-              >{{ t('Printed labels, separated by commas')
-              }}<input
-                :value="field.aliases.join(', ')"
-                @change="field.aliases = split(($event.target as HTMLInputElement).value)"
-            /></label>
-            <label v-if="field.type === 'choice'" class="definition-wide"
-              >{{ t('Choices, separated by commas')
-              }}<input
-                :value="field.choices.join(', ')"
-                @change="field.choices = split(($event.target as HTMLInputElement).value)"
-            /></label>
-          </div>
-          <p class="field-hint">
-            {{
-              t(
-                'Printed labels match text such as Invoice number: 123. Keep a field’s ID unchanged after saving document values.'
-              )
-            }}
-          </p>
-          <div class="definition-actions">
-            <button
-              type="button"
-              class="icon-button"
-              :aria-label="t('Remove field')"
-              @click="removeDefinition('field', field)"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      </details>
+        :usage-label="usageLabel(usage?.fields[field.id])"
+        :usage-count="usage ? (usage.fields[field.id] ?? 0) : usageLoading ? '…' : '—'"
+        @toggle="editingField = editingField === field ? null : field"
+        @update="Object.assign(field, $event)"
+        @remove="removeDefinition('field', field)"
+      />
     </section>
     <section
       v-show="tab === 'tags'"
@@ -353,60 +289,17 @@ async function save() {
           )
         }}
       </p>
-      <details
+      <MetadataTagDefinition
         v-for="(rule, i) in schema.tags"
         :key="i"
-        class="definition-card"
+        :rule="rule"
         :open="editingTag === rule"
-      >
-        <summary @click.prevent="editingTag = editingTag === rule ? null : rule">
-          <span class="definition-title">{{ rule.tag || t('Tag') }}</span
-          ><span class="definition-summary">{{
-            rule.terms.length
-              ? t(rule.match === 'name' ? 'Name aliases' : 'Contains text')
-              : t('Manual selection')
-          }}</span
-          ><span
-            class="usage-count"
-            :aria-label="usageLabel(usage?.tags[rule.tag])"
-            :title="usageLabel(usage?.tags[rule.tag])"
-            >{{ usage ? (usage.tags[rule.tag] ?? 0) : usageLoading ? '…' : '—' }}</span
-          ><span v-if="rule.terms.length" class="definition-preview">{{
-            rule.terms.join(', ')
-          }}</span>
-        </summary>
-        <div class="definition-body">
-          <div class="definition-fields">
-            <label>{{ t('Tag') }}<input v-model="rule.tag" /></label>
-            <label
-              >{{ t('Matching')
-              }}<select :value="rule.match ?? 'substring'" @change="setTagMatch(rule, $event)">
-                <option value="substring">{{ t('Contains text') }}</option>
-                <option value="name">{{ t('Name aliases') }}</option></select
-              ><small v-if="rule.match === 'name'">{{
-                t('Name aliases ignore letter case and character width.')
-              }}</small></label
-            >
-            <label class="definition-wide"
-              >{{ t('Matching terms, separated by commas (optional)')
-              }}<input
-                :value="rule.terms.join(', ')"
-                aria-describedby="saved-tags-help"
-                @change="rule.terms = split(($event.target as HTMLInputElement).value)"
-            /></label>
-          </div>
-          <div class="definition-actions">
-            <button
-              type="button"
-              class="icon-button"
-              :aria-label="t('Remove tag')"
-              @click="removeDefinition('tag', rule)"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      </details>
+        :usage-label="usageLabel(usage?.tags[rule.tag])"
+        :usage-count="usage ? (usage.tags[rule.tag] ?? 0) : usageLoading ? '…' : '—'"
+        @toggle="editingTag = editingTag === rule ? null : rule"
+        @update="Object.assign(rule, $event)"
+        @remove="removeDefinition('tag', rule)"
+      />
     </section>
   </fieldset>
   <button type="button" class="button primary" :disabled="busy || checkingRemoval" @click="save">
@@ -481,7 +374,6 @@ async function save() {
   border-color: var(--danger-ink);
   background: var(--danger-bg);
 }
-
 .metadata-panel {
   padding: 24px;
   margin-bottom: 22px;
@@ -529,144 +421,19 @@ async function save() {
 .metadata-heading .button {
   flex: none;
 }
-.metadata-panel .definition-card summary {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) auto 32px;
-  gap: 6px 10px;
-  align-items: baseline;
-  cursor: pointer;
-  padding: 14px 16px;
-  list-style: none;
-  color: var(--ink);
-}
-.metadata-panel .definition-card summary::-webkit-details-marker {
-  display: none;
-}
-.metadata-panel .definition-card summary:before {
-  content: '›';
-  grid-column: 1;
-  grid-row: 1;
-  align-self: center;
-}
-.metadata-panel .definition-card[open] > summary:before {
-  transform: rotate(90deg);
-}
-.definition-title {
-  grid-column: 2;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
 .usage-help {
   font-size: 12px;
   color: var(--muted);
   margin: -8px 0 20px;
-}
-.usage-count {
-  grid-column: 4;
-  font-size: 12px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-.definition-summary {
-  grid-column: 3;
-  font-size: 12px;
-  color: var(--muted);
-}
-.definition-preview {
-  grid-column: 2/-1;
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.metadata-panel .definition-body {
-  position: relative;
-  padding: 16px 64px 16px 16px;
-  border-top: 1px solid var(--line);
 }
 .metadata-panel > .section-description {
   font-size: 13px;
   max-width: 780px;
   margin: 8px 0 20px;
 }
-.field-hint {
-  font-size: 12px;
-  color: var(--muted);
-  margin: 12px 0 0;
-  max-width: 780px;
-}
-.metadata-panel .definition-card {
-  margin: 10px 0;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-.metadata-panel .definition-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  gap: 16px;
-  min-width: 0;
-}
-.metadata-panel .definition-fields > label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  margin: 0;
-  font-size: 13px;
-}
-.metadata-panel .definition-fields input,
-.metadata-panel .definition-fields select {
-  width: 100%;
-  min-width: 0;
-}
-.metadata-panel .definition-fields small {
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.5;
-}
-.metadata-panel .definition-wide {
-  grid-column: 1/-1;
-}
-.metadata-panel .definition-actions {
-  position: absolute;
-  right: 16px;
-  top: 16px;
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-end;
-}
-.metadata-panel .definition-actions > .icon-button {
-  align-self: flex-start;
-  flex: none;
-  margin: 0;
-}
 @media (max-width: 700px) {
   .metadata-panel {
     padding: 20px;
-  }
-  .metadata-panel .definition-fields {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .metadata-panel .definition-card {
-    gap: 12px;
-  }
-  .metadata-panel .definition-card summary {
-    grid-template-columns: 14px minmax(0, 1fr) 32px;
-  }
-  .definition-summary {
-    grid-column: 2;
-    grid-row: 2;
-  }
-  .usage-count {
-    grid-column: 3;
-    grid-row: 1;
-  }
-  .definition-preview {
-    grid-column: 2/-1;
   }
 }
 </style>

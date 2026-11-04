@@ -6,9 +6,10 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { backup } from 'node:sqlite'
+import { createLogger } from '../../companion/logging.mjs'
 import { BackupManager, verifySnapshot, restoreSnapshot } from '../../companion/backups.mjs'
 import { ProposalJournal } from '../../companion/journal.mjs'
-import { Workflow } from '../../companion/workflow.mjs'
+import { Workflow } from './helpers/workflow.mjs'
 import { Metadata } from '../../companion/metadata.mjs'
 import { Intake, defaultIntake } from '../../companion/intake.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
@@ -20,7 +21,7 @@ async function fixture() {
     backups = join(directory, 'backups'),
     journal = new ProposalJournal(database),
     workflow = new Workflow(journal),
-    metadata = new Metadata(workflow),
+    metadata = (workflow.metadata = new Metadata(workflow)),
     intake = new Intake(workflow),
     api = new DemoAdapter(journal.db)
   api.seed()
@@ -115,10 +116,12 @@ test('concurrent timers serialize and capacity holds retain every prior snapshot
 })
 
 test('storage errors hold safely without inventing a successful backup or exposing a private error body', async () => {
+  const lines = []
   const f = await fixture(),
     manager = new BackupManager({
       database: f.database,
       directory: f.backups,
+      logger: createLogger((line) => lines.push(line)),
       copy: async () => {
         throw new Error('private-path-and-secret ENOSPC')
       }
@@ -128,6 +131,8 @@ test('storage errors hold safely without inventing a successful backup or exposi
     assert.equal(manager.status().lastSuccess, null)
     assert.equal(manager.status().reason, 'backup_unavailable')
     assert.equal(JSON.stringify(manager.status()).includes('private-path'), false)
+    assert.equal(JSON.parse(lines[0]).event, 'backup_failed')
+    assert.doesNotMatch(lines.join(''), /private-path-and-secret/)
     assert.equal(
       f.journal.db.prepare('select count(*) n from demo_files where folder=0').get().n,
       3
@@ -239,7 +244,7 @@ test('a restore drill preserves approval, fields and original bytes, pauses inge
     const w = new Workflow(restored),
       api = new DemoAdapter(restored.db),
       intake = new Intake(w),
-      metadata = new Metadata(w)
+      metadata = (w.metadata = new Metadata(w))
     assert.deepEqual(w.decision(f.actor, prepared.id), before)
     assert.equal(intake.configuration(f.actor).enabled, false)
     assert.equal(f.intake.configuration(f.actor).enabled, true)
@@ -571,5 +576,178 @@ test('backup sessions prefer the verified background adapter across browser poll
   } finally {
     await manager.stop()
     await f.close()
+  }
+})
+
+for (const host of ['same', 'old-container']) {
+  test(`backup recovers a legacy lock with ${host} hostname and reused PID`, async () => {
+    const f = await fixture()
+    const { hostname } = await import('node:os')
+    const manager = new BackupManager({ database: f.database, directory: f.backups })
+    try {
+      await mkdir(f.backups, { mode: 0o700 })
+      await writeFile(
+        join(f.backups, '.backup-lock'),
+        JSON.stringify({ host: host === 'same' ? hostname() : host, pid: process.pid }),
+        { mode: 0o600 }
+      )
+      assert.ok(await manager.tick())
+      assert.equal(manager.status().state, 'ready')
+    } finally {
+      await manager.stop()
+      await f.close()
+    }
+  })
+}
+
+test('failed local copies are removed and abandoned stages do not exhaust capacity on restart', async () => {
+  const f = await fixture()
+  const manager = new BackupManager({
+    database: f.database,
+    directory: f.backups,
+    maxSnapshots: 1,
+    copy: async (_db, path) => {
+      await writeFile(path, 'incomplete')
+      throw Error('synthetic disk failure')
+    }
+  })
+  let restarted
+  try {
+    for (let i = 0; i < 3; i++) {
+      assert.equal(await manager.tick({ force: true }), null)
+      assert.equal(
+        (await readdir(f.backups)).filter((n) => n.startsWith('.pending-snapshot-')).length,
+        0
+      )
+    }
+    await manager.stop()
+    const orphan = join(f.backups, '.pending-snapshot-00000000-0000-4000-8000-000000000000')
+    await mkdir(orphan, { mode: 0o700 })
+    await writeFile(join(orphan, 'database.sqlite3'), 'abandoned', { mode: 0o600 })
+    restarted = new BackupManager({ database: f.database, directory: f.backups, maxSnapshots: 1 })
+    assert.ok(await restarted.tick())
+    assert.equal(
+      (await readdir(f.backups)).filter((n) => n.startsWith('.pending-snapshot-')).length,
+      0
+    )
+  } finally {
+    await manager.stop()
+    await restarted?.stop()
+    await f.close()
+  }
+})
+
+test('SIGKILL releases backup ownership and a restart removes its orphan without touching saved snapshots', async () => {
+  const { spawn } = await import('node:child_process')
+  const { once } = await import('node:events')
+  const f = await fixture()
+  const manager = new BackupManager({ database: f.database, directory: f.backups })
+  const first = await manager.tick()
+  await manager.stop()
+  const url = new URL('../../companion/backups.mjs', import.meta.url).href
+  const child = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+    import {BackupManager} from ${JSON.stringify(url)};
+    const m = new BackupManager({database:process.argv[1],directory:process.argv[2],copy:async()=>{
+      process.send('copying'); await new Promise(()=>{});
+    }});
+    setInterval(()=>{},1000); await m.tick({force:true});
+  `,
+      f.database,
+      f.backups
+    ],
+    { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] }
+  )
+  let restarted
+  try {
+    await new Promise((resolve, reject) => {
+      child.once('message', resolve)
+      child.once('error', reject)
+      child.once('exit', (code) => reject(Error('Backup fixture exited ' + code)))
+    })
+    const competitor = new BackupManager({ database: f.database, directory: f.backups })
+    try {
+      assert.equal(await competitor.tick({ force: true }), null)
+      assert.equal(competitor.status().reason, 'backup_busy')
+      assert.equal(
+        (await readdir(f.backups)).filter((n) => n.startsWith('.pending-snapshot-')).length,
+        1
+      )
+    } finally {
+      await competitor.stop()
+    }
+    const exited = once(child, 'exit')
+    child.kill('SIGKILL')
+    await exited
+    restarted = new BackupManager({ database: f.database, directory: f.backups })
+    assert.ok(await restarted.tick({ force: true }))
+    assert.equal(
+      (await readdir(f.backups)).filter((n) => n.startsWith('.pending-snapshot-')).length,
+      0
+    )
+    assert.equal((await verifySnapshot(first.directory)).sha256, first.sha256)
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, 'exit')
+      child.kill('SIGKILL')
+      await exited
+    }
+    await restarted?.stop()
+    await f.close()
+  }
+})
+
+test('malformed upload intents preserve pending data and symlinked stages never delete outside files', async () => {
+  const f = await fixture()
+  const manager = new BackupManager({ database: f.database, directory: f.backups })
+  try {
+    await mkdir(f.backups, { mode: 0o700 })
+    const stage = join(f.backups, '.pending-snapshot-00000000-0000-4000-8000-000000000000')
+    await mkdir(stage, { mode: 0o700 })
+    const file = join(stage, 'database.sqlite3')
+    await writeFile(file, 'retain', { mode: 0o600 })
+    await writeFile(join(f.backups, 'backup-upload.json'), '{broken', { mode: 0o600 })
+    assert.equal(await manager.tick({ force: true }), null)
+    assert.equal(await readFile(file, 'utf8'), 'retain')
+    await rm(join(f.backups, 'backup-upload.json'))
+    await rm(stage, { recursive: true })
+    const outside = join(f.directory, 'outside')
+    await mkdir(outside, { mode: 0o700 })
+    await writeFile(join(outside, 'keep'), 'keep')
+    await symlink(outside, stage)
+    assert.equal(await manager.tick({ force: true }), null)
+    assert.equal(await readFile(join(outside, 'keep'), 'utf8'), 'keep')
+  } finally {
+    await manager.stop()
+    await f.close()
+  }
+})
+
+test('malformed backup destinations and numeric settings are typed validation failures', async () => {
+  const { validateBackupSettings } = await import('../../companion/backups.mjs')
+  const settings = { enabled: true, intervalMinutes: 60, maxSnapshots: 4, maxMiB: 100 }
+  for (const server of [
+    'not a URL',
+    'https://',
+    'http://example.invalid',
+    'https://example.invalid/path'
+  ]) {
+    assert.throws(
+      () =>
+        validateBackupSettings({
+          ...settings,
+          destination: { server, account: 'synthetic', space: 'space', folder: 'Backups' }
+        }),
+      { code: 'VALIDATION_INVALID' }
+    )
+  }
+  for (const field of ['intervalMinutes', 'maxSnapshots', 'maxMiB']) {
+    assert.throws(() => validateBackupSettings({ ...settings, [field]: '60' }), {
+      code: 'VALIDATION_INVALID'
+    })
   }
 })
