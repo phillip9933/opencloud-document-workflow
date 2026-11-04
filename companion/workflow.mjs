@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { withTransaction } from './transactions.mjs'
 import { applyFiling } from './filing.mjs'
-import { defaultLimits, validateLimits } from './configuration.mjs'
+import { readDocument } from './preparation.mjs'
 import { tagCatalog } from '../src/domain/tag-discovery.ts'
 import { createHash, randomUUID } from 'node:crypto'
 import { pageOptions, pageCursor } from './pagination.mjs'
 import { hostname } from 'node:os'
-import { extractPDFBytes } from './extract.mjs'
-import { ocrPages, ocrCandidatePages } from './ocr.mjs'
 import { processingIssue, preparationIssue } from './processing-issues.mjs'
 import { preparationReview } from '../src/domain/preparation.ts'
 import { validateAIConfig } from '../src/domain/ai.ts'
@@ -273,36 +271,21 @@ export class Workflow {
           owner
         )
       progress('reading')
-      const settings = this.configuration?.settings(actor),
-        limits = validateLimits(settings?.limits ?? defaultLimits()),
-        bytes = await api.get(path, before.etag, limits.maxMiB * 1024 * 1024),
-        after = await api.stat(path)
-      if (after?.resourceId !== before.resourceId || after?.etag !== before.etag)
-        throw new Error('Source changed during reading')
-      const source = {
-        server: actor.server,
-        account: actor.account,
-        space: api.space ?? actor.space,
-        resourceId: before.resourceId,
+      const settings = this.configuration?.settings(actor)
+      const { source, input, ocrAttempted } = await readDocument({
+        actor,
+        api,
         path,
-        etag: before.etag,
-        sha256: sha(bytes)
-      }
-      const input = await extractPDFBytes(bytes, source, limits)
-      let ocrAttempted = false
-      const ocrIndices =
-        configuration.policy.ocr !== 'off' ? await ocrCandidatePages(bytes, input.pages) : []
-      if (ocrIndices.length) {
-        ocrAttempted = true
-        progress('ocr')
-        input.pages = await ocrPages(bytes, input.pages, configuration.ocrLanguages ?? [], limits, {
-          indices: ocrIndices
-        })
-        this.event(actor, null, 'ocr_extracted', {
-          resourceId: source.resourceId,
-          languages: configuration.ocrLanguages
-        })
-      }
+        before,
+        configuration,
+        limits: settings?.limits,
+        progress,
+        onOCR: (source) =>
+          this.event(actor, null, 'ocr_extracted', {
+            resourceId: source.resourceId,
+            languages: configuration.ocrLanguages
+          })
+      })
       if (settings) {
         input.rules = settings.rules
         const targetSpace = this.configuration.destinationSpace(actor)
@@ -326,44 +309,7 @@ export class Workflow {
         }
       }
       if (newReview) {
-        const resource =
-          this.transfers?.canonical(actor, source.resourceId, source.space) ?? source.resourceId
-        const aliases = this.transfers
-          ? this.db
-              .prepare('select resource from resource_aliases where scope=? and canonical=?')
-              .all(this.scope(actor), resource)
-              .map((row) => row.resource)
-          : []
-        const resources = JSON.stringify([...new Set([resource, source.resourceId, ...aliases])])
-        const pending = this.db
-          .prepare(
-            "select d.state from proposals p left join decisions d on d.job=p.id where p.scope=? and json_extract(p.input,'$.source.resourceId') in (select value from json_each(?)) and (p.state='running' or (d.state is not null and d.state not in ('done','rejected','conflict'))) limit 1"
-          )
-          .get(this.scope(actor), resources)
-        if (pending)
-          throw new Error(
-            'Finish or verify the existing operation before reprocessing this document'
-          )
-        if (
-          this.automation &&
-          this.db
-            .prepare(
-              "select 1 from proposals p join automatic_runs a on a.job=p.id where p.scope=? and json_extract(p.input,'$.source.resourceId') in (select value from json_each(?)) and a.state in ('pending','running') limit 1"
-            )
-            .get(this.scope(actor), resources)
-        )
-          throw new Error(
-            'Finish or verify the existing operation before reprocessing this document'
-          )
-        if (
-          this.metadata &&
-          this.db
-            .prepare(
-              "select 1 from metadata_changes where scope=? and resource=? and state='intent' limit 1"
-            )
-            .get(this.scope(actor), this.metadata.key(actor, source.resourceId))
-        )
-          throw new Error('Verify the pending metadata change before reprocessing this document')
+        this.assertReprocessable(actor, source)
         configuration = { ...configuration, reviewRevision: randomUUID() }
       }
       if (!configuration.rulesOnly) progress('analysing')
@@ -415,6 +361,42 @@ export class Workflow {
       releaseResource?.()
       release()
     }
+  }
+  assertReprocessable(actor, source) {
+    const resource =
+      this.transfers?.canonical(actor, source.resourceId, source.space) ?? source.resourceId
+    const aliases = this.transfers
+      ? this.db
+          .prepare('select resource from resource_aliases where scope=? and canonical=?')
+          .all(this.scope(actor), resource)
+          .map((row) => row.resource)
+      : []
+    const resources = JSON.stringify([...new Set([resource, source.resourceId, ...aliases])])
+    const pending = this.db
+      .prepare(
+        "select d.state from proposals p left join decisions d on d.job=p.id where p.scope=? and json_extract(p.input,'$.source.resourceId') in (select value from json_each(?)) and (p.state='running' or (d.state is not null and d.state not in ('done','rejected','conflict'))) limit 1"
+      )
+      .get(this.scope(actor), resources)
+    if (pending)
+      throw new Error('Finish or verify the existing operation before reprocessing this document')
+    if (
+      this.automation &&
+      this.db
+        .prepare(
+          "select 1 from proposals p join automatic_runs a on a.job=p.id where p.scope=? and json_extract(p.input,'$.source.resourceId') in (select value from json_each(?)) and a.state in ('pending','running') limit 1"
+        )
+        .get(this.scope(actor), resources)
+    )
+      throw new Error('Finish or verify the existing operation before reprocessing this document')
+    if (
+      this.metadata &&
+      this.db
+        .prepare(
+          "select 1 from metadata_changes where scope=? and resource=? and state='intent' limit 1"
+        )
+        .get(this.scope(actor), this.metadata.key(actor, source.resourceId))
+    )
+      throw new Error('Verify the pending metadata change before reprocessing this document')
   }
   async prepareOriginal(actor, api, { path, resourceId, etag }) {
     safePath(path)

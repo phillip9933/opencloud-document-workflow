@@ -456,3 +456,47 @@ test('semantic tag schema reuses the complete authenticated directory or permits
   i.tagDiscovery = { mode: 'existing', catalog: [] }
   assert.equal(schemaFor(i).properties.tags.maxItems, 0)
 })
+
+test('invalid explicit planner never falls through to a network provider', async () => {
+  const s = setup(),
+    originalFetch = globalThis.fetch
+  let requests = 0
+  globalThis.fetch = async () => {
+    requests++
+    throw new Error('unexpected network call')
+  }
+  try {
+    await assert.rejects(s.j.prepare(input(), config, { planner: false }), /not a function/)
+    assert.equal(requests, 0)
+  } finally {
+    globalThis.fetch = originalFetch
+    s.j.close()
+    rmSync(s.dir, { recursive: true })
+  }
+})
+
+test('non-Error provider failures persist a failed attempt and release ownership', async () => {
+  const s = setup()
+  try {
+    for (const value of [null, undefined, 'synthetic failure']) {
+      await assert.rejects(
+        s.j.prepare(input(), config, {
+          retry: true,
+          manualFallback: true,
+          planner: async () => {
+            throw value
+          }
+        }),
+        (error) => error === value
+      )
+      const row = s.j.db.prepare('SELECT state,owner,result FROM proposals').get()
+      assert.equal(row.state, 'failed')
+      assert.equal(row.owner, null)
+      assert.equal(row.result, null)
+      assert.equal(s.j.runtime.proposals.size, 0)
+    }
+  } finally {
+    s.j.close()
+    rmSync(s.dir, { recursive: true })
+  }
+})

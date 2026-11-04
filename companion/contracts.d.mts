@@ -86,3 +86,18 @@ export interface LocationOwner extends ConfigurationOwner {
   locations?: import('./locations.mjs').FiledLocations
   transfers: { adapter(actor: Actor, api: FileReader, space: string): Promise<FileReader> }
 }
+
+export interface DocumentReader extends FileReader {
+  space?: string
+  get(path: string, etag?: string, limit?: number): Promise<Buffer>
+}
+export interface DocumentReadOptions {
+  actor: Actor
+  api: DocumentReader
+  path: string
+  before: FileEntry
+  configuration: { policy: import('../src/domain/review.ts').Policy; ocrLanguages?: string[] }
+  limits?: ProcessingLimits
+  progress(stage: 'ocr'): void
+  onOCR(source: import('../src/domain/review.ts').Source): void
+}

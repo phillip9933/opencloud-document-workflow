@@ -28,7 +28,8 @@
     "companion/filing.mjs",
     "companion/locations.mjs",
     "companion/transactions.mjs",
-    "tests/types/companion.ts"
+    "tests/types/companion.ts",
+    "companion/preparation.mjs"
   ],
   "exclude": [
     "node_modules",
