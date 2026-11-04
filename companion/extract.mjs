@@ -3,6 +3,11 @@ import { createReadStream } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { defaultLimits, validateLimits } from './configuration.mjs'
 import { validateDocumentInput } from '../src/domain/review.ts'
+/**
+ * @param {string} path
+ * @param {Omit<import('../src/domain/review.ts').Source,'sha256'> & {sha256?:string}} source
+ * @param {import('./contracts.d.mts').ProcessingLimits} [limits]
+ */
 export async function extractPDF(path, source, limits = defaultLimits()) {
   limits = validateLimits(limits)
   const chunks = []
@@ -16,6 +21,11 @@ export async function extractPDF(path, source, limits = defaultLimits()) {
   const data = Buffer.concat(chunks)
   return extractPDFBytes(data, source, limits)
 }
+/**
+ * @param {Buffer} data
+ * @param {Omit<import('../src/domain/review.ts').Source,'sha256'> & {sha256?:string}} source
+ * @param {import('./contracts.d.mts').ProcessingLimits} [limits]
+ */
 export async function extractPDFBytes(data, source, limits = defaultLimits()) {
   limits = validateLimits(limits)
   if (
@@ -25,40 +35,46 @@ export async function extractPDFBytes(data, source, limits = defaultLimits()) {
     throw new Error('Expected a PDF within the configured processing size')
   // Feed exactly the bytes hashed, not a path that could change between reads.
   const { spawn } = await import('node:child_process')
-  const text = await new Promise((resolve, reject) => {
-    const child = spawn('pdftotext', ['-layout', '-', '-'], { stdio: ['pipe', 'pipe', 'pipe'] })
-    const chunks = []
-    let bytes = 0,
-      settled = false
-    const finish = (error, result) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      error ? reject(error) : resolve(result)
-    }
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL')
-      finish(new Error('PDF extraction timed out'))
-    }, 30_000)
-    child.on('error', () => finish(new Error('Poppler pdftotext is required')))
-    child.stdout.on('data', (chunk) => {
-      bytes += chunk.length
-      if (bytes > limits.maxCharacters * 4) {
+  const text = await new Promise(
+    /** @param {(value:string)=>void} resolve */ (resolve, reject) => {
+      const child = spawn('pdftotext', ['-layout', '-', '-'], { stdio: ['pipe', 'pipe', 'pipe'] })
+      /** @type {Buffer[]} */
+      const chunks = []
+      let bytes = 0,
+        settled = false
+      /** @param {Error|null} error @param {string} [result] */
+      const finish = (error, result) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        if (error) reject(error)
+        else if (result !== undefined) resolve(result)
+        else reject(new Error('Extraction returned no result'))
+      }
+      const timer = setTimeout(() => {
         child.kill('SIGKILL')
-        finish(new Error('PDF extracted text exceeds limit'))
-      } else chunks.push(chunk)
-    })
-    child.stderr.resume()
-    child.stdin.on('error', () => {})
-    child.on('close', (code) =>
-      code === 0
-        ? finish(null, Buffer.concat(chunks).toString('utf8'))
-        : finish(new Error('PDF extraction failed'))
-    )
-    child.stdin.end(data)
-  })
+        finish(new Error('PDF extraction timed out'))
+      }, 30_000)
+      child.on('error', () => finish(new Error('Poppler pdftotext is required')))
+      child.stdout.on('data', (chunk) => {
+        bytes += chunk.length
+        if (bytes > limits.maxCharacters * 4) {
+          child.kill('SIGKILL')
+          finish(new Error('PDF extracted text exceeds limit'))
+        } else chunks.push(chunk)
+      })
+      child.stderr.resume()
+      child.stdin.on('error', () => {})
+      child.on('close', (code) =>
+        code === 0
+          ? finish(null, Buffer.concat(chunks).toString('utf8'))
+          : finish(new Error('PDF extraction failed'))
+      )
+      child.stdin.end(data)
+    }
+  )
   const pages = text.split('\f')
-  if (pages.length && !pages.at(-1).trim()) pages.pop()
+  if (pages.length && !pages.at(-1)?.trim()) pages.pop()
   if (
     pages.length > limits.maxPages ||
     pages.reduce((n, p) => n + p.length, 0) > limits.maxCharacters

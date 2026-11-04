@@ -4,17 +4,22 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, writeFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+/** @param {string} command @param {string[]} args @param {{limit?:number,timeout?:number}} [options] @returns {Promise<string>} */
 export function runOCRTool(command, args, { limit = 240000, timeout = 30000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] }),
-      chunks = []
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    /** @type {Buffer[]} */
+    const chunks = []
     let total = 0,
       done = false
+    /** @param {Error|null} error @param {string} [result] */
     const finish = (error, result) => {
       if (done) return
       done = true
       clearTimeout(timer)
-      error ? reject(error) : resolve(result)
+      if (error) reject(error)
+      else if (result !== undefined) resolve(result)
+      else reject(new Error('OCR returned no result'))
     }
     const timer = setTimeout(() => {
       child.kill('SIGKILL')
@@ -46,6 +51,7 @@ export async function ocrLanguages() {
 }
 // Short embedded text can be a watermark or variable certificate fields over
 // a scanned page. Read large page images too, without OCRing short text PDFs.
+/** @param {Buffer} bytes @param {string[]} pages */
 export async function ocrCandidatePages(bytes, pages) {
   const blank = pages.flatMap((page, index) => (!page.trim() ? [index] : [])),
     sparse = pages.flatMap((page, index) =>
@@ -58,7 +64,7 @@ export async function ocrCandidatePages(bytes, pages) {
     await writeFile(path, bytes, { mode: 0o600 })
     const sizes = await runOCRTool('pdfinfo', ['-f', '1', '-l', String(pages.length), path]),
       images = await runOCRTool('pdfimages', ['-list', path]),
-      areas = new Map()
+      areas = /** @type {Map<number,number>} */ (new Map())
     for (const line of sizes.split(/\r?\n/)) {
       const match = /^Page\s+(\d+)\s+size:\s+([0-9.]+) x ([0-9.]+) pts/.exec(line)
       if (match) areas.set(Number(match[1]) - 1, Number(match[2]) * Number(match[3]))
@@ -75,6 +81,7 @@ export async function ocrCandidatePages(bytes, pages) {
         area = areas.get(index)
       if (
         sparse.includes(index) &&
+        area !== undefined &&
         area > 0 &&
         xppi > 0 &&
         yppi > 0 &&
@@ -87,6 +94,13 @@ export async function ocrCandidatePages(bytes, pages) {
     await rm(dir, { recursive: true, force: true })
   }
 }
+/**
+ * @param {Buffer} bytes
+ * @param {string[]} pages
+ * @param {string[]} languages
+ * @param {import('./contracts.d.mts').ProcessingLimits} [limits]
+ * @param {{indices?: number[]}} [options]
+ */
 export async function ocrPages(
   bytes,
   pages,

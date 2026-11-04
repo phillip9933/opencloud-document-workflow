@@ -113,7 +113,7 @@ export function languageProfile(packs: LanguagePack[]): LanguageProfile {
   }
   return { packs: JSON.parse(JSON.stringify(packs)) as LanguagePack[] }
 }
-export const defaultLanguageProfile = languageProfile(catalog as LanguagePack[])
+export const defaultLanguageProfile = languageProfile(catalog as unknown as LanguagePack[])
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const dateLiteral = (s: string, profile: LanguageProfile) =>
   escape(normalize(s, profile)).replace(/\s+/gu, '\\s+')

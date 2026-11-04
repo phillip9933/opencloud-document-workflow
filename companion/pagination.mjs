@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+/** @param {{limit?:number,cursor?:unknown}} [options] @param {'time'|'number'} [kind] */
 export function pageOptions({ limit = 100, cursor } = {}, kind = 'time') {
   if (!Number.isInteger(limit) || limit < 1 || limit > 200)
     throw new Error('Choose a page size between 1 and 200')
@@ -24,5 +25,6 @@ export function pageOptions({ limit = 100, cursor } = {}, kind = 'time') {
   }
   return { limit, after }
 }
+/** @param {string|number} time @param {string} id */
 export const pageCursor = (time, id) =>
   Buffer.from(JSON.stringify({ time, id })).toString('base64url')

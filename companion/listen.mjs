@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+/** @param {NodeJS.ProcessEnv} environment @param {'demo'|'live'} mode */
 export function listenAddress(environment, mode) {
   const address = environment.WORKFLOW_LISTEN_ADDRESS || '127.0.0.1'
   if (!['127.0.0.1', '::1', '0.0.0.0'].includes(address))

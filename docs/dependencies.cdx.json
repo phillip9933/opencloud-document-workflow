@@ -3476,6 +3476,32 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:npm/@types/node@22.20.5",
+      "name": "@types/node",
+      "version": "22.20.5",
+      "purl": "pkg:npm/@types/node@22.20.5",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "234e64edc31580d6052f8abc89b96f156de29d3b4c7121214b960dec09bd2a25"
+        }
+      ],
+      "properties": [
+        {
+          "name": "document-workflow:inventory-role",
+          "value": "development-or-host-shared-runtime"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:npm/@types/node@26.6.6",
       "name": "@types/node",
       "version": "26.6.6",
@@ -12525,6 +12551,32 @@
         {
           "alg": "SHA-256",
           "content": "4ef029b2bde70c3007f3520d3d4ba14b754e4e8c4defa8d58a8e53434ebdf028"
+        }
+      ],
+      "properties": [
+        {
+          "name": "document-workflow:inventory-role",
+          "value": "development-or-host-shared-runtime"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/undici-types@6.21.0",
+      "name": "undici-types",
+      "version": "6.21.0",
+      "purl": "pkg:npm/undici-types@6.21.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "11f873b423b96a5ad444a099685ca6b9de1379dcd83fd8d368e757ddb53658e4"
         }
       ],
       "properties": [

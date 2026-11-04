@@ -40,6 +40,10 @@ Identical-byte duplicate handling is scoped to the authenticated workflow. Recov
 
 `companion/migrations.mjs` owns all persistent production tables, indexes and append-only activity triggers. `ProposalJournal` obtains process ownership before applying migrations and before recovering interrupted reads. Version 1 adopts the released unversioned schema, adds the known historical missing columns, checks the resulting shape and sets SQLite `user_version` in one transaction. Failed upgrades roll back schema changes; newer versions and altered stamped schemas stop startup. Existing records, approvals, fields, tags and uncertain write intents are retained. Demo-only file tables remain isolated in the demo adapter. Backups keep the schema version through SQLite backup/restore. Future changes must append a new numbered migration rather than editing the version-1 baseline.
 
+## Backend contracts
+
+`companion/contracts.d.mts` defines the authenticated actor, processing limits, configuration dependency and logging contracts. The strict `check:companion` target checks ten backend modules against Node 22 types; the remaining orchestration, storage and provider modules are not yet claimed as type-checked. Configuration reads validate stored limits before use. Preparation always passes a validated finite byte limit to the source adapter, including when a standalone workflow has no settings service.
+
 ## Operational logging
 
 The companion emits one JSON record per failure to stderr. Records contain a timestamp, a fixed event name, a bounded error type/code/status and companion source file/line locations. Raw exception messages, full stacks, URLs, document paths/content, account identities and tokens are excluded. API failures after a sent response are logged without sending another response; partial responses close their connection. Unexpected intake-loop failures mark attached scopes as held, with server logs as the fallback if the journal cannot be written. A subsequent successful scan clears the hold. Logs do not authorize retries or replay uncertain writes.

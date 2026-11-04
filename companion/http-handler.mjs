@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { logEvent } from './logging.mjs'
 
+/**
+ * @param {(request: import('node:http').IncomingMessage, response: import('node:http').ServerResponse) => unknown | Promise<unknown>} handler
+ * @param {import('./contracts.d.mts').Logger} [logger]
+ * @returns {(request: import('node:http').IncomingMessage, response: import('node:http').ServerResponse) => Promise<void>}
+ */
 export function handleRequest(handler, logger = logEvent) {
   return async (request, response) => {
     try {

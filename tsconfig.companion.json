@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "companion/runtime-owner.mjs",
+    "companion/migrations.mjs",
+    "companion/logging.mjs",
+    "companion/http-handler.mjs",
+    "companion/configuration.mjs",
+    "companion/pagination.mjs",
+    "companion/extract.mjs",
+    "companion/ocr.mjs",
+    "companion/health.mjs",
+    "companion/listen.mjs",
+    "companion/contracts.d.mts"
+  ],
+  "exclude": [
+    "node_modules",
+    "companion/state"
+  ]
+}

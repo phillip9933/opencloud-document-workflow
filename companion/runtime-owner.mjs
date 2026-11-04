@@ -6,8 +6,10 @@ import { chmodSync, realpathSync } from 'node:fs'
 // after SIGKILL; PID reuse and container hostnames cannot impersonate its owner.
 // Keep the sidecar beside the journal on the same private local volume. Never
 // unlink it while a companion is running. It contains no document/credential data.
+/** @type {Map<string, {guard: DatabaseSync, references: number, locks: Set<string>, proposals: Set<string>, preparations: Set<string>}>} */
 const runtimes = new Map()
 
+/** @param {string} database */
 export function acquireRuntime(database) {
   const key = realpathSync(database)
   let runtime = runtimes.get(key)

@@ -22,7 +22,8 @@
     "test:packaging": "node --test --experimental-test-isolation=none --test-reporter=spec tests/packaging/*.test.mjs",
     "format": "prettier --write \"{companion,src,preview,tests,deploy/installer}/**/*.{mjs,ts,vue,css}\" \"*.{mjs,ts}\"",
     "format:check": "prettier --check \"{companion,src,preview,tests,deploy/installer}/**/*.{mjs,ts,vue,css}\" \"*.{mjs,ts}\"",
-    "lint": "eslint companion src preview tests deploy/installer *.mjs *.ts --max-warnings 0"
+    "lint": "eslint companion src preview tests deploy/installer *.mjs *.ts --max-warnings 0",
+    "check:companion": "tsc -p tsconfig.companion.json"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -31,6 +32,7 @@
     "@opencloud-eu/tsconfig": "8.2.1",
     "@opencloud-eu/web-client": "8.2.1",
     "@opencloud-eu/web-pkg": "8.2.1",
+    "@types/node": "22.20.5",
     "@vitejs/plugin-vue": "6.0.5",
     "@vue/test-utils": "2.5.1",
     "eslint": "10.14.0",
