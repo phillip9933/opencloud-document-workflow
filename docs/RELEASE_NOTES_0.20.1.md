@@ -1,6 +1,6 @@
 # 0.20.1 beta — reliability and maintainability
 
-Unpublished candidate. This patch fixes recovery after an unclean companion stop,
+This patch fixes recovery after an unclean companion stop,
 avoids consuming intake retries when the preparation lock is busy, and prevents a
 late audit error from sending a second HTTP response. Regression tests cover each.
 
