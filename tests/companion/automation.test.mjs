@@ -1,3 +1,4 @@
+import { WorkflowError } from '../../src/domain/errors.ts'
 // SPDX-License-Identifier: AGPL-3.0-only
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -375,7 +376,7 @@ test('automatic mode leaves unverified details for a human without filling field
       ProposalJournal.prototype.prepare.call(s.j, input, configuration, {
         ...options,
         planner: async () => {
-          throw Error('Fact is not present in its evidence')
+          throw new WorkflowError('FACT_NOT_LITERAL', 'Fact is not present in its evidence')
         }
       })
     await s.arrivals()

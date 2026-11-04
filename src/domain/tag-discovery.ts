@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from './errors.ts'
 export type TagDiscoveryMode = 'off' | 'existing' | 'create'
 export interface TagDiscovery {
   mode: Exclude<TagDiscoveryMode, 'off'>
@@ -13,7 +14,7 @@ export function tagName(value: unknown): string {
     value !== value.normalize('NFC') ||
     /[\x00-\x1f\x7f,]/.test(value)
   )
-    throw new Error('Invalid discovered tag name')
+    throw new WorkflowError('TAG_NAME_INVALID', 'Invalid discovered tag name')
   return value
 }
 export const tagKey = (value: string) =>

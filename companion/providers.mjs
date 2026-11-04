@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { createHash } from 'node:crypto'
 import {
   generateProposal,
@@ -88,7 +89,8 @@ export async function generateRouted(
     configuration.routes.tags?.provider === 'cloud' &&
     tagReviewPromptSize(checked) > (configuration.contextTokens ?? 32768)
   )
-    throw new Error(
+    throw new WorkflowError(
+      'WORKFLOW_CONTEXT_CAPACITY',
       'Document exceeds configured model context capacity; increase it in Processing settings or select a model with a larger context'
     )
   const results = new Map()

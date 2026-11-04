@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { workflowErrorCodes } from '../src/domain/errors.ts'
 import { readdirSync } from 'node:fs'
 
 const sourceFiles = new Set(
@@ -14,6 +15,7 @@ const events = new Set([
   'shutdown_failed'
 ])
 const codes = new Set([
+  ...workflowErrorCodes,
   'ERR_SQLITE_ERROR',
   'SQLITE_BUSY',
   'WORKFLOW_BUSY',

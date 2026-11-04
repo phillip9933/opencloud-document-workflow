@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { manualReviewReason } from '../src/domain/errors.ts'
 // Persist a useful, bounded diagnosis without copying provider bodies or secrets.
 export function preparationIssue(error) {
+  const reason = manualReviewReason(error)
   const text = typeof error?.message === 'string' ? error.message : '',
     result = (message, nextStep) => ({
       message,
@@ -17,6 +19,7 @@ export function preparationIssue(error) {
       'Check the AI service or try a smaller document, then retry.'
     )
   if (
+    reason === 'evidence' ||
     [
       'Missing bounded evidence',
       'Invalid evidence page',
@@ -31,6 +34,7 @@ export function preparationIssue(error) {
       'A proposed field or category did not match its cited text. Retry with another model or review the document manually.'
     )
   if (
+    reason === 'date' ||
     /^(Unsupported printed date format; add an explicit language\/date rule|Ambiguous printed date; review the date convention explicitly|Invalid calendar date)$/.test(
       text
     )
@@ -57,7 +61,10 @@ export function preparationIssue(error) {
       'The selected local AI model is not installed.',
       'Choose an installed model in Processing settings, then retry.'
     )
-  if (text.startsWith('Document exceeds configured model context capacity'))
+  if (
+    reason === 'capacity' ||
+    text.startsWith('Document exceeds configured model context capacity')
+  )
     return result(
       'The document is too large for the configured AI context.',
       'Increase the model context in Processing settings or split the PDF, then retry.'

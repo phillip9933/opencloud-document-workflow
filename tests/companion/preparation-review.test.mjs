@@ -1,3 +1,4 @@
+import { WorkflowError } from '../../src/domain/errors.ts'
 // SPDX-License-Identifier: AGPL-3.0-only
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -29,7 +30,7 @@ test('manual-review diagnostics retain verified facts without exposing raw AI or
         manualFallback: true,
         planner: async (_input, _model, _endpoint, _fetch, onResponse) => {
           onResponse({ route: { provider: 'local' }, proposal: raw })
-          throw Error('Fact is not present in its evidence')
+          throw new WorkflowError('FACT_NOT_LITERAL', 'Fact is not present in its evidence')
         }
       }
     )

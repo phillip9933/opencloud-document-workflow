@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { errorCode } from '../src/domain/errors.ts'
 import { safePath } from '../src/domain/review.ts'
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export class DocumentTrash {
@@ -170,7 +171,7 @@ export class DocumentTrash {
       try {
         locks.push(this.w.lock(`resource:${scope}:${this.key(actor, input.resourceId)}`))
       } catch (error) {
-        if (error.message === 'Operation already running')
+        if (errorCode(error) === 'WORKFLOW_BUSY')
           throw new Error('This document is busy. Wait for its current operation to finish.', {
             cause: error
           })

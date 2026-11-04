@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError, errorCode, correctableProposal } from '../src/domain/errors.ts'
 import { createHash } from 'node:crypto'
 import { filingProfile, ruleSupported } from '../src/domain/filing.ts'
 import { defaultLanguageProfile, languageInstructions } from '../src/domain/languages.ts'
@@ -76,8 +77,7 @@ export const localRequestTimeout = (pages) =>
   )
 const capacityMessage =
   'Document exceeds configured model context capacity; increase it in Processing settings or select a model with a larger context'
-const capacityError = () =>
-  Object.assign(new Error(capacityMessage), { code: 'WORKFLOW_CONTEXT_CAPACITY' })
+const capacityError = () => new WorkflowError('WORKFLOW_CONTEXT_CAPACITY', capacityMessage)
 const strictContextCache = new Map()
 function overflowDetails(value) {
   const match =
@@ -329,7 +329,8 @@ export function promptContext(input, capacity = 32768) {
     throw new Error('Invalid model context capacity')
   const pageBytes = Buffer.byteLength(JSON.stringify(input.pages))
   if (pageBytes + 5000 > capacity)
-    throw new Error(
+    throw new WorkflowError(
+      'WORKFLOW_CONTEXT_CAPACITY',
       'Document exceeds configured model context capacity; increase it in Processing settings or select a model with a larger context'
     )
   const base =
@@ -338,12 +339,14 @@ export function promptContext(input, capacity = 32768) {
     Buffer.byteLength(JSON.stringify(schemaFor(input))) +
     5000
   if (base > capacity)
-    throw new Error(
+    throw new WorkflowError(
+      'WORKFLOW_CONTEXT_CAPACITY',
       'Document exceeds configured model context capacity; increase it in Processing settings or select a model with a larger context'
     )
   const needed = base + Buffer.byteLength(JSON.stringify(documentDateCandidates(input)))
   if (needed > capacity)
-    throw new Error(
+    throw new WorkflowError(
+      'WORKFLOW_CONTEXT_CAPACITY',
       'Document exceeds configured model context capacity; increase it in Processing settings or select a model with a larger context'
     )
   return Math.max(8192, Math.min(capacity, Math.ceil(needed / 1024) * 1024))
@@ -494,11 +497,11 @@ export function tagReviewValues(input, value) {
     !Array.isArray(value.newTags) ||
     value.existingTags.length + value.newTags.length > 50
   )
-    throw new Error('Invalid tag proposals')
+    throw new WorkflowError('TAGS_INVALID', 'Invalid tag proposals')
   if (input.tagDiscovery.mode === 'existing' && value.newTags.length)
-    throw new Error('Invalid tag proposals')
+    throw new WorkflowError('TAGS_INVALID', 'Invalid tag proposals')
   if (value.existingTags.some((tag) => !input.tagDiscovery.catalog.includes(tag?.value)))
-    throw new Error('Invalid tag proposals')
+    throw new WorkflowError('TAGS_INVALID', 'Invalid tag proposals')
   return [...value.existingTags, ...value.newTags]
 }
 export function factInput(input) {
@@ -573,17 +576,7 @@ export async function generateProposal(
     try {
       return validateBundle({ ...checked, proposal })
     } catch (error) {
-      const correctable = [
-        'Missing bounded evidence',
-        'Invalid evidence page',
-        'Quote is absent from its page',
-        'Fact is not present in its evidence',
-        'Folder lacks supporting evidence',
-        'Unknown folder category',
-        'Invalid tag proposals',
-        'Unsupported printed date format; add an explicit language/date rule'
-      ]
-      if (attempt || !correctable.includes(error.message)) throw error
+      if (attempt || !correctableProposal(error)) throw error
       const fieldFailures = inspectProposal(checked, proposal)
         .issues.map((issue) => issue.field + ': ' + issue.code)
         .join('; ')
@@ -604,9 +597,10 @@ export async function generateProposal(
           nonliteral.join(', ') +
           '. Replace each with a literal span from its own exact source quote, rather than a synonym or summary.'
         : ''
-      const dateHelp = error.message.startsWith('Unsupported printed date')
-        ? ' Choose a complete printed year-month-day date supported by the supplied language rules. A year or tax year alone cannot be converted to a date; do not invent a month or day.'
-        : ''
+      const dateHelp =
+        errorCode(error) === 'DATE_UNSUPPORTED'
+          ? ' Choose a complete printed year-month-day date supported by the supplied language rules. A year or tax year alone cannot be converted to a date; do not invent a month or day.'
+          : ''
       messages.push(
         { role: 'assistant', content: response.message.content },
         {

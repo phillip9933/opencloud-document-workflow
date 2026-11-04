@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError, errorCode } from './errors.ts'
+import type { WorkflowErrorCode } from './errors.ts'
 import {
   validateFilingRules,
   filingProfile,
@@ -74,14 +76,15 @@ export interface Review {
   ruleAmbiguous?: boolean
 }
 
-function fail(message: string): never {
-  throw new Error(message)
+function fail(message: string, code: WorkflowErrorCode = 'VALIDATION_INVALID'): never {
+  throw new WorkflowError(code, message)
 }
 function object(value: unknown, keys: string[]): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('Expected an object')
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    fail('Expected an object', 'INVALID_OBJECT')
   const record = value as Record<string, unknown>
   if (Object.keys(record).sort().join(',') !== [...keys].sort().join(','))
-    fail('Unexpected or missing fields')
+    fail('Unexpected or missing fields', 'INVALID_FIELDS')
   return record
 }
 function text(value: unknown, max = 150): string {
@@ -91,7 +94,7 @@ function text(value: unknown, max = 150): string {
     value.length > max ||
     /[\x00-\x1f\x7f]/.test(value)
   )
-    fail('Invalid text field')
+    fail('Invalid text field', 'INVALID_TEXT')
   return value
 }
 export function validateSpace(value: unknown): string {
@@ -122,7 +125,7 @@ function sourceQuote(page: string, quote: string, foldCase = false): string {
     source = presentation(page),
     at = source.indexOf(compact)
   if (!compact || at < 0 || source.indexOf(compact, at + 1) >= 0)
-    fail('Quote is absent from its page')
+    fail('Quote is absent from its page', 'EVIDENCE_QUOTE')
   let count = 0,
     start = -1,
     end = -1
@@ -137,7 +140,8 @@ function sourceQuote(page: string, quote: string, foldCase = false): string {
       }
     }
   }
-  if (start < 0 || end < 0 || end - start > 2000) fail('Quote is absent from its page')
+  if (start < 0 || end < 0 || end - start > 2000)
+    fail('Quote is absent from its page', 'EVIDENCE_QUOTE')
   return page.slice(start, end)
 }
 const invalidFactControl = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/
@@ -148,7 +152,7 @@ function factValue(value: unknown): string {
     value.length > 150 ||
     invalidFactControl.test(value)
   )
-    fail('Invalid text field')
+    fail('Invalid text field', 'INVALID_TEXT')
   return value
 }
 const filenameFact = (value: string) => value.replace(/[ \t]*[\r\n\t][ \t\r\n]*/g, ' ')
@@ -156,12 +160,12 @@ function claim(value: unknown, pages: string[], literal: boolean): Claim {
   const c = object(value, ['value', 'evidence'])
   let v = literal ? factValue(c.value) : text(c.value)
   if (!Array.isArray(c.evidence) || c.evidence.length < 1 || c.evidence.length > 8)
-    fail('Missing bounded evidence')
+    fail('Missing bounded evidence', 'EVIDENCE_MISSING')
   const evidence = c.evidence.map((raw) => {
     const e = object(raw, ['page', 'quote'])
-    if (!Number.isInteger(e.page)) fail('Invalid evidence page')
+    if (!Number.isInteger(e.page)) fail('Invalid evidence page', 'EVIDENCE_PAGE')
     if (typeof e.quote !== 'string' || !e.quote.trim() || e.quote.length > 2000)
-      fail('Quote is absent from its page')
+      fail('Quote is absent from its page', 'EVIDENCE_QUOTE')
     if ((e.page as number) < 1 || (e.page as number) > pages.length) {
       // Recover a misnumbered citation only from one verifiable source page.
       // Never choose between repeated quotes or invent source characters.
@@ -173,7 +177,7 @@ function claim(value: unknown, pages: string[], literal: boolean): Claim {
           /* This page does not contain that unique source span. */
         }
       })
-      if (matches.length !== 1) fail('Invalid evidence page')
+      if (matches.length !== 1) fail('Invalid evidence page', 'EVIDENCE_PAGE')
       return matches[0]!
     }
     return {
@@ -192,13 +196,12 @@ function claim(value: unknown, pages: string[], literal: boolean): Claim {
           break
         }
       } catch (error) {
-        if (!(error instanceof Error) || error.message !== 'Quote is absent from its page')
-          throw error
+        if (errorCode(error) !== 'EVIDENCE_QUOTE') throw error
       }
     }
   }
   if (literal && (!evidence.some((e) => e.quote.includes(v)) || /[□■�]/.test(v)))
-    fail('Fact is not present in its evidence')
+    fail('Fact is not present in its evidence', 'FACT_NOT_LITERAL')
   return { value: v, evidence }
 }
 function supported(c: Claim, profile: LanguageProfile) {
@@ -213,8 +216,7 @@ function printedDateSpan(checked: Claim, profile: LanguageProfile): Claim {
     printedDateISO(checked.value, profile)
     return checked
   } catch (original) {
-    if (!(original instanceof Error) || !original.message.startsWith('Unsupported printed date'))
-      throw original
+    if (errorCode(original) !== 'DATE_UNSUPPORTED') throw original
     const matches = new Map<string, string>()
     for (const candidate of dateSearchCandidates(checked.value, profile)) {
       try {
@@ -232,8 +234,7 @@ function dateClaim(value: unknown, pages: string[], profile: LanguageProfile): C
   try {
     return printedDateSpan(claim(value, pages, true), profile)
   } catch (error) {
-    if (!(error instanceof Error) || error.message !== 'Fact is not present in its evidence')
-      throw error
+    if (errorCode(error) !== 'FACT_NOT_LITERAL') throw error
     const checked = claim(value, pages, false),
       matches = new Set<string>()
     let expected: string
@@ -387,7 +388,7 @@ export function validateBundle(value: unknown, profile = defaultLanguageProfile)
     !Array.isArray(p.tags) ||
     p.tags.length > (input.tagDiscovery ? 50 : (rules?.tags.length ?? 5))
   )
-    fail('Invalid tag proposals')
+    fail('Invalid tag proposals', 'TAGS_INVALID')
   const proposal: Proposal = {
     issuer: claim(p.issuer, pages, true),
     date: dateClaim(p.date, pages, profile),
@@ -408,7 +409,7 @@ export function validateBundle(value: unknown, profile = defaultLanguageProfile)
           proposal.folder.value
         )
   )
-    fail('Unknown folder category')
+    fail('Unknown folder category', 'FOLDER_UNKNOWN')
   if (
     proposal.folder.value !== 'Other' &&
     !(rules
@@ -420,7 +421,7 @@ export function validateBundle(value: unknown, profile = defaultLanguageProfile)
         )
       : supported(proposal.folder, profile))
   )
-    fail('Folder lacks supporting evidence')
+    fail('Folder lacks supporting evidence', 'FOLDER_UNSUPPORTED')
   const folderMatches = rules ? explicitFolderMatches(pages, rules) : []
   if (proposal.folder.value === 'Other' && folderMatches.length === 1)
     proposal.folder = folderMatches[0]!
@@ -496,16 +497,12 @@ export function inspectProposal(value: DocumentInput, raw: unknown): ProposalIns
     return { verified: {}, issues: [{ field: 'document', code: 'shape' }] }
   }
   const code = (error: unknown): InspectionCode => {
-    const message = error instanceof Error ? error.message : ''
-    return message === 'Fact is not present in its evidence'
-      ? 'literal'
-      : message.includes('date')
-        ? 'date'
-        : message.includes('folder') || message.includes('Folder')
-          ? 'category'
-          : message.includes('evidence') || message.includes('Quote')
-            ? 'quote'
-            : 'value'
+    const value = errorCode(error)
+    if (value === 'FACT_NOT_LITERAL') return 'literal'
+    if (value?.startsWith('DATE_')) return 'date'
+    if (value === 'FOLDER_UNKNOWN' || value === 'FOLDER_UNSUPPORTED') return 'category'
+    if (value?.startsWith('EVIDENCE_')) return 'quote'
+    return 'value'
   }
   for (const field of ['issuer', 'date', 'kind', 'folder'] as const) {
     try {
@@ -532,7 +529,7 @@ export function inspectProposal(value: DocumentInput, raw: unknown): ProposalIns
                 'Correspondence'
               ].includes(checked.value)
         )
-          fail('Unknown folder category')
+          fail('Unknown folder category', 'FOLDER_UNKNOWN')
         if (
           checked.value !== 'Other' &&
           !(rules
@@ -544,7 +541,7 @@ export function inspectProposal(value: DocumentInput, raw: unknown): ProposalIns
               )
             : supported(checked, profile))
         )
-          fail('Folder lacks supporting evidence')
+          fail('Folder lacks supporting evidence', 'FOLDER_UNSUPPORTED')
       }
       result.verified[field] = checked
     } catch (error) {

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from './errors.ts'
 import catalog from './language-packs/catalog.json' with { type: 'json' }
 export interface LanguagePack {
   id: string
@@ -226,9 +227,13 @@ export function printedDateISO(raw: string, profile = defaultLanguageProfile): s
     }
   }
   if (candidates.size > 1)
-    throw new Error('Ambiguous printed date; review the date convention explicitly')
+    throw new WorkflowError(
+      'DATE_AMBIGUOUS',
+      'Ambiguous printed date; review the date convention explicitly'
+    )
   if (!candidates.size)
-    throw new Error(
+    throw new WorkflowError(
+      matched ? 'DATE_INVALID' : 'DATE_UNSUPPORTED',
       matched
         ? 'Invalid calendar date'
         : 'Unsupported printed date format; add an explicit language/date rule'

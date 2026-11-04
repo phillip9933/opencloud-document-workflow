@@ -1,3 +1,4 @@
+import { WorkflowError } from '../../src/domain/errors.ts'
 // SPDX-License-Identifier: AGPL-3.0-only
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -86,13 +87,17 @@ test('provider result validation keeps exact input and refuses changed identity 
   }
 })
 test('manual fallback permits only known validation failures and never hides infrastructure or identity failures', () => {
-  for (const [message, reason] of [
-    ['Quote is absent from its page', 'evidence'],
-    ['Invalid calendar date', 'date'],
-    ['Document exceeds configured model context capacity: synthetic', 'capacity']
+  for (const [code, message, reason] of [
+    ['EVIDENCE_QUOTE', 'Quote is absent from its page', 'evidence'],
+    ['DATE_INVALID', 'Invalid calendar date', 'date'],
+    [
+      'WORKFLOW_CONTEXT_CAPACITY',
+      'Document exceeds configured model context capacity: synthetic',
+      'capacity'
+    ]
   ]) {
-    assert.equal(manualFallbackReason(new Error(message), true), reason)
-    assert.equal(manualFallbackReason(new Error(message), false), null)
+    assert.equal(manualFallbackReason(new WorkflowError(code, message), true), reason)
+    assert.equal(manualFallbackReason(new WorkflowError(code, message), false), null)
   }
   for (const error of [
     null,

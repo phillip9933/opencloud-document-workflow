@@ -1,3 +1,4 @@
+import { WorkflowError } from '../../src/domain/errors.ts'
 // SPDX-License-Identifier: AGPL-3.0-only
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -46,7 +47,8 @@ test('processing diagnoses explain known failures without copying unknown privat
   assert.match(preparationIssue(Error('fetch failed')).message, /unavailable/)
   assert.match(
     preparationIssue(
-      Error(
+      new WorkflowError(
+        'WORKFLOW_CONTEXT_CAPACITY',
         'Document exceeds configured model context capacity; increase it in Processing settings or select a model with a larger context'
       )
     ).nextStep,
@@ -60,13 +62,21 @@ test('processing diagnoses explain known failures without copying unknown privat
 })
 test('evidence and printed date holds identify the actual issue instead of suggesting an AI connection failure', () => {
   assert.match(
-    preparationIssue(Error('Fact is not present in its evidence')).message,
+    preparationIssue(new WorkflowError('FACT_NOT_LITERAL', 'Fact is not present in its evidence'))
+      .message,
     /verified against the document/
   )
-  assert.match(preparationIssue(Error('Quote is absent from its page')).nextStep, /cited text/)
   assert.match(
-    preparationIssue(Error('Unsupported printed date format; add an explicit language/date rule'))
-      .message,
+    preparationIssue(new WorkflowError('EVIDENCE_QUOTE', 'Quote is absent from its page')).nextStep,
+    /cited text/
+  )
+  assert.match(
+    preparationIssue(
+      new WorkflowError(
+        'DATE_UNSUPPORTED',
+        'Unsupported printed date format; add an explicit language/date rule'
+      )
+    ).message,
     /date needs review/
   )
 })

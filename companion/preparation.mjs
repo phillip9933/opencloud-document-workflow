@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { defaultLimits, validateLimits } from './configuration.mjs'
 import { extractPDFBytes } from './extract.mjs'
 import { ocrPages, ocrCandidatePages } from './ocr.mjs'
+import { manualReviewReason } from '../src/domain/errors.ts'
 import { validateBundle } from '../src/domain/review.ts'
 
 /** Read exactly the pinned bytes; keep source checks ahead of OCR and inference.
@@ -58,43 +59,7 @@ export function validatePreparedReview(input, bundle) {
   return validated
 }
 
-const evidenceErrors = new Set([
-  'Missing bounded evidence',
-  'Invalid evidence page',
-  'Quote is absent from its page',
-  'Fact is not present in its evidence',
-  'Folder lacks supporting evidence',
-  'Unknown folder category',
-  'Invalid tag proposals',
-  'Invalid discovered tag name',
-  'Unexpected or missing fields',
-  'Expected an object',
-  'Invalid text field'
-])
-const dateErrors = new Set([
-  'Unsupported printed date format; add an explicit language/date rule',
-  'Ambiguous printed date; review the date convention explicitly',
-  'Invalid calendar date'
-])
-/** Only these validation failures permit a manual result; infrastructure and
- * identity failures must stay failed. Message compatibility is retained here
- * until the domain/provider validators expose stable failure codes.
- * @param {unknown} error
- * @param {boolean} enabled
- * @returns {'evidence'|'date'|'capacity'|null}
- */
+/** @param {unknown} error @param {boolean} enabled */
 export function manualFallbackReason(error, enabled) {
-  if (
-    !enabled ||
-    !error ||
-    typeof error !== 'object' ||
-    !('message' in error) ||
-    typeof error.message !== 'string'
-  )
-    return null
-  if (evidenceErrors.has(error.message)) return 'evidence'
-  if (error.message.startsWith('Document exceeds configured model context capacity'))
-    return 'capacity'
-  if (dateErrors.has(error.message)) return 'date'
-  return null
+  return enabled ? manualReviewReason(error) : null
 }

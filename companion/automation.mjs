@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { errorCode } from '../src/domain/errors.ts'
 import { createHash } from 'node:crypto'
 import { validateBundle, validatePolicy, actions, reviewDigest } from '../src/domain/review.ts'
 import { suggestMetadata, validateFieldValue } from '../src/domain/metadata.ts'
@@ -95,7 +96,7 @@ export class Automation {
     try {
       release = this.w.lock('automatic:' + id)
     } catch (e) {
-      if (e.message === 'Operation already running') return { state: 'running' }
+      if (errorCode(e) === 'WORKFLOW_BUSY') return { state: 'running' }
       throw e
     }
     try {

@@ -1,3 +1,4 @@
+import { WorkflowError } from '../../src/domain/errors.ts'
 // SPDX-License-Identifier: AGPL-3.0-only
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -457,7 +458,7 @@ test('manual review cannot be automatically authorized and files only after expl
         {
           manualFallback: true,
           planner: async () => {
-            throw Error('Fact is not present in its evidence')
+            throw new WorkflowError('FACT_NOT_LITERAL', 'Fact is not present in its evidence')
           }
         }
       ),
@@ -498,7 +499,7 @@ test('a manual review can explicitly prepare fresh suggestions without rejecting
         {
           manualFallback: true,
           planner: async () => {
-            throw Error('Fact is not present in its evidence')
+            throw new WorkflowError('FACT_NOT_LITERAL', 'Fact is not present in its evidence')
           }
         }
       )

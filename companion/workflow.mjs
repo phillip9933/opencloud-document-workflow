@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { withTransaction } from './transactions.mjs'
 import { applyFiling } from './filing.mjs'
 import { readDocument } from './preparation.mjs'
@@ -558,7 +559,7 @@ export class Workflow {
     withTransaction(this.db, () => {
       const previous = this.db.prepare('select owner from workflow_locks where job=?').get(id)
       if (previous && owners.has(previous.owner))
-        throw Object.assign(new Error('Operation already running'), { code: 'WORKFLOW_BUSY' })
+        throw new WorkflowError('WORKFLOW_BUSY', 'Operation already running')
       // The runtime guard excludes another process; only abandoned rows reach here.
       this.db.prepare('delete from workflow_locks where job=?').run(id)
       this.db

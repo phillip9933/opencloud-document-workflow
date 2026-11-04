@@ -1,3 +1,4 @@
+import { WorkflowError } from '../../src/domain/errors.ts'
 // SPDX-License-Identifier: AGPL-3.0-only
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -323,10 +324,13 @@ test('one bounded correction can replace a tax-year-only date with an actual ful
   }
 })
 test('production fallback prepares a manual review for unsupported facts, dates and capacity without accepting the failed proposal', async () => {
-  for (const message of [
-    'Fact is not present in its evidence',
-    'Unsupported printed date format; add an explicit language/date rule',
-    'Document exceeds configured model context capacity; increase it in Processing settings or select a model with a larger context'
+  for (const [code, message] of [
+    ['FACT_NOT_LITERAL', 'Fact is not present in its evidence'],
+    ['DATE_UNSUPPORTED', 'Unsupported printed date format; add an explicit language/date rule'],
+    [
+      'WORKFLOW_CONTEXT_CAPACITY',
+      'Document exceeds configured model context capacity; increase it in Processing settings or select a model with a larger context'
+    ]
   ]) {
     const s = setup()
     let calls = 0
@@ -335,7 +339,7 @@ test('production fallback prepares a manual review for unsupported facts, dates 
           manualFallback: true,
           planner: async () => {
             calls++
-            throw Error(message)
+            throw new WorkflowError(code, message)
           }
         },
         r = await s.j.prepare(input(), config, options)
