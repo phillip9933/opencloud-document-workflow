@@ -6,9 +6,11 @@ This update fixes backup recovery, temporary snapshot cleanup, processing conten
 
 Validation:
 
-- 784 source tests: 410 UI/domain, 361 companion and 13 packaging; strict frontend/backend checks, lint, formatting and native/standalone builds.
+- [Hosted CI](https://github.com/phillip9933/opencloud-document-workflow/actions/runs/41860820885): 784 source tests: 410 UI/domain, 361 companion and 13 packaging; strict frontend/backend checks, lint, formatting and native/standalone builds.
 - [Fresh-install receipt](https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.2/INSTALL-ACCEPTANCE.txt): exact packaged kit on a new OpenCloud 9/Caddy environment, empty journal, HTTPS/authentication, synthetic backup restore and repeat installation without restarts.
 - [Upgrade receipt](https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.2/UPGRADE-ACCEPTANCE.txt): upgrade from published 0.20.1 with synthetic fields, preferences and held decisions preserved.
 - [Public download verification](https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.2/PUBLICATION-RECEIPT.json) and [acceptance scope](https://github.com/phillip9933/opencloud-document-workflow/blob/v0.20.2/docs/ACCEPTANCE_0.20.2.md).
 
 Six screenshots use fictional documents and include AGPL-3.0-only redistribution terms. Source, exact locks and dependency notices are provided. This remains an independent community beta. Installation checks are distinct from signed-in browser/live inference checks; cross-Space external move reconciliation, broader proxy/server layouts, arm64 and live hosted-provider compatibility are not claimed. The catalogue is not asked to execute a server installer.
+
+GitHub status note: the linked run completed every test, build, fresh-install, upgrade and cleanup step successfully and uploaded the verified release artifacts. GitHub’s aggregate run/check status is still inconsistent (reads show in progress; cancellation reports it is already finished). The release records this distinction; a completed-success aggregate status is not claimed.
