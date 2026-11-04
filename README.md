@@ -15,6 +15,22 @@ Document Workflow brings lightweight document management directly into OpenCloud
 - Customizable backups stored in OpenCloud.
 - Includes English, Japanese, Spanish, French and German UI, plus light, dark and system appearance. OCR languages and interpretation rules can be extended separately.
 
+## Screenshots
+
+All screenshots use fictional documents. Select an image to view it at full size.
+
+| Inbox | Document review |
+| --- | --- |
+| [![Inbox with document statuses](deploy/screenshots/1.jpg)](deploy/screenshots/1.jpg) | [![Review suggestions beside the original PDF](deploy/screenshots/2.jpg)](deploy/screenshots/2.jpg) |
+
+| Document library | Processing settings |
+| --- | --- |
+| [![Document library in dark mode](deploy/screenshots/3.jpg)](deploy/screenshots/3.jpg) | [![OCR and AI processing settings](deploy/screenshots/4.jpg)](deploy/screenshots/4.jpg) |
+
+| Activity | Light mode |
+| --- | --- |
+| [![Processing activity and attempt history](deploy/screenshots/5.jpg)](deploy/screenshots/5.jpg) | [![Document library in light mode](deploy/screenshots/6.jpg)](deploy/screenshots/6.jpg) |
+
 ## Install
 
 Download the matching **installation kit** from [Releases](https://github.com/phillip9933/opencloud-document-workflow/releases). Extract it, verify `SHA256SUMS`, and run `./install.sh install` as an administrator on the Docker host. See [Quick install](docs/QUICK_INSTALL.md) for prerequisites, options and rollback.
