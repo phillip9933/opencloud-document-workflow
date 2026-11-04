@@ -541,3 +541,32 @@ test('verified app-token adapters stay preferred over browser polling and old de
     s.close()
   }
 })
+
+test('intake picks up a renewed adapter between items and stops the cohort when paused', async () => {
+  const s = await setup()
+  try {
+    await s.intake.tick({ force: true })
+    s.advance()
+    const renewed = new DemoAdapter(s.j.db)
+    const adapters = []
+    s.intake.prepare = async (actor, api) => {
+      adapters.push(api)
+      if (adapters.length === 1) s.intake.attach(actor, renewed, { background: true })
+      if (adapters.length === 2) s.intake.manage(actor, 'pause')
+      return { id: `renewal-${adapters.length}` }
+    }
+    await s.intake.tick({ force: true })
+    assert.deepEqual(adapters, [s.api, renewed])
+    const states = s.j.db
+      .prepare('select state from intake_queue order by id')
+      .all()
+      .map((row) => row.state)
+    assert.equal(states.filter((state) => state === 'prepared').length, 2)
+    assert.equal(states.filter((state) => state === 'settling').length, 1)
+    assert.equal(s.intake.running, false)
+    assert.equal(s.intake.activeScope, null)
+    assert.equal(s.j.db.prepare('select count(*) n from workflow_locks').get().n, 0)
+  } finally {
+    s.close()
+  }
+})

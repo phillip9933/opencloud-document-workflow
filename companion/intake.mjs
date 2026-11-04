@@ -506,225 +506,7 @@ export class Intake {
       release = this.w.lock('__intake__')
       for (const [scope, session] of this.sessions) {
         if (requestedScope && scope !== requestedScope) continue
-        const { actor, api } = session,
-          c = this.configuration(actor)
-        if (!c.enabled || this.paused(actor)) continue
-        const setting = this.db
-            .prepare('select last_scan from intake_settings where scope=?')
-            .get(scope),
-          health = this.db
-            .prepare('select last_attempt from intake_health where scope=?')
-            .get(scope)
-        if (
-          !force &&
-          (c.intervalSeconds === 0 ||
-            this.manualChecks.has(scope) ||
-            this.now() - (health?.last_attempt ?? setting.last_scan) < c.intervalSeconds * 1000)
-        )
-          continue
-        this.activeScope = scope
-        this.db
-          .prepare(
-            'insert into intake_health(scope,last_attempt) values(?,?) on conflict(scope) do update set last_attempt=excluded.last_attempt'
-          )
-          .run(scope, this.now())
-        try {
-          const verified = await api.identity()
-          if (this.w.scope(verified) !== scope)
-            throw Object.assign(new Error('Intake identity changed'), { status: 403 })
-          this.db
-            .prepare('update intake_settings set last_scan=? where scope=?')
-            .run(this.now(), scope)
-          const seen = await this.scan(actor, api, c)
-          // Interrupted attempts can be retried only under the process ownership lock.
-          this.db
-            .prepare(
-              "update intake_queue set state='queued' where scope=? and state='running' and attempts<3"
-            )
-            .run(scope)
-          this.db
-            .prepare(
-              "update intake_queue set state='failed',detail='Attempt limit reached' where scope=? and state='running' and attempts>=3"
-            )
-            .run(scope)
-          const queue = this.db
-            .prepare(
-              "select * from intake_queue where scope=? and state in ('settling','queued','failed') and attempts<3 and next_attempt<=? and (? is null or id in (select value from json_each(?))) order by first_seen limit ?"
-            )
-            .all(
-              scope,
-              this.now(),
-              queueIds ? JSON.stringify(queueIds) : null,
-              queueIds ? JSON.stringify(queueIds) : null,
-              this.w.configuration?.settings(actor).limits.documentsPerCycle ?? 20
-            )
-          for (const item of queue) {
-            if (
-              JSON.stringify(this.configuration(actor)) !== JSON.stringify(c) ||
-              !c.enabled ||
-              this.paused(actor) ||
-              this.stopped ||
-              (!force && this.configuration(actor).intervalSeconds === 0)
-            )
-              break
-            // Every attached adapter has passed identity verification. A large batch
-            // must pick up renewed credentials between documents, not retain the
-            // adapter captured before minutes of local inference.
-            const currentSession = this.sessions.get(scope)
-            if (!currentSession) break
-            const itemAPI = currentSession.api
-            if (item.first_seen + c.settleSeconds * 1000 > this.now()) continue
-            const visible = item.last_seen === seen
-            if (!visible) {
-              this.db.prepare("update intake_queue set state='superseded' where id=?").run(item.id)
-              continue
-            }
-            if (
-              !this.db
-                .prepare(
-                  "update intake_queue set state='running',stage='reading',issue=NULL,attempts=attempts+1 where id=? and state in ('settling','queued','failed')"
-                )
-                .run(item.id).changes
-            )
-              continue
-            try {
-              const bytes = await itemAPI.get(
-                  item.path,
-                  item.etag,
-                  (this.w.configuration?.settings(actor).limits.maxMiB ?? 100) * 1024 * 1024
-                ),
-                contentHash = sha(bytes)
-              if (
-                this.db.prepare('select state from intake_queue where id=?').get(item.id)?.state ===
-                'cancelled'
-              )
-                continue
-              // The first attempted resource keeps ownership even if inference fails.
-              // Later failed duplicate attempts must not reverse the link on a retry.
-              const prior = this.db
-                .prepare(
-                  "select id,json_extract(input,'$.source.resourceId') resource from proposals where scope=? and json_extract(input,'$.source.sha256')=? and (result is not null or state in ('failed','running')) order by updated,id limit 1"
-                )
-                .get(scope, contentHash)
-              this.db
-                .prepare('insert or ignore into intake_content values(?,?,?,?)')
-                .run(scope, contentHash, prior?.resource ?? item.resource, prior?.id ?? null)
-              const owner = this.db
-                .prepare('select resource,job from intake_content where scope=? and sha=?')
-                .get(scope, contentHash)
-              if (owner.resource !== item.resource) {
-                this.db
-                  .prepare("update intake_queue set state='duplicate',detail=?,job=? where id=?")
-                  .run(
-                    'Identical bytes already have a review attempt; inspect the original resource',
-                    owner.job,
-                    item.id
-                  )
-                this.w.event(actor, owner.job, 'duplicate_held', {
-                  path: item.path,
-                  resourceId: item.resource
-                })
-                continue
-              }
-              const done = this.db
-                .prepare(
-                  "select p.id from proposals p join decisions d on d.job=p.id where p.scope=? and d.state='done' and json_extract(p.input,'$.source.resourceId')=? and json_extract(p.input,'$.source.sha256')=? and json_extract(d.record,'$.actions.target')=? limit 1"
-                )
-                .get(scope, item.resource, contentHash, item.path)
-              const result =
-                done ??
-                (await this.prepare(actor, itemAPI, item.path, {
-                  retry: true,
-                  cloudConsent: c.cloudConsent,
-                  onProgress: (stage) => {
-                    if (!['reading', 'ocr', 'analysing', 'tagging'].includes(stage))
-                      throw new Error('Unknown processing stage')
-                    this.db
-                      .prepare("update intake_queue set stage=? where id=? and state='running'")
-                      .run(stage, item.id)
-                  }
-                }))
-              this.db
-                .prepare('update intake_content set job=? where scope=? and sha=? and resource=?')
-                .run(result.id, scope, contentHash, item.resource)
-              const saved = this.db
-                .prepare(
-                  "update intake_queue set state=case when state='running' then 'prepared' else state end,stage=case when state='running' then 'review' else stage end,job=?,detail=case when state='running' then NULL else detail end where id=? returning state"
-                )
-                .get(result.id, item.id)
-              if (saved.state !== 'prepared') continue
-              this.w.event(actor, result.id, 'intake_prepared', { path: item.path })
-              if (this.processPrepared)
-                await this.processPrepared(actor, itemAPI, result.id, {
-                  retry: true,
-                  allowPaused: true
-                })
-            } catch (error) {
-              if (error.code === 'WORKFLOW_BUSY') {
-                // Waiting for an active worker is not a failed document attempt.
-                this.db
-                  .prepare(
-                    "update intake_queue set state='queued',attempts=attempts-1,next_attempt=?,stage=NULL,issue=NULL,detail=NULL where id=? and state='running'"
-                  )
-                  .run(this.now() + 1000, item.id)
-                continue
-              }
-              if ([401, 403].includes(error.status)) {
-                this.db
-                  .prepare(
-                    "update intake_queue set state='queued',attempts=attempts-1,stage=NULL,issue=NULL where id=? and state='running'"
-                  )
-                  .run(item.id)
-                if (this.sessions.get(scope) === currentSession) this.detach(currentSession.api)
-                throw error
-              }
-              this.logger('intake_document_held', error)
-              const issue = preparationIssue(error)
-              this.db
-                .prepare(
-                  "update intake_content set job=(select p.id from proposals p where p.scope=intake_content.scope and json_extract(p.input,'$.source.sha256')=intake_content.sha and json_extract(p.input,'$.source.resourceId')=intake_content.resource order by p.updated desc,p.id desc limit 1) where scope=? and resource=?"
-                )
-                .run(scope, item.resource)
-              const attempts = item.attempts + 1
-              if (
-                this.db
-                  .prepare(
-                    "update intake_queue set state='failed',next_attempt=?,detail=?,issue=? where id=? and state='running'"
-                  )
-                  .run(
-                    this.now() + Math.min(3600, 30 * 2 ** attempts) * 1000,
-                    issue.message,
-                    JSON.stringify(issue),
-                    item.id
-                  ).changes
-              )
-                this.w.event(actor, null, 'intake_held', { path: item.path, attempts })
-            }
-          }
-          if (this.resume && !this.stopped && !this.paused(actor) && this.sessions.has(scope))
-            await this.resume(actor, this.sessions.get(scope).api)
-          this.db
-            .prepare(
-              'update intake_health set last_success=?,reason=NULL,message=NULL where scope=?'
-            )
-            .run(this.now(), scope)
-        } catch (e) {
-          this.logger('intake_scan_failed', e)
-          if (this.paused(actor) || !this.configuration(actor).enabled) continue
-          const sessionFailure = [401, 403].includes(e.status),
-            message = sessionFailure
-              ? 'Session expired or access revoked'
-              : 'Check source folder access, session and connectivity'
-          this.db
-            .prepare('update intake_health set reason=?,message=? where scope=?')
-            .run(sessionFailure ? 'session' : 'source', message, scope)
-          this.w.event(actor, null, 'intake_scan_held', { reason: message })
-          // A request may attach a freshly verified adapter while the old scan awaits I/O.
-          // Failure of the older credential must never discard that newer session.
-          if (sessionFailure && this.sessions.get(scope) === session) this.detach(session.api)
-        } finally {
-          this.activeScope = null
-        }
+        await this.tickSession(scope, session, { force, queueIds })
       }
       return true
     } catch (e) {
@@ -734,6 +516,232 @@ export class Intake {
       release?.()
       this.running = false
     }
+  }
+  async tickSession(scope, session, { force, queueIds }) {
+    const { actor, api } = session,
+      c = this.configuration(actor)
+    if (!c.enabled || this.paused(actor)) return
+    const setting = this.db
+        .prepare('select last_scan from intake_settings where scope=?')
+        .get(scope),
+      health = this.db.prepare('select last_attempt from intake_health where scope=?').get(scope)
+    if (
+      !force &&
+      (c.intervalSeconds === 0 ||
+        this.manualChecks.has(scope) ||
+        this.now() - (health?.last_attempt ?? setting.last_scan) < c.intervalSeconds * 1000)
+    )
+      return
+    this.activeScope = scope
+    this.db
+      .prepare(
+        'insert into intake_health(scope,last_attempt) values(?,?) on conflict(scope) do update set last_attempt=excluded.last_attempt'
+      )
+      .run(scope, this.now())
+    try {
+      const verified = await api.identity()
+      if (this.w.scope(verified) !== scope)
+        throw Object.assign(new Error('Intake identity changed'), { status: 403 })
+      this.db.prepare('update intake_settings set last_scan=? where scope=?').run(this.now(), scope)
+      const seen = await this.scan(actor, api, c)
+      const queue = this.claimableQueue(actor, scope, queueIds)
+      for (const item of queue) {
+        if (
+          JSON.stringify(this.configuration(actor)) !== JSON.stringify(c) ||
+          !c.enabled ||
+          this.paused(actor) ||
+          this.stopped ||
+          (!force && this.configuration(actor).intervalSeconds === 0)
+        )
+          break
+        // Every attached adapter has passed identity verification. A large batch
+        // must pick up renewed credentials between documents, not retain the
+        // adapter captured before minutes of local inference.
+        const currentSession = this.sessions.get(scope)
+        if (!currentSession) break
+        if (item.first_seen + c.settleSeconds * 1000 > this.now()) continue
+        const visible = item.last_seen === seen
+        if (!visible) {
+          this.db.prepare("update intake_queue set state='superseded' where id=?").run(item.id)
+          continue
+        }
+        if (
+          !this.db
+            .prepare(
+              "update intake_queue set state='running',stage='reading',issue=NULL,attempts=attempts+1 where id=? and state in ('settling','queued','failed')"
+            )
+            .run(item.id).changes
+        )
+          continue
+        await this.prepareItem(actor, currentSession, c, item)
+      }
+      if (this.resume && !this.stopped && !this.paused(actor) && this.sessions.has(scope))
+        await this.resume(actor, this.sessions.get(scope).api)
+      this.db
+        .prepare('update intake_health set last_success=?,reason=NULL,message=NULL where scope=?')
+        .run(this.now(), scope)
+    } catch (e) {
+      this.logger('intake_scan_failed', e)
+      if (this.paused(actor) || !this.configuration(actor).enabled) return
+      const sessionFailure = [401, 403].includes(e.status),
+        message = sessionFailure
+          ? 'Session expired or access revoked'
+          : 'Check source folder access, session and connectivity'
+      this.db
+        .prepare('update intake_health set reason=?,message=? where scope=?')
+        .run(sessionFailure ? 'session' : 'source', message, scope)
+      this.w.event(actor, null, 'intake_scan_held', { reason: message })
+      // A request may attach a freshly verified adapter while the old scan awaits I/O.
+      // Failure of the older credential must never discard that newer session.
+      if (sessionFailure && this.sessions.get(scope) === session) this.detach(session.api)
+    } finally {
+      this.activeScope = null
+    }
+  }
+  claimableQueue(actor, scope, queueIds) {
+    // Interrupted attempts can be retried only under the process ownership lock.
+    this.db
+      .prepare(
+        "update intake_queue set state='queued' where scope=? and state='running' and attempts<3"
+      )
+      .run(scope)
+    this.db
+      .prepare(
+        "update intake_queue set state='failed',detail='Attempt limit reached' where scope=? and state='running' and attempts>=3"
+      )
+      .run(scope)
+    return this.db
+      .prepare(
+        "select * from intake_queue where scope=? and state in ('settling','queued','failed') and attempts<3 and next_attempt<=? and (? is null or id in (select value from json_each(?))) order by first_seen limit ?"
+      )
+      .all(
+        scope,
+        this.now(),
+        queueIds ? JSON.stringify(queueIds) : null,
+        queueIds ? JSON.stringify(queueIds) : null,
+        this.w.configuration?.settings(actor).limits.documentsPerCycle ?? 20
+      )
+  }
+  async prepareItem(actor, currentSession, c, item) {
+    const scope = this.w.scope(actor),
+      itemAPI = currentSession.api
+    try {
+      const bytes = await itemAPI.get(
+          item.path,
+          item.etag,
+          (this.w.configuration?.settings(actor).limits.maxMiB ?? 100) * 1024 * 1024
+        ),
+        contentHash = sha(bytes)
+      if (
+        this.db.prepare('select state from intake_queue where id=?').get(item.id)?.state ===
+        'cancelled'
+      )
+        return
+      // The first attempted resource keeps ownership even if inference fails.
+      // Later failed duplicate attempts must not reverse the link on a retry.
+      const prior = this.db
+        .prepare(
+          "select id,json_extract(input,'$.source.resourceId') resource from proposals where scope=? and json_extract(input,'$.source.sha256')=? and (result is not null or state in ('failed','running')) order by updated,id limit 1"
+        )
+        .get(scope, contentHash)
+      this.db
+        .prepare('insert or ignore into intake_content values(?,?,?,?)')
+        .run(scope, contentHash, prior?.resource ?? item.resource, prior?.id ?? null)
+      const owner = this.db
+        .prepare('select resource,job from intake_content where scope=? and sha=?')
+        .get(scope, contentHash)
+      if (owner.resource !== item.resource) {
+        this.db
+          .prepare("update intake_queue set state='duplicate',detail=?,job=? where id=?")
+          .run(
+            'Identical bytes already have a review attempt; inspect the original resource',
+            owner.job,
+            item.id
+          )
+        this.w.event(actor, owner.job, 'duplicate_held', {
+          path: item.path,
+          resourceId: item.resource
+        })
+        return
+      }
+      const done = this.db
+        .prepare(
+          "select p.id from proposals p join decisions d on d.job=p.id where p.scope=? and d.state='done' and json_extract(p.input,'$.source.resourceId')=? and json_extract(p.input,'$.source.sha256')=? and json_extract(d.record,'$.actions.target')=? limit 1"
+        )
+        .get(scope, item.resource, contentHash, item.path)
+      const result =
+        done ??
+        (await this.prepare(actor, itemAPI, item.path, {
+          retry: true,
+          cloudConsent: c.cloudConsent,
+          onProgress: (stage) => {
+            if (!['reading', 'ocr', 'analysing', 'tagging'].includes(stage))
+              throw new Error('Unknown processing stage')
+            this.db
+              .prepare("update intake_queue set stage=? where id=? and state='running'")
+              .run(stage, item.id)
+          }
+        }))
+      this.db
+        .prepare('update intake_content set job=? where scope=? and sha=? and resource=?')
+        .run(result.id, scope, contentHash, item.resource)
+      const saved = this.db
+        .prepare(
+          "update intake_queue set state=case when state='running' then 'prepared' else state end,stage=case when state='running' then 'review' else stage end,job=?,detail=case when state='running' then NULL else detail end where id=? returning state"
+        )
+        .get(result.id, item.id)
+      if (saved.state !== 'prepared') return
+      this.w.event(actor, result.id, 'intake_prepared', { path: item.path })
+      if (this.processPrepared)
+        await this.processPrepared(actor, itemAPI, result.id, {
+          retry: true,
+          allowPaused: true
+        })
+    } catch (error) {
+      this.handleItemFailure(error, actor, currentSession, item)
+    }
+  }
+  handleItemFailure(error, actor, currentSession, item) {
+    const scope = this.w.scope(actor)
+    if (error.code === 'WORKFLOW_BUSY') {
+      // Waiting for an active worker is not a failed document attempt.
+      this.db
+        .prepare(
+          "update intake_queue set state='queued',attempts=attempts-1,next_attempt=?,stage=NULL,issue=NULL,detail=NULL where id=? and state='running'"
+        )
+        .run(this.now() + 1000, item.id)
+      return
+    }
+    if ([401, 403].includes(error.status)) {
+      this.db
+        .prepare(
+          "update intake_queue set state='queued',attempts=attempts-1,stage=NULL,issue=NULL where id=? and state='running'"
+        )
+        .run(item.id)
+      if (this.sessions.get(scope) === currentSession) this.detach(currentSession.api)
+      throw error
+    }
+    this.logger('intake_document_held', error)
+    const issue = preparationIssue(error)
+    this.db
+      .prepare(
+        "update intake_content set job=(select p.id from proposals p where p.scope=intake_content.scope and json_extract(p.input,'$.source.sha256')=intake_content.sha and json_extract(p.input,'$.source.resourceId')=intake_content.resource order by p.updated desc,p.id desc limit 1) where scope=? and resource=?"
+      )
+      .run(scope, item.resource)
+    const attempts = item.attempts + 1
+    if (
+      this.db
+        .prepare(
+          "update intake_queue set state='failed',next_attempt=?,detail=?,issue=? where id=? and state='running'"
+        )
+        .run(
+          this.now() + Math.min(3600, 30 * 2 ** attempts) * 1000,
+          issue.message,
+          JSON.stringify(issue),
+          item.id
+        ).changes
+    )
+      this.w.event(actor, null, 'intake_held', { path: item.path, attempts })
   }
   recordFailure(error) {
     this.logger('intake_worker_failed', error)
