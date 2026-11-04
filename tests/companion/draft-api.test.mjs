@@ -463,7 +463,7 @@ test('Space selection isolates settings, metadata, history and same-path files a
     assert.ok((await call(api, 'activity', {}, h)).data.events.length > 0)
     assert.equal((await call(api, 'activity')).data.events.length, 0)
     assert.equal((await call(api, 'status', {}, { 'x-workflow-space': 'unknown' })).status, 403)
-    assert.equal((await call(api, 'status', {}, { 'x-workflow-space': '../bad' })).status, 409)
+    assert.equal((await call(api, 'status', {}, { 'x-workflow-space': '../bad' })).status, 400)
     api.close()
     api = createDraftAPI({
       database,

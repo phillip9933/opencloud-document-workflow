@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
+import { readRequestBody } from './http-body.mjs'
+import { apiError } from './api-errors.mjs'
 import { withTransaction } from './transactions.mjs'
 import { logEvent } from './logging.mjs'
 import { tagNameKey } from '../src/domain/tag-names.ts'
@@ -122,7 +125,8 @@ export function createDraftAPI({
     res.writeHead(status, {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
-      'X-Content-Type-Options': 'nosniff'
+      'X-Content-Type-Options': 'nosniff',
+      ...(status === 413 ? { Connection: 'close' } : {})
     })
     res.end(JSON.stringify(body))
   }
@@ -856,14 +860,6 @@ export function createDraftAPI({
         return true
       }
       try {
-        const parts = []
-        let size = 0
-        for await (const part of req) {
-          size += part.length
-          if (size > 32_000_000) throw new Error('Request exceeds limit')
-          parts.push(part)
-        }
-        const body = JSON.parse(Buffer.concat(parts).toString())
         const operation = req.url.slice('/_workflow/api/'.length),
           selectedSpace = req.headers['x-workflow-space']
         if (
@@ -873,12 +869,12 @@ export function createDraftAPI({
             selectedSpace.length > 400 ||
             /[/\\?#%\x00-\x20]/.test(selectedSpace))
         )
-          throw new Error('Invalid selected Space')
+          throw new WorkflowError('REQUEST_INVALID', 'Invalid selected Space')
         let api = demo ? (selectedSpace ? demo.forSpace(selectedSpace) : demo) : null
         let bootstrapAccount
         if (!api) {
           const auth = req.headers.authorization
-          if (!auth?.startsWith('Bearer '))
+          if (typeof auth !== 'string' || !auth.startsWith('Bearer ') || !auth.slice(7).trim())
             throw Object.assign(new Error('OpenCloud sign-in required'), { status: 401 })
           let target = selectedSpace ?? space
           if (!target && operation !== 'spaces') {
@@ -928,7 +924,9 @@ export function createDraftAPI({
           })
         }
         if (operation === 'spaces') {
-          send(res, 200, { spaces: await api.spaces() })
+          const spaces = await api.spaces()
+          await readRequestBody(req)
+          send(res, 200, { spaces })
           return true
         }
         if (api instanceof DemoAdapter) api.seed()
@@ -938,6 +936,7 @@ export function createDraftAPI({
           (mode === 'live' && actor.server !== origin)
         )
           throw Object.assign(new Error('Workspace identity changed'), { status: 403 })
+        const body = await readRequestBody(req)
         if (operation === 'status' && mode === 'live')
           journal.db
             .prepare(
@@ -975,22 +974,8 @@ export function createDraftAPI({
           if (!res.writableEnded) res.destroy()
           return true
         }
-        send(res, [401, 403, 404].includes(e.status) ? e.status : 409, {
-          error:
-            e.status === 401
-              ? 'OpenCloud sign-in required'
-              : e.status === 403
-                ? 'OpenCloud access denied'
-                : e.status === 404
-                  ? 'Resource not found'
-                  : e.message?.startsWith('OpenCloud HTTP ')
-                    ? e.message
-                    : 'Operation held. ' +
-                      (e.message?.length < 180 && !/[\r\n]/.test(e.message)
-                        ? e.message
-                        : 'Inspect the local activity and retry only after checking its state.'),
-          ...(e.trashRecorded === false ? { trashRecorded: false } : {})
-        })
+        const failure = apiError(e)
+        send(res, failure.status, failure.body)
         return true
       }
     }

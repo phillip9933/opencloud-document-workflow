@@ -11,7 +11,8 @@
     "skipLibCheck": true,
     "types": [
       "node"
-    ]
+    ],
+    "erasableSyntaxOnly": true
   },
   "include": [
     "companion/runtime-owner.mjs",
@@ -30,7 +31,9 @@
     "companion/preparation.mjs",
     "companion/transactions.mjs",
     "companion/similarity.mjs",
-    "tests/types/companion.ts"
+    "tests/types/companion.ts",
+    "companion/http-body.mjs",
+    "companion/api-errors.mjs"
   ],
   "exclude": [
     "node_modules",
