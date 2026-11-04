@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { DatabaseSync } from 'node:sqlite'
+import { migrateJournal } from './migrations.mjs'
 import { acquireRuntime } from './runtime-owner.mjs'
 import { createHash, randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
@@ -22,19 +23,9 @@ export class ProposalJournal {
     }
     try {
       chmodSync(path, 0o600)
-      this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
-      CREATE TABLE IF NOT EXISTS proposals (
-        id TEXT PRIMARY KEY, scope TEXT NOT NULL, input TEXT NOT NULL, configuration TEXT NOT NULL,
-        state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, owner TEXT, pid INTEGER, host TEXT,
-        result TEXT, raw TEXT, error TEXT, updated TEXT NOT NULL
-      );`)
-      if (
-        !this.db
-          .prepare('PRAGMA table_info(proposals)')
-          .all()
-          .some((c) => c.name === 'raw')
-      )
-        this.db.exec('ALTER TABLE proposals ADD COLUMN raw TEXT')
+      this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000')
+      migrateJournal(this.db)
+
       for (const row of this.db
         .prepare("SELECT id,owner FROM proposals WHERE state='running'")
         .all()) {

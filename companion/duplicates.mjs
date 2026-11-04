@@ -9,9 +9,6 @@ export class Duplicates {
     this.w = workflow
     this.db = workflow.db
     this.intake = intake
-    this.db.exec(`
- CREATE TABLE IF NOT EXISTS duplicate_settings(scope TEXT PRIMARY KEY,folder TEXT NOT NULL,action TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS duplicate_trash(queue_id TEXT PRIMARY KEY,scope TEXT NOT NULL,source TEXT NOT NULL,keeper TEXT NOT NULL,sha TEXT NOT NULL,baseline TEXT NOT NULL,state TEXT NOT NULL,ack INTEGER NOT NULL DEFAULT 0,trash_id TEXT,created TEXT NOT NULL);`)
   }
   action(actor) {
     const saved = this.db

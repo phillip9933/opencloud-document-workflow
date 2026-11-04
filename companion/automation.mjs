@@ -6,9 +6,7 @@ const digest = (value) => createHash('sha256').update(JSON.stringify(value)).dig
 export class Automation {
   constructor(workflow, metadata, intake) {
     Object.assign(this, { w: workflow, db: workflow.db, metadata, intake })
-    this.db.exec(
-      `CREATE TABLE IF NOT EXISTS automatic_runs(job TEXT PRIMARY KEY,scope TEXT NOT NULL,authorization TEXT NOT NULL,state TEXT NOT NULL,detail TEXT,created TEXT NOT NULL,updated TEXT NOT NULL)`
-    )
+
     workflow.automation = this
     workflow.automaticGuard = (actor, id, record) => this.guard(actor, id, record)
   }

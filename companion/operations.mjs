@@ -13,9 +13,6 @@ export class Operations {
     })
     this.active = new Map()
     this.stopped = false
-    this.db
-      .exec(`CREATE TABLE IF NOT EXISTS bulk_operations(id TEXT PRIMARY KEY,scope TEXT NOT NULL,kind TEXT NOT NULL,request TEXT NOT NULL,state TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS bulk_items(operation TEXT NOT NULL,position INTEGER NOT NULL,input TEXT NOT NULL,state TEXT NOT NULL,result TEXT,PRIMARY KEY(operation,position));CREATE INDEX IF NOT EXISTS bulk_item_source ON bulk_items(json_extract(input,'$.resourceId'),state,operation);`)
   }
   status(actor, id) {
     const row = this.db

@@ -55,14 +55,10 @@ export function createDraftAPI({
     metadata = new Metadata(workflow),
     documents = new DocumentLibrary(workflow),
     configurationStore = new Configuration(workflow)
-  journal.db.exec(
-    'CREATE TABLE IF NOT EXISTS workspace_selection(server TEXT NOT NULL,account TEXT NOT NULL,space TEXT NOT NULL,PRIMARY KEY(server,account))'
-  )
+
   const local = ollama ? localEndpoint(ollama) : null,
     cloudBase = cloud ? cloudEndpoint(cloud) : null
-  journal.db.exec(
-    'CREATE TABLE IF NOT EXISTS ocr_settings(scope TEXT PRIMARY KEY,languages TEXT NOT NULL)'
-  )
+
   const languages = (actor) =>
     JSON.parse(
       journal.db

@@ -54,9 +54,6 @@ export class Conversions {
         }
         return Buffer.concat(parts)
       })
-    this.db.exec(
-      'CREATE TABLE IF NOT EXISTS conversion_settings(scope TEXT PRIMARY KEY,archive TEXT NOT NULL); CREATE TABLE IF NOT EXISTS conversions(id TEXT PRIMARY KEY,scope TEXT NOT NULL,record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS conversion_reformats(id TEXT PRIMARY KEY,scope TEXT NOT NULL,record TEXT NOT NULL)'
-    )
   }
   association(actor, resourceId) {
     const row = this.db

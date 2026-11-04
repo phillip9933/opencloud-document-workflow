@@ -8,9 +8,6 @@ export class FiledLocations {
     this.w = workflow
     this.pending = new Map()
     workflow.locations = this
-    workflow.db.exec(
-      `CREATE TABLE IF NOT EXISTS filed_locations(scope TEXT NOT NULL,space TEXT NOT NULL,root TEXT NOT NULL,resource TEXT NOT NULL,path TEXT NOT NULL,tags TEXT NOT NULL,etag TEXT NOT NULL,PRIMARY KEY(scope,space,root,resource));`
-    )
   }
   context(actor) {
     return {

@@ -8,10 +8,7 @@ export class Transfers {
   constructor(workflow) {
     this.w = workflow
     this.db = workflow.db
-    this.db
-      .exec(`CREATE TABLE IF NOT EXISTS cross_transfers(job TEXT PRIMARY KEY,scope TEXT NOT NULL,source TEXT NOT NULL,target_space TEXT NOT NULL,target_path TEXT NOT NULL,resource TEXT,state TEXT NOT NULL,baseline TEXT,trash_ack INTEGER NOT NULL DEFAULT 0);
- CREATE TABLE IF NOT EXISTS resource_aliases(scope TEXT NOT NULL,resource TEXT NOT NULL,space TEXT NOT NULL,canonical TEXT NOT NULL,PRIMARY KEY(scope,resource));
- CREATE TABLE IF NOT EXISTS file_locations(scope TEXT NOT NULL,resource TEXT NOT NULL,space TEXT NOT NULL,target_resource TEXT NOT NULL,path TEXT NOT NULL,sha TEXT NOT NULL,job TEXT NOT NULL,PRIMARY KEY(scope,resource));`)
+
     workflow.transfers = this
     for (const row of this.db
       .prepare("select * from cross_transfers where state='done' order by rowid")

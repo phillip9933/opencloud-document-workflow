@@ -23,15 +23,6 @@ export class Workflow {
     this.preparationOwners = journal.runtime.preparations
     this.journal = journal
     this.db = journal.db
-    this.db.exec(`
- CREATE INDEX IF NOT EXISTS proposals_resource_latest ON proposals(scope,json_extract(input,'$.source.resourceId'),updated DESC,id DESC);
- CREATE TABLE IF NOT EXISTS decisions(job TEXT PRIMARY KEY,actor TEXT NOT NULL,record TEXT NOT NULL,state TEXT NOT NULL,plan TEXT,updated TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS activity(seq INTEGER PRIMARY KEY AUTOINCREMENT,scope TEXT NOT NULL,job TEXT,kind TEXT NOT NULL,detail TEXT NOT NULL,created TEXT NOT NULL);
- CREATE TRIGGER IF NOT EXISTS activity_no_update BEFORE UPDATE ON activity BEGIN SELECT RAISE(ABORT,'Activity is append-only'); END;
- CREATE TRIGGER IF NOT EXISTS activity_no_delete BEFORE DELETE ON activity BEGIN SELECT RAISE(ABORT,'Activity is append-only'); END;
- CREATE TABLE IF NOT EXISTS preferences(scope TEXT PRIMARY KEY,configuration TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS preparation_attempts(scope TEXT NOT NULL,space TEXT NOT NULL,resource TEXT NOT NULL,etag TEXT NOT NULL,state TEXT NOT NULL,stage TEXT NOT NULL,job TEXT,issue TEXT,started TEXT NOT NULL,updated TEXT NOT NULL,owner TEXT NOT NULL,PRIMARY KEY(scope,space,resource));
- CREATE TABLE IF NOT EXISTS workflow_locks(job TEXT PRIMARY KEY,owner TEXT NOT NULL,pid INTEGER NOT NULL,host TEXT NOT NULL);`)
   }
   scope(actor) {
     return JSON.stringify([actor.server, actor.account, actor.space])

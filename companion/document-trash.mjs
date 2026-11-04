@@ -6,9 +6,6 @@ export class DocumentTrash {
     this.w = workflow
     this.db = workflow.db
     workflow.documentTrash = this
-    this.db.exec(
-      `CREATE TABLE IF NOT EXISTS document_trash(id TEXT PRIMARY KEY,scope TEXT NOT NULL,resource TEXT NOT NULL,source TEXT NOT NULL,sha TEXT NOT NULL,baseline TEXT NOT NULL,state TEXT NOT NULL,ack INTEGER NOT NULL DEFAULT 0,trash_id TEXT,created TEXT NOT NULL);CREATE INDEX IF NOT EXISTS document_trash_resource ON document_trash(scope,resource,state);`
-    )
   }
   key(actor, resource) {
     return this.w.transfers?.canonical(actor, resource) ?? resource

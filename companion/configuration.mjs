@@ -30,12 +30,6 @@ export class Configuration {
   constructor(workflow) {
     this.w = workflow
     this.db = workflow.db
-    this.db.exec(
-      'CREATE TABLE IF NOT EXISTS processing_settings(scope TEXT PRIMARY KEY,rules TEXT NOT NULL,limits TEXT NOT NULL)'
-    )
-    this.db.exec(
-      'CREATE TABLE IF NOT EXISTS filing_locations(scope TEXT PRIMARY KEY,space TEXT NOT NULL)'
-    )
     workflow.configuration = this
   }
   settings(actor) {

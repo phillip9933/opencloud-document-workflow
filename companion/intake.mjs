@@ -62,34 +62,6 @@ export class Intake {
     this.running = false
     this.activeScope = null
     this.stopped = false
-    this.db
-      .exec(`CREATE TABLE IF NOT EXISTS intake_settings(scope TEXT PRIMARY KEY,value TEXT NOT NULL,last_scan INTEGER NOT NULL DEFAULT 0);
- CREATE TABLE IF NOT EXISTS intake_health(scope TEXT PRIMARY KEY,last_attempt INTEGER,last_success INTEGER,reason TEXT,message TEXT);
- CREATE TABLE IF NOT EXISTS intake_queue(id TEXT PRIMARY KEY,scope TEXT NOT NULL,resource TEXT NOT NULL,path TEXT NOT NULL,etag TEXT NOT NULL,first_seen INTEGER NOT NULL,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,next_attempt INTEGER NOT NULL DEFAULT 0,job TEXT,detail TEXT);
- CREATE INDEX IF NOT EXISTS intake_scope ON intake_queue(scope,state);
- CREATE TABLE IF NOT EXISTS intake_content(scope TEXT NOT NULL,sha TEXT NOT NULL,resource TEXT NOT NULL,job TEXT,PRIMARY KEY(scope,sha));
- CREATE TABLE IF NOT EXISTS intake_control(scope TEXT PRIMARY KEY,paused INTEGER NOT NULL DEFAULT 0);`)
-    if (
-      !this.db
-        .prepare('pragma table_info(intake_queue)')
-        .all()
-        .some((c) => c.name === 'last_seen')
-    )
-      this.db.exec('ALTER TABLE intake_queue ADD COLUMN last_seen TEXT')
-    if (
-      !this.db
-        .prepare('pragma table_info(intake_queue)')
-        .all()
-        .some((c) => c.name === 'stage')
-    )
-      this.db.exec('ALTER TABLE intake_queue ADD COLUMN stage TEXT')
-    if (
-      !this.db
-        .prepare('pragma table_info(intake_queue)')
-        .all()
-        .some((c) => c.name === 'issue')
-    )
-      this.db.exec('ALTER TABLE intake_queue ADD COLUMN issue TEXT')
   }
   paused(actor) {
     return (

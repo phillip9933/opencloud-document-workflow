@@ -305,9 +305,6 @@ test('external file and parent-folder renames update history/search by identity 
     }
     // Create the tables normally owned by Transfers without introducing a second
     // copy/alias; an external same-Space rename preserves this resource identity.
-    s.w.db.exec(
-      'CREATE TABLE resource_aliases(scope TEXT,resource TEXT,space TEXT,canonical TEXT);CREATE TABLE file_locations(scope TEXT,resource TEXT,space TEXT,target_resource TEXT,path TEXT,sha TEXT,job TEXT)'
-    )
     const id = s.add('car', {
         resource: 'car',
         path: 'Docs/Old/car.pdf',
@@ -354,9 +351,6 @@ test('external tracking rejects copied identities, path escapes, duplicate IDs a
     }
     const physical = { space: actor.space, list: async () => rows, stat: async () => null }
     s.w.transfers = { canonical: (_a, id) => id, adapter: async () => physical }
-    s.w.db.exec(
-      'CREATE TABLE resource_aliases(scope TEXT,resource TEXT,space TEXT,canonical TEXT);CREATE TABLE file_locations(scope TEXT,resource TEXT,space TEXT,target_resource TEXT,path TEXT,sha TEXT,job TEXT)'
-    )
     const id = s.add('source', { resource: 'source', path: 'Docs/old.pdf' })
     await assert.rejects(s.w.location(actor, physical, id), /could not be located/)
     rows = [

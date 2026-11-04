@@ -13,10 +13,6 @@ export class Metadata {
     workflow.metadata = this
     this.w = workflow
     this.db = workflow.db
-    this.db
-      .exec(`CREATE TABLE IF NOT EXISTS metadata_schema(scope TEXT PRIMARY KEY,value TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS metadata(scope TEXT NOT NULL,resource TEXT NOT NULL,version INTEGER NOT NULL,fields TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(scope,resource));
- CREATE TABLE IF NOT EXISTS metadata_changes(id TEXT PRIMARY KEY,scope TEXT NOT NULL,resource TEXT NOT NULL,path TEXT NOT NULL,sha TEXT NOT NULL,etag TEXT NOT NULL,base INTEGER NOT NULL,fields TEXT NOT NULL,tags TEXT NOT NULL,state TEXT NOT NULL,created TEXT NOT NULL);CREATE TABLE IF NOT EXISTS metadata_tag_removals(change_id TEXT PRIMARY KEY,tag TEXT NOT NULL);`)
   }
   schema(actor) {
     const r = this.db

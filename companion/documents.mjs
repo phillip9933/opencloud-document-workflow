@@ -37,11 +37,6 @@ export class DocumentLibrary {
     this.db.function('workflow_contains', { deterministic: true }, (text, query) =>
       fold(text).includes(fold(query)) ? 1 : 0
     )
-    this.db
-      .exec(`CREATE TABLE IF NOT EXISTS saved_views(scope TEXT NOT NULL,id TEXT NOT NULL,name TEXT NOT NULL,query TEXT NOT NULL,PRIMARY KEY(scope,id));
-   CREATE INDEX IF NOT EXISTS decisions_updated ON decisions(updated,job);
-   CREATE INDEX IF NOT EXISTS proposals_scope_updated ON proposals(scope,updated,id);
-   CREATE INDEX IF NOT EXISTS metadata_changes_lookup ON metadata_changes(scope,resource,state,created,id);`)
   }
   views(actor) {
     return this.db
