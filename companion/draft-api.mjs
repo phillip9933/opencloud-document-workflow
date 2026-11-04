@@ -221,7 +221,7 @@ if(!body.ids){if(body.action==='cancel')result.affected+=operations.cancelProces
    if(operation==='apply'||operation==='reconcile'){const result=await workflow.apply(actor,api,body.id,{reconcileOnly:operation==='reconcile'});if(result.state==='done'&&automation.statusFor(actor,body.id)&&automation.statusFor(actor,body.id).state!=='done')automation.update(actor,body.id,'done',operation==='reconcile'?'Outcome confirmed by read-only verification':'Completed after explicit manual filing');send(res,200,result);return true}
    if(operation==='activity'){send(res,200,workflow.activityPage(actor,body));return true}
    send(res,404,{error:'Unknown operation'});return true
-  }catch(e){send(res,[401,403,404].includes(e.status)?e.status:409,{error:e.status===401?'OpenCloud sign-in required':e.status===403?'OpenCloud access denied':e.status===404?'Resource not found':e.message?.startsWith('OpenCloud HTTP ')?e.message:'Operation held. '+(e.message?.length<180&&!/[\r\n]/.test(e.message)?e.message:'Inspect the local activity and retry only after checking its state.'),...(e.trashRecorded===false?{trashRecorded:false}:{})});return true}
+  }catch(e){if(res.headersSent||res.writableEnded||res.destroyed){if(!res.writableEnded)res.destroy();return true}send(res,[401,403,404].includes(e.status)?e.status:409,{error:e.status===401?'OpenCloud sign-in required':e.status===403?'OpenCloud access denied':e.status===404?'Resource not found':e.message?.startsWith('OpenCloud HTTP ')?e.message:'Operation held. '+(e.message?.length<180&&!/[\r\n]/.test(e.message)?e.message:'Inspect the local activity and retry only after checking its state.'),...(e.trashRecorded===false?{trashRecorded:false}:{})});return true}
  }}
  return service
 }

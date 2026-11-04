@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { DatabaseSync } from 'node:sqlite'
+import { acquireRuntime } from './runtime-owner.mjs'
 import { createHash, randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { mkdirSync, chmodSync } from 'node:fs'
@@ -12,6 +13,11 @@ export class ProposalJournal {
   constructor(path) {
     mkdirSync(dirname(path),{recursive:true,mode:0o700})
     this.db = new DatabaseSync(path)
+    try {
+      this.ownership = acquireRuntime(path)
+      this.runtime = this.ownership.runtime
+    } catch (error) { this.db.close(); throw error }
+    try {
     chmodSync(path,0o600)
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS proposals (
@@ -20,8 +26,12 @@ export class ProposalJournal {
         result TEXT, raw TEXT, error TEXT, updated TEXT NOT NULL
       );`)
     if(!this.db.prepare('PRAGMA table_info(proposals)').all().some(c=>c.name==='raw'))this.db.exec('ALTER TABLE proposals ADD COLUMN raw TEXT')
+    for (const row of this.db.prepare("SELECT id,owner FROM proposals WHERE state='running'").all()) {
+      if (!this.runtime.proposals.has(row.owner)) this.db.prepare("UPDATE proposals SET state='failed',owner=NULL,error='Preparation interrupted; retry required' WHERE id=?").run(row.id)
+    }
+    } catch (error) { this.db.close(); this.ownership.release(); throw error }
   }
-  close() { this.db.close() }
+  close() { try { this.db.close() } finally { this.ownership.release() } }
   get(id) { return this.db.prepare('SELECT * FROM proposals WHERE id=?').get(id) }
   async prepare(input, configuration, { retry=false, planner, cloudKey,scope:workflowScope,manualFallback=false,ocrAttempted=false,onProgress=()=>{} }={}) {
     const checked = validateDocumentInput(input)
@@ -44,15 +54,12 @@ export class ProposalJournal {
     if (job.result) return {id,cached:true,review:validateBundle(JSON.parse(job.result))}
     if (job.state !== 'pending') {
       if (!retry) throw new Error('Previous attempt needs explicit retry after inspecting its state')
-      if (job.state === 'running') {
-        if (job.host !== hostname()) throw new Error('Another worker host owns this proposal')
-        try { process.kill(job.pid,0); throw new Error('Proposal is still running') }
-        catch(e) { if (e.code !== 'ESRCH') throw e }
-      }
+      if (job.state === 'running' && this.runtime.proposals.has(job.owner)) throw new Error('Proposal is still running')
     }
     const owner = randomUUID()
     const claimed = this.db.prepare(`UPDATE proposals SET state='running',owner=?,pid=?,host=?,attempts=attempts+1,updated=? WHERE id=? AND state=? AND attempts=? RETURNING id`).get(owner,process.pid,hostname(),new Date().toISOString(),id,job.state,job.attempts)
     if (!claimed) throw new Error('Proposal claimed by another worker')
+    this.runtime.proposals.add(owner)
     try {
       const review = rulesOnly ? validateBundle({...checked,proposal:null,manualReview:{reason:checked.pages.some(p=>!p.trim())?'text':'rules'}}) : checked.pages.some(p=>!p.trim()) ? validateBundle({...checked,proposal:null,...(manualFallback&&ocrAttempted?{manualReview:{reason:'text'}}:{})}) : await (planner??(configuration.routes?((input,model,endpoint,fetcher,onResponse)=>generateRouted(input,configuration,{cloudKey,onResponse,onTagReview:()=>onProgress('tagging')})):((...args)=>generateProposal(...args,{contextTokens:configuration.contextTokens,onTagReview:()=>onProgress('tagging')}))))(checked,model,endpoint,undefined,raw=>this.db.prepare('UPDATE proposals SET raw=? WHERE id=? AND owner=?').run(JSON.stringify(raw),id,owner))
       // Validate again before persisting any provider result.
@@ -67,6 +74,6 @@ export class ProposalJournal {
       if(reason){const review=validateBundle({...checked,proposal:null,manualReview:{reason}});this.db.prepare("UPDATE proposals SET state='needs_details',result=?,error=NULL,owner=NULL,updated=? WHERE id=? AND owner=?").run(JSON.stringify(review.bundle),new Date().toISOString(),id,owner);return{id,cached:false,review}}
       this.db.prepare("UPDATE proposals SET state='failed',error=?,owner=NULL,updated=? WHERE id=? AND owner=?").run('Proposal generation or evidence validation failed',new Date().toISOString(),id,owner)
       throw e
-    }
+    } finally { this.runtime.proposals.delete(owner) }
   }
 }

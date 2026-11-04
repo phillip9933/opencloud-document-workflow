@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import {createServer} from 'node:http'
+import {handleRequest} from './http-handler.mjs'
 import {readFile} from 'node:fs/promises'
 import {resolve,extname,dirname} from 'node:path'
 import {AppTokenSessions} from './app-tokens.mjs'
@@ -29,8 +30,7 @@ if(mode==='live'&&process.env.WORKFLOW_SESSION_FILE){
 
 await backups?.start()
 const root=resolve('draft-dist'),types={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.mjs':'text/javascript','.svg':'image/svg+xml','.wasm':'application/wasm'}
-const server=createServer(async(req,res)=>{
- try{
+const server=createServer(handleRequest(async(req,res)=>{
   if(healthResponse(req,res,version))return
   if(await api.handle(req,res))return
   if(req.method!=='GET'){res.writeHead(405);res.end();return}
@@ -38,7 +38,6 @@ const server=createServer(async(req,res)=>{
   if(!path.startsWith(root+'/'))throw new Error('Path outside build')
   const data=await readFile(path)
   res.writeHead(200,{'Content-Type':types[extname(path)]||'application/octet-stream','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; font-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src blob:; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'"});res.end(data)
- }catch{res.writeHead(404,{'Content-Type':'text/plain'});res.end('Not found')}
-})
+}))
 server.listen(port,listen,()=>console.log(`Document Workflow ${mode} draft: ${origin}`))
 for(const name of ['SIGINT','SIGTERM'])process.on(name,()=>server.close(async()=>{await appTokens?.stop();await session?.stop();await backups?.stop();await api.stop();process.exit(0)}))

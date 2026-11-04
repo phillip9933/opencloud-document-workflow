@@ -11,7 +11,7 @@ import {validateAIConfig} from '../src/domain/ai.ts'
 import {safePath,validateBundle,validatePolicy,createApproval,reviewDigest,approvalMatches} from '../src/domain/review.ts'
 const sha=b=>createHash('sha256').update(b).digest('hex')
 export class Workflow {
- constructor(journal){this.preparationOwners=new Set();this.journal=journal;this.db=journal.db;this.db.exec(`
+ constructor(journal){this.preparationOwners=journal.runtime.preparations;this.journal=journal;this.db=journal.db;this.db.exec(`
  CREATE INDEX IF NOT EXISTS proposals_resource_latest ON proposals(scope,json_extract(input,'$.source.resourceId'),updated DESC,id DESC);
  CREATE TABLE IF NOT EXISTS decisions(job TEXT PRIMARY KEY,actor TEXT NOT NULL,record TEXT NOT NULL,state TEXT NOT NULL,plan TEXT,updated TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS activity(seq INTEGER PRIMARY KEY AUTOINCREMENT,scope TEXT NOT NULL,job TEXT,kind TEXT NOT NULL,detail TEXT NOT NULL,created TEXT NOT NULL);
@@ -130,7 +130,23 @@ export class Workflow {
   this.event(actor,id,options.automaticAuthorization?'automatically_authorized':'approved',{target:record.actions.target,tags:record.actions.addTags});return{state:'approved'}
  }
  reject(actor,id){const job=this.job(actor,id);if(this.decision(actor,id))throw new Error('A decision is already recorded');this.db.prepare("insert into decisions(job,actor,record,state,updated) values(?,?,?,'rejected',?)").run(id,actor.account,'{}',new Date().toISOString());this.event(actor,job.id,'rejected');return{state:'rejected'}}
- lock(id){const owner=randomUUID();this.db.exec('BEGIN IMMEDIATE');try{const r=this.db.prepare('select * from workflow_locks where job=?').get(id);if(r){if(r.host!==hostname())throw new Error('Another host owns this operation');try{process.kill(r.pid,0);throw new Error('Operation already running')}catch(e){if(e.code!=='ESRCH')throw e}this.db.prepare('delete from workflow_locks where job=?').run(id)}this.db.prepare('insert into workflow_locks values(?,?,?,?)').run(id,owner,process.pid,hostname());this.db.exec('COMMIT');return()=>this.db.prepare('delete from workflow_locks where job=? and owner=?').run(id,owner)}catch(e){this.db.exec('ROLLBACK');throw e}}
+ lock(id) {
+  const owner = randomUUID(), owners = this.journal.runtime.locks
+  this.db.exec('BEGIN IMMEDIATE')
+  try {
+   const previous = this.db.prepare('select owner from workflow_locks where job=?').get(id)
+   if (previous && owners.has(previous.owner)) throw Object.assign(new Error('Operation already running'), {code:'WORKFLOW_BUSY'})
+   // The runtime guard excludes another process; only abandoned rows reach here.
+   this.db.prepare('delete from workflow_locks where job=?').run(id)
+   this.db.prepare('insert into workflow_locks values(?,?,?,?)').run(id,owner,process.pid,hostname())
+   this.db.exec('COMMIT')
+   owners.add(owner)
+  } catch (error) { this.db.exec('ROLLBACK'); throw error }
+  return () => {
+   this.db.prepare('delete from workflow_locks where job=? and owner=?').run(id,owner)
+   owners.delete(owner)
+  }
+ }
  set(actor,id,state,plan){this.db.prepare('update decisions set state=?,plan=?,updated=? where job=? and actor=?').run(state,JSON.stringify(plan),new Date().toISOString(),id,actor.account);this.event(actor,id,state);if(state==='done'&&plan){const approval=JSON.parse(this.decision(actor,id).record);if(!approval.actions.targetSpace&&this.transfers){const canonical=this.transfers.canonical(actor,approval.source.resourceId,approval.source.space);if(canonical!==approval.source.resourceId)this.db.prepare('update file_locations set path=?,job=? where scope=? and resource=?').run(approval.actions.target,id,this.scope(actor),canonical)}}}
  async apply(actor,api,id,{reconcileOnly=false}={}){
   this.decision(actor,id)
