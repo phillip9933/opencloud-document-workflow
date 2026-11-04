@@ -101,7 +101,14 @@ const manager=new BackupManager({database:'/state/workflow.sqlite3',directory:'/
 try{const snapshot=await manager.tick({force:true});assert.ok(snapshot);const receipt=await restoreSnapshot(snapshot.directory,'/tmp/acceptance-restore/workflow.sqlite3');assert.equal(receipt.networkRequests,0);assert.equal(receipt.ingestionPaused,true);const restored=new DatabaseSync('/tmp/acceptance-restore/workflow.sqlite3',{readOnly:true});assert.equal(JSON.parse(restored.prepare('select fields from metadata where resource=?').get('synthetic-resource').fields).reference,'SYN-RESTORE-0200');restored.close();console.log(JSON.stringify({snapshotVerified:true,syntheticFieldsRestored:true,ingestionPaused:true,networkRequests:0}));}finally{await manager.stop()}
 JS
 test -f "$run/apps/document-workflow/manifest.json"
-probe "fetch('$origin').then(async r=>{if(!r.ok||!(await r.text()).includes('<html'))throw Error('Web frontend unavailable')})"
+# Installing the web assets restarts OpenCloud. The companion can be healthy
+# before OpenCloud's web service has finished starting; poll only this read.
+web_ready=false
+for attempt in {1..30}; do
+ if probe "fetch('$origin',{signal:AbortSignal.timeout(5000)}).then(async r=>{if(!r.ok||!(await r.text()).includes('<html'))throw Error('Web frontend unavailable: HTTP '+r.status)}).catch(e=>{console.error(e.message);process.exit(1)})"; then web_ready=true;break;fi
+ sleep 2
+done
+[[ "$web_ready" = true ]] || { echo 'OpenCloud web frontend did not become ready' >&2;exit 1; }
 before=$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' "$opencloud" "$project-companion-1" "$project-converter-1")
 ./install.sh install "${args[@]}" > "$run/repeat.log" 2>&1
 grep -q 'already installed and healthy' "$run/repeat.log"
