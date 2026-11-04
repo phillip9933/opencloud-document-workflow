@@ -1,0 +1,9 @@
+node_modules/
+dist/
+draft-dist/
+artifacts/
+outputs/
+public/
+coverage/
+LICENSES/
+pnpm-lock.yaml
