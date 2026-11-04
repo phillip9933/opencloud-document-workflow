@@ -7,7 +7,7 @@ import { resolve, extname, dirname } from 'node:path'
 import { AppTokenSessions } from './app-tokens.mjs'
 import { SessionSupervisor } from './session.mjs'
 import { BackupManager } from './backups.mjs'
-import { createDraftAPI } from './draft-api.mjs'
+import { createWorkflowAPI } from './draft-api.mjs'
 import { listenAddress } from './listen.mjs'
 import { healthResponse } from './health.mjs'
 const version = JSON.parse(await readFile(resolve('package.json'), 'utf8')).version
@@ -16,9 +16,12 @@ const origin = process.env.WORKFLOW_APP_ORIGIN || `http://127.0.0.1:${port}`
 const mode = process.env.WORKFLOW_MODE || 'demo'
 if (!['demo', 'live'].includes(mode)) throw new Error('WORKFLOW_MODE must be demo or live')
 const listen = listenAddress(process.env, mode)
-const database = process.env.WORKFLOW_DRAFT_DB || resolve('companion/state/draft.sqlite3')
+const database =
+  process.env.WORKFLOW_DB ||
+  process.env.WORKFLOW_DRAFT_DB ||
+  resolve('companion/state/draft.sqlite3')
 let session, backups, appTokens
-const api = createDraftAPI({
+const api = createWorkflowAPI({
   database,
   mode,
   origin: process.env.WORKFLOW_OPENCLOUD_ORIGIN,
@@ -57,6 +60,17 @@ if (process.env.WORKFLOW_BACKUP_DIRECTORY) {
   })
 }
 await api.start()
+const backgroundLifecycle = {
+  attach: async (adapter, pin) => {
+    const actor = await api.attach(adapter, pin)
+    backups?.attach(actor, adapter, { background: true })
+    return actor
+  },
+  detach: (adapter) => {
+    backups?.detach(adapter)
+    api.detach(adapter)
+  }
+}
 if (mode === 'live' && process.env.WORKFLOW_APP_TOKEN_DIRECTORY) {
   appTokens = new AppTokenSessions({
     directory: process.env.WORKFLOW_APP_TOKEN_DIRECTORY,
@@ -68,15 +82,7 @@ if (mode === 'live' && process.env.WORKFLOW_APP_TOKEN_DIRECTORY) {
         ? [resolve(process.env.WORKFLOW_BACKUP_DIRECTORY)]
         : [])
     ],
-    attach: async (adapter, pin) => {
-      const actor = await api.attach(adapter, pin)
-      backups?.attach(actor, adapter, { background: true })
-      return actor
-    },
-    detach: (adapter) => {
-      backups?.detach(adapter)
-      api.detach(adapter)
-    }
+    ...backgroundLifecycle
   })
   await appTokens.start(process.env.WORKFLOW_SPACE_ID || undefined)
 }
@@ -91,15 +97,7 @@ if (mode === 'live' && process.env.WORKFLOW_SESSION_FILE) {
     tokenEndpoint: process.env.WORKFLOW_TOKEN_ENDPOINT,
     clientId: process.env.WORKFLOW_CLIENT_ID,
     excludedDirectories: [resolve('.'), dirname(resolve(database))],
-    attach: async (adapter, pin) => {
-      const actor = await api.attach(adapter, pin)
-      backups?.attach(actor, adapter, { background: true })
-      return actor
-    },
-    detach: (adapter) => {
-      backups?.detach(adapter)
-      api.detach(adapter)
-    }
+    ...backgroundLifecycle
   })
   await session.start()
 }

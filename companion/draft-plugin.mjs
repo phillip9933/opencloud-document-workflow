@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { resolve } from 'node:path'
-import { createDraftAPI } from './draft-api.mjs'
+import { createWorkflowAPI } from './draft-api.mjs'
 export function draftPlugin() {
   return {
     name: 'workflow-draft',
     configureServer(server) {
-      const api = createDraftAPI({
-        database: process.env.WORKFLOW_DRAFT_DB || resolve('companion/state/draft.sqlite3'),
+      const api = createWorkflowAPI({
+        database:
+          process.env.WORKFLOW_DB ||
+          process.env.WORKFLOW_DRAFT_DB ||
+          resolve('companion/state/draft.sqlite3'),
         mode: process.env.WORKFLOW_MODE || 'demo',
         origin: process.env.WORKFLOW_OPENCLOUD_ORIGIN,
         space: process.env.WORKFLOW_SPACE_ID,

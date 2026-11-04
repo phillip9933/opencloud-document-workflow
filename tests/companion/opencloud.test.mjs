@@ -351,3 +351,27 @@ test('tag removal uses the native resource-scoped unassignment body, never a glo
     tags: ['Vehicles']
   })
 })
+
+test('shared DAV envelope rejects malformed text and tag properties before exposing a listing', () => {
+  const base = 'https://example.org/dav/spaces/a/'
+  assert.throws(
+    () =>
+      parseDAV(
+        xml('/dav/spaces/a/a.pdf', '<oc:tags><oc:tag><bad>value</bad></oc:tag></oc:tags>'),
+        base
+      ),
+    /Invalid DAV tags/
+  )
+  assert.throws(
+    () =>
+      parseDAV(
+        xml('https://user@example.org/dav/spaces/a/a.pdf', '<oc:fileid>a</oc:fileid>'),
+        base
+      ),
+    /outside/
+  )
+  assert.throws(
+    () => parseDAV(xml('/dav/spaces/a/a.pdf#fragment', '<oc:fileid>a</oc:fileid>'), base),
+    /outside/
+  )
+})

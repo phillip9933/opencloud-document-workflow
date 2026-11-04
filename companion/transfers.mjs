@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createHash } from 'node:crypto'
+/** @param {Buffer} b */
 const sha = (b) => createHash('sha256').update(b).digest('hex')
 // Cross-Space storage cannot MOVE atomically. Persist each one-shot mutation,
 // bind the destination identity to its successful PUT receipt, and retain the
 // source until the complete destination and recoverable Trash are verified.
 export class Transfers {
+  /** @param {import('./contracts.d.mts').MutationOwner} workflow */
   constructor(workflow) {
     this.w = workflow
     this.db = workflow.db
@@ -13,8 +15,12 @@ export class Transfers {
     for (const row of this.db
       .prepare("select * from cross_transfers where state='done' order by rowid")
       .all()) {
-      const source = JSON.parse(row.source),
-        actor = { server: source.server, account: source.account, space: JSON.parse(row.scope)[2] },
+      const source = JSON.parse(String(row.source)),
+        actor = {
+          server: source.server,
+          account: source.account,
+          space: JSON.parse(String(row.scope))[2]
+        },
         canonical = this.canonical(actor, source.resourceId, source.space)
       for (const item of [
         { resource: source.resourceId, space: source.space },
@@ -25,19 +31,31 @@ export class Transfers {
           .run(row.scope, item.resource, item.space, canonical)
     }
   }
+  /** Read a row already created under the operation lock.
+   * @param {string} id
+   */
+  record(id) {
+    const row = /** @type {import('./contracts.d.mts').TransferRow | undefined} */ (
+      this.db.prepare('select * from cross_transfers where job=?').get(id)
+    )
+    if (!row) throw new Error('Recorded operation is missing')
+    return row
+  }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {string} resource @param {string} [space] @returns {string} */
   canonical(actor, resource, space = actor.space) {
-    return (
+    return String(
       this.db
         .prepare('select canonical from resource_aliases where scope=? and resource=?')
         .get(this.w.scope(actor), resource)?.canonical ??
-      this.db
-        .prepare(
-          'select resource from file_locations where scope=? and space=? and target_resource=?'
-        )
-        .get(this.w.scope(actor), space, resource)?.resource ??
-      resource
+        this.db
+          .prepare(
+            'select resource from file_locations where scope=? and space=? and target_resource=?'
+          )
+          .get(this.w.scope(actor), space, resource)?.resource ??
+        resource
     )
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MutationAdapter} api @param {string} space */
   async adapter(actor, api, space) {
     const scoped = space === api.space || !space || !api.forSpace ? api : api.forSpace(space),
       identity = await scoped.identity()
@@ -49,7 +67,9 @@ export class Transfers {
       throw new Error('The selected Space could not be verified')
     return scoped
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MutationAdapter} api @param {string} id @param {import('./contracts.d.mts').TransferApproval} approval @param {import('./contracts.d.mts').TransferPlan} plan @param {{reconcileOnly?:boolean,guard?:()=>void}} [options] */
   async apply(actor, api, id, approval, plan, { reconcileOnly = false, guard = () => {} } = {}) {
+    /** @type {(api:import('./contracts.d.mts').MutationAdapter,path:string,source:{resourceId:string,sha256:string},etag?:string)=>ReturnType<import('./contracts.d.mts').MutationOwner['check']>} */
     const check = (api, path, source, etag) => this.w.check(api, path, source, etag, actor)
     let releaseDestination
     try {
@@ -60,9 +80,9 @@ export class Transfers {
         sourceAPI = await this.adapter(actor, api, source.space),
         destination = await this.adapter(actor, api, targetSpace),
         tags = [...new Set([...plan.originalTags, ...approval.actions.addTags])].sort()
-      let row = this.db
-        .prepare('select * from cross_transfers where job=? and scope=?')
-        .get(id, scope)
+      let row = /** @type {import('./contracts.d.mts').TransferRow|undefined} */ (
+        this.db.prepare('select * from cross_transfers where job=? and scope=?').get(id, scope)
+      )
       if (!row) {
         if (reconcileOnly) return { state: 'approved', target }
         if (
@@ -103,16 +123,17 @@ export class Transfers {
           this.w.event(actor, id, 'copy_response_uncertain')
           return { state: 'copy_intent', uncertain: true, target }
         }
-        row = this.db.prepare('select * from cross_transfers where job=?').get(id)
+        row = this.record(id)
       }
       // A lost successful PUT response has no trustworthy new resource identity.
       // Matching bytes alone cannot adopt another writer's file or clear a source.
-      if (!row.resource) return { state: 'copy_intent', uncertain: true, target }
-      releaseDestination = this.w.lock(`resource:${scope}:${row.resource}`)
-      const expected = { ...source, space: targetSpace, resourceId: row.resource },
+      if (!row?.resource) return { state: 'copy_intent', uncertain: true, target }
+      const resource = row.resource
+      releaseDestination = this.w.lock(`resource:${scope}:${resource}`)
+      const expected = { ...source, space: targetSpace, resourceId: resource },
         current = await check(destination, target, expected)
       if (!current) throw new Error('The transferred destination needs inspection')
-      if (row.state === 'done' && this.w.decision(actor, id).state === 'done')
+      if (row.state === 'done' && this.w.decision(actor, id)?.state === 'done')
         return {
           state: 'done',
           target,
@@ -120,7 +141,7 @@ export class Transfers {
           tags: current.tags,
           verification: {
             checkedAt: new Date().toISOString(),
-            resourceId: row.resource,
+            resourceId: resource,
             originalResourceId: source.resourceId,
             sha256: source.sha256
           }
@@ -134,12 +155,12 @@ export class Transfers {
           guard()
           this.db.prepare("update cross_transfers set state='tags_intent' where job=?").run(id)
           try {
-            await destination.addTags(row.resource, tags)
+            await destination.addTags(resource, tags)
           } catch {
             return { state: 'tags_intent', uncertain: true, target }
           }
         }
-        row = this.db.prepare('select * from cross_transfers where job=?').get(id)
+        row = this.record(id)
       }
       if (row.state === 'tags_intent' || row.state === 'copied') {
         const verified = await check(destination, target, expected)
@@ -147,7 +168,7 @@ export class Transfers {
           return { state: 'tags_intent', uncertain: true, target }
         this.db.prepare("update cross_transfers set state='verified' where job=?").run(id)
         this.w.set(actor, id, 'transfer_ready', plan)
-        row = this.db.prepare('select * from cross_transfers where job=?').get(id)
+        row = this.record(id)
       }
       if (row.state === 'verified') {
         if (reconcileOnly) {
@@ -166,7 +187,7 @@ export class Transfers {
         this.w.event(actor, id, 'transfer_trash_intent', {
           resourceId: source.resourceId,
           targetSpace,
-          resource: row.resource
+          resource: resource
         })
         try {
           await sourceAPI.trash(source.path, source.etag)
@@ -174,7 +195,7 @@ export class Transfers {
         } catch {
           /* Never replay this request. */
         }
-        row = this.db.prepare('select * from cross_transfers where job=?').get(id)
+        row = this.record(id)
       }
       if (row.state === 'trash_intent') {
         if (await sourceAPI.stat(source.path))
@@ -200,10 +221,10 @@ export class Transfers {
         .prepare(
           'insert into file_locations values(?,?,?,?,?,?,?) on conflict(scope,resource) do update set space=excluded.space,target_resource=excluded.target_resource,path=excluded.path,sha=excluded.sha,job=excluded.job'
         )
-        .run(scope, canonical, targetSpace, row.resource, target, source.sha256, id)
+        .run(scope, canonical, targetSpace, resource, target, source.sha256, id)
       for (const item of [
         { resource: source.resourceId, space: source.space },
-        { resource: row.resource, space: targetSpace }
+        { resource: resource, space: targetSpace }
       ]) {
         this.db
           .prepare('insert or ignore into resource_aliases values(?,?,?,?)')
@@ -211,12 +232,12 @@ export class Transfers {
         if (
           this.db
             .prepare('select canonical from resource_aliases where scope=? and resource=?')
-            .get(scope, item.resource).canonical !== canonical
+            .get(scope, item.resource)?.canonical !== canonical
         )
           throw new Error('Transferred identity needs inspection')
       }
       plan.expectedTags = tags
-      plan.targetResource = row.resource
+      plan.targetResource = resource
       this.w.set(actor, id, 'done', plan)
       return {
         state: 'done',
@@ -225,7 +246,7 @@ export class Transfers {
         tags: final.tags,
         verification: {
           checkedAt: new Date().toISOString(),
-          resourceId: row.resource,
+          resourceId: resource,
           originalResourceId: source.resourceId,
           sha256: source.sha256
         }

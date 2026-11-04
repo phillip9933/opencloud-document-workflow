@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { selectBulkPreparation } from './bulk-preparation.mjs'
 import { manualReviewReason } from '../src/domain/errors.ts'
 // Persist a useful, bounded diagnosis without copying provider bodies or secrets.
 export function preparationIssue(error) {
@@ -125,27 +126,14 @@ export function bulkPreparation(workflow, actor, source) {
       "select i.state,i.result,o.state operationState,o.updated from bulk_items i join bulk_operations o on o.id=i.operation where o.scope=? and o.kind='prepare' and json_extract(i.input,'$.resourceId')=? and json_extract(i.input,'$.etag')=? order by o.created desc,o.id desc limit 1"
     )
     .get(workflow.scope(actor), source.resourceId, source.etag)
-  if (!row) return null
-  let result
-  try {
-    result = JSON.parse(row.result ?? '{}')
-  } catch {
-    return null
-  }
-  if (
-    ['queued', 'running'].includes(row.state) &&
-    ['queued', 'running', 'paused'].includes(row.operationState)
-  )
-    return { ...row, result }
-  if (row.state !== 'held' || typeof result.error !== 'string') return null
   const latest = workflow.db
     .prepare(
       "select updated from proposals where scope=? and json_extract(input,'$.source.resourceId')=? and json_extract(input,'$.source.etag')=? order by updated desc,id desc limit 1"
     )
     .get(workflow.scope(actor), source.resourceId, source.etag)
-  if (latest && latest.updated > (result.finishedAt ?? row.updated)) return null
-  return { ...row, result }
+  return selectBulkPreparation(row, latest)
 }
+
 export function processingIssue(workflow, actor, source) {
   // Original-format files can be filed manually; a missing PDF is not a failure.
   if (!/\.pdf$/i.test(source.path)) return null

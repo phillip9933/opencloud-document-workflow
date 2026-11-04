@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { WorkflowError } from '../src/domain/errors.ts'
-import { createHash } from 'node:crypto'
+import { cloudEndpoint, resolveExecutionConfig } from './provider-routing.mjs'
+export { cloudEndpoint } from './provider-routing.mjs'
 import {
   generateProposal,
-  localEndpoint,
   proposalRecipe,
   systemFor,
   schemaFor,
@@ -14,67 +14,13 @@ import {
   tagReviewValues,
   tagReviewPromptSize
 } from './ollama.mjs'
-import { validateAIConfig } from '../src/domain/ai.ts'
 import {
   validateBundle,
   validateDocumentInput,
   documentDateCandidates
 } from '../src/domain/review.ts'
-export function cloudEndpoint(value) {
-  const u = new URL(value)
-  if (
-    u.protocol !== 'https:' ||
-    u.username ||
-    u.password ||
-    u.search ||
-    u.hash ||
-    u.pathname.includes('//')
-  )
-    throw new Error('Cloud provider requires an HTTPS API base without credentials')
-  return u.href.replace(/\/$/, '')
-}
-export function executionConfig(preferences, { local, cloud, cloudKey, ocrLanguages = [] }) {
-  const ai = validateAIConfig(preferences.ai),
-    routes = {}
-  if (preferences.policy.aiInput === 'off' || preferences.policy.aiOutput === 'off')
-    return {
-      rulesOnly: true,
-      policy: preferences.policy,
-      routes,
-      ocrLanguages,
-      recipe: 'local-rules-v1'
-    }
-  if (ai.tasks.facts === 'off')
-    throw new Error('Enable fact extraction before preparing a filing review')
-  for (const task of ['facts', 'filing', 'tags']) {
-    const provider = ai.tasks[task]
-    if (provider === 'off') {
-      routes[task] = null
-      continue
-    }
-    const selected = ai[provider],
-      endpoint =
-        provider === 'local' ? localEndpoint(selected.endpoint) : cloudEndpoint(selected.endpoint)
-    if (provider === 'local' && endpoint !== local)
-      throw new Error('Local provider must match operator configuration')
-    if (provider === 'cloud' && (!cloudKey || !cloud || endpoint !== cloudEndpoint(cloud)))
-      throw new Error('Cloud execution is not enabled for this provider by the companion operator')
-    routes[task] = { provider, endpoint, model: ai.modelOverrides[task] || selected.model }
-  }
-  return {
-    ...(ai.tagDiscovery && ai.tagDiscovery !== 'off' && routes.tags
-      ? { tagDiscovery: ai.tagDiscovery }
-      : {}),
-    endpoint: routes.facts.endpoint,
-    model: routes.facts.model,
-    policy: preferences.policy,
-    routes,
-    ocrLanguages,
-    recipe: createHash('sha256')
-      .update(proposalRecipe + 'task-routes-v1')
-      .digest('hex')
-  }
-}
+export const executionConfig = (preferences, options) =>
+  resolveExecutionConfig(preferences, options, proposalRecipe)
 export async function generateRouted(
   input,
   configuration,

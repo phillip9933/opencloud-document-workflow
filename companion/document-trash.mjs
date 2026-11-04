@@ -1,28 +1,49 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import {
+  resourceIdentities,
+  hasPendingFiling,
+  hasPendingAutomation,
+  hasPendingMetadata
+} from './pending-operations.mjs'
 import { errorCode } from '../src/domain/errors.ts'
 import { safePath } from '../src/domain/review.ts'
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export class DocumentTrash {
+  /** @param {import('./contracts.d.mts').MutationOwner} workflow */
   constructor(workflow) {
     this.w = workflow
     this.db = workflow.db
     workflow.documentTrash = this
   }
+  /** Read a row already created under the operation lock.
+   * @param {string} id
+   */
+  record(id) {
+    const row = /** @type {import('./contracts.d.mts').TrashRow | undefined} */ (
+      this.db.prepare('select * from document_trash where id=?').get(id)
+    )
+    if (!row) throw new Error('Recorded operation is missing')
+    return row
+  }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {string} resource */
   key(actor, resource) {
     return this.w.transfers?.canonical(actor, resource) ?? resource
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {string} resource */
   pending(actor, resource) {
     const row = this.db
       .prepare(
         "select id from document_trash where scope=? and resource=? and state='intent' order by created desc limit 1"
       )
       .get(this.w.scope(actor), this.key(actor, resource))
-    return row ? { id: row.id } : null
+    return row ? { id: String(row.id) } : null
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {string} resource */
   assertAvailable(actor, resource) {
     if (this.pending(actor, resource))
       throw new Error('Verify the pending Trash operation before changing this document')
   }
+  /** @param {import('./contracts.d.mts').Actor} actor */
   list(actor) {
     return this.db
       .prepare(
@@ -32,37 +53,18 @@ export class DocumentTrash {
       .map((row) => ({
         id: row.id,
         ...(({ path, resourceId, space, job }) => ({ path, resourceId, space, job }))(
-          JSON.parse(row.source)
+          JSON.parse(String(row.source))
         )
       }))
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {string} resource */
   held(actor, resource) {
     const scope = this.w.scope(actor),
       canonical = this.key(actor, resource),
-      aliases = this.w.transfers
-        ? this.db
-            .prepare('select resource from resource_aliases where scope=? and canonical=?')
-            .all(scope, canonical)
-            .map((row) => row.resource)
-        : [],
-      ids = JSON.stringify([...new Set([resource, canonical, ...aliases])])
+      ids = resourceIdentities(this.db, scope, resource, canonical, !!this.w.transfers)
     if (
-      this.db
-        .prepare(
-          "select 1 from proposals p left join decisions d on d.job=p.id where p.scope=? and json_extract(p.input,'$.source.resourceId') in (select value from json_each(?)) and (p.state='running' or (d.state is not null and d.state not in ('done','rejected','conflict'))) limit 1"
-        )
-        .get(scope, ids)
-    )
-      throw new Error(
-        'Finish or verify the existing operation before moving this document to Trash'
-      )
-    if (
-      this.w.automation &&
-      this.db
-        .prepare(
-          "select 1 from proposals p join automatic_runs a on a.job=p.id where p.scope=? and json_extract(p.input,'$.source.resourceId') in (select value from json_each(?)) and a.state in ('pending','running') limit 1"
-        )
-        .get(scope, ids)
+      hasPendingFiling(this.db, scope, ids) ||
+      (this.w.automation && hasPendingAutomation(this.db, scope, ids))
     )
       throw new Error(
         'Finish or verify the existing operation before moving this document to Trash'
@@ -98,16 +100,10 @@ export class DocumentTrash {
         .get(scope, ids, ids)
     )
       throw new Error('Finish or verify the conversion before moving this document to Trash')
-    if (
-      this.w.metadata &&
-      this.db
-        .prepare(
-          "select 1 from metadata_changes where scope=? and resource=? and state='intent' limit 1"
-        )
-        .get(scope, canonical)
-    )
+    if (this.w.metadata && hasPendingMetadata(this.db, scope, canonical))
       throw new Error('Verify the pending metadata change before moving this document to Trash')
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MutationAdapter} api @param {string} space */
   async physical(actor, api, space) {
     const physical =
         space === actor.space ? api : await this.w.transfers.adapter(actor, api, space),
@@ -120,6 +116,7 @@ export class DocumentTrash {
       throw new Error('Document workspace changed')
     return physical
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MutationAdapter} api @param {import('./contracts.d.mts').TrashInput} input @param {{verifyOnly?:boolean}} [options] */
   async process(actor, api, input, { verifyOnly = false } = {}) {
     const scope = this.w.scope(actor),
       id = input.id
@@ -127,9 +124,9 @@ export class DocumentTrash {
     const release = this.w.lock('document-trash:' + scope + ':' + id),
       locks = []
     try {
-      const prior = this.db
-        .prepare('select * from document_trash where id=? and scope=?')
-        .get(id, scope)
+      const prior = /** @type {import('./contracts.d.mts').TrashRow|undefined} */ (
+        this.db.prepare('select * from document_trash where id=? and scope=?').get(id, scope)
+      )
       if (prior) return await this.verify(actor, api, prior)
       if (this.db.prepare('select 1 from document_trash where id=?').get(id))
         throw new Error('Trash operation not found')
@@ -218,11 +215,7 @@ export class DocumentTrash {
       } catch {
         /* Record once; subsequent requests only inspect the outcome. */
       }
-      return await this.verify(
-        actor,
-        api,
-        this.db.prepare('select * from document_trash where id=?').get(id)
-      )
+      return await this.verify(actor, api, this.record(id))
     } catch (error) {
       if (this.db.prepare('select 1 from document_trash where id=? and scope=?').get(id, scope))
         return {
@@ -232,15 +225,18 @@ export class DocumentTrash {
           detail:
             'Trash outcome needs verification. Inspect OpenCloud Trash; this request will not be repeated.'
         }
-      throw Object.assign(error, { trashRecorded: false })
+      throw Object.assign(error instanceof Error ? error : new Error('Trash operation failed'), {
+        trashRecorded: false
+      })
     } finally {
       for (const unlock of locks.reverse()) unlock()
       release()
     }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MutationAdapter} api @param {import('./contracts.d.mts').TrashRow} row */
   async verify(actor, api, row) {
     if (row.state === 'trashed') return { id: row.id, state: 'trashed', trashId: row.trash_id }
-    const source = JSON.parse(row.source),
+    const source = JSON.parse(String(row.source)),
       physical = await this.physical(actor, api, source.space),
       baseline = new Set(JSON.parse(row.baseline)),
       current = await physical.stat(source.path),

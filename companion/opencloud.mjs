@@ -1,55 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { RemoteError, remoteResponse, responseBytes } from './remote-transport.mjs'
 export { RemoteError, responseBytes } from './remote-transport.mjs'
-import { XMLParser } from 'fast-xml-parser'
+import { parseDAV, parseTrash } from './dav-response.mjs'
+export { parseDAV, parseTrash } from './dav-response.mjs'
+const SPACE_MANAGER_ROLE = '71881883-1768-46bd-a24d-a356a2afdf7f'
 import { createReadStream } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { safePath } from '../src/domain/review.ts'
-const parser = new XMLParser({
-  ignoreAttributes: false,
-  removeNSPrefix: true,
-  parseTagValue: false,
-  processEntities: true,
-  isArray: (n) => ['response', 'propstat', 'tag'].includes(n)
-})
-export function parseDAV(xml, base) {
-  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new Error('XML declarations are not allowed')
-  const root = parser.parse(xml).multistatus
-  if (!root || !Array.isArray(root.response)) throw new Error('Invalid DAV response')
-  return root.response.map((r) => {
-    const href = new URL(r.href, base),
-      prefix = new URL(base)
-    const decoded = decodeURIComponent(href.pathname),
-      decodedBase = decodeURIComponent(prefix.pathname)
-    if (href.origin !== prefix.origin || !decoded.startsWith(decodedBase))
-      throw new Error('DAV response outside configured Space')
-    const path = decoded.slice(decodedBase.length).replace(/\/$/, '')
-    if (path) safePath(path)
-    const props = {}
-    for (const ps of r.propstat ?? []) if (/\s200\s/.test(ps.status)) Object.assign(props, ps.prop)
-    const tags =
-      props.tags?.tag ??
-      (typeof props.tags === 'string'
-        ? props.tags
-            .split(',')
-            .map((v) => v.trim())
-            .filter(Boolean)
-        : [])
-    return {
-      ...(typeof props.displayname === 'string' ? { displayName: props.displayname } : {}),
-      path,
-      resourceId: props.fileid ?? props.id,
-      etag: props.getetag,
-      tags: [...new Set(tags)],
-      folder:
-        !!props.resourcetype &&
-        typeof props.resourcetype === 'object' &&
-        'collection' in props.resourcetype,
-      size: Number(props.getcontentlength ?? 0)
-    }
-  })
-}
 export class OpenCloudAdapter {
   constructor({ origin, space, token, username, appToken, fetcher = fetch }) {
     const u = new URL(origin)
@@ -176,9 +134,7 @@ export class OpenCloudAdapter {
       return (
         Array.isArray(data.value) &&
         data.value.some(
-          (role) =>
-            role.principalId === this.account &&
-            role.appRoleId === '71881883-1768-46bd-a24d-a356a2afdf7f'
+          (role) => role.principalId === this.account && role.appRoleId === SPACE_MANAGER_ROLE
         )
       )
     } catch (e) {
@@ -355,41 +311,4 @@ export class OpenCloudAdapter {
       headers: { 'Content-Type': 'application/json' }
     })
   }
-}
-
-// Trash has a separate, read-only URL boundary. Ordinary DAV parsing remains
-// restricted to the selected live Space. No purge or trash DELETE is exposed.
-export function parseTrash(xml, base) {
-  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new Error('XML declarations are not allowed')
-  const root = parser.parse(xml).multistatus
-  if (!root || !Array.isArray(root.response)) throw new Error('Invalid Trash response')
-  const prefix = new URL(base),
-    decodedBase = decodeURIComponent(prefix.pathname),
-    rows = []
-  for (const r of root.response) {
-    const href = new URL(r.href, base),
-      decoded = decodeURIComponent(href.pathname)
-    if (href.origin !== prefix.origin || !decoded.startsWith(decodedBase))
-      throw new Error('Trash response outside selected Space')
-    const id = decoded.slice(decodedBase.length).replace(/\/$/, '')
-    if (!id) continue
-    if (id.includes('/') || id === '.' || id === '..') throw new Error('Invalid Trash identity')
-    const props = {}
-    for (const ps of r.propstat ?? []) if (/\s200\s/.test(ps.status)) Object.assign(props, ps.prop)
-    const path = props['trashbin-original-location']
-    if (typeof path !== 'string') throw new Error('Missing Trash original location')
-    const clean = path.replace(/^\//, '')
-    safePath(clean)
-    rows.push({
-      id,
-      path: clean,
-      resourceId: props.fileid,
-      size: Number(props.getcontentlength ?? 0),
-      folder:
-        !!props.resourcetype &&
-        typeof props.resourcetype === 'object' &&
-        'collection' in props.resourcetype
-    })
-  }
-  return rows
 }

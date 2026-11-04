@@ -39,7 +39,17 @@
     "companion/api-errors.mjs",
     "companion/remote-transport.mjs",
     "companion/inbox.mjs",
-    "companion/processing-history.mjs"
+    "companion/processing-history.mjs",
+    "companion/metadata.mjs",
+    "companion/pending-operations.mjs",
+    "companion/transfers.mjs",
+    "companion/document-trash.mjs",
+    "companion/dav-response.mjs",
+    "companion/provider-routing.mjs",
+    "companion/intake-policy.mjs",
+    "companion/services.mjs",
+    "companion/file-listing.mjs",
+    "companion/bulk-preparation.mjs"
   ],
   "exclude": [
     "node_modules",

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { localEndpoint } from './provider-routing.mjs'
+export { localEndpoint } from './provider-routing.mjs'
 import { WorkflowError, errorCode, correctableProposal } from '../src/domain/errors.ts'
 import { createHash } from 'node:crypto'
 import { filingProfile, ruleSupported } from '../src/domain/filing.ts'
@@ -10,30 +12,6 @@ import {
   documentDateCandidates
 } from '../src/domain/review.ts'
 
-export function localEndpoint(value) {
-  const u = new URL(value)
-  const h = u.hostname
-  const privateHost =
-    h === 'localhost' ||
-    h === '[::1]' ||
-    /^127\./.test(h) ||
-    /^10\./.test(h) ||
-    /^192\.168\./.test(h) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(h)
-  if (
-    !privateHost ||
-    !['http:', 'https:'].includes(u.protocol) ||
-    u.username ||
-    u.password ||
-    u.search ||
-    u.hash ||
-    u.pathname !== '/'
-  )
-    throw new Error(
-      'Local Ollama requires an explicit private-network or loopback origin without credentials'
-    )
-  return u.origin
-}
 export async function boundedJSON(response, limit = 256_000) {
   if (!response.ok) {
     await response.body?.cancel()

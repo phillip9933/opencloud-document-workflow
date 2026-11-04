@@ -114,3 +114,120 @@ export interface SimilarityOwner extends ConfigurationOwner {
     id: string
   ): Promise<{ space: string; path: string; etag: string; resourceId: string }>
 }
+
+export interface MetadataAdapter extends DocumentReader {
+  listTags(): Promise<string[]>
+  addTags(resource: string, tags: string[]): Promise<unknown>
+  removeTags(resource: string, tags: string[]): Promise<unknown>
+}
+export interface MetadataOwner extends ConfigurationOwner {
+  metadata?: import('./metadata.mjs').Metadata
+  transfers?: { canonical(actor: Actor, resource: string, space?: string): string }
+  documentTrash?: {
+    pending(actor: Actor, resource: string): { id: string } | null
+    assertAvailable(actor: Actor, resource: string): void
+  }
+  preference(actor: Actor): { policy: import('../src/domain/review.ts').Policy } | null
+  lock(key: string): () => void
+}
+export interface MetadataInput {
+  path: string
+  resourceId: string
+  etag: string
+  sha256: string
+  version: number
+}
+export interface MetadataRecord {
+  version: number
+  fields: Record<string, string | number>
+  updated?: string
+}
+export interface MetadataChange {
+  id: string
+  scope: string
+  resource: string
+  path: string
+  sha: string
+  etag: string
+  base: number
+  fields: string
+  tags: string
+  state: string
+  created: string
+}
+
+export interface TrashEntry {
+  id: string
+  path: string
+  resourceId?: string
+  size: number
+  folder: boolean
+}
+export interface MutationAdapter extends MetadataAdapter, FilingAdapter {
+  space: string
+  identity(): Promise<Actor>
+  forSpace?(space: string): MutationAdapter
+  put(path: string, bytes: Buffer): Promise<{ resourceId: string }>
+  listTrash(): Promise<TrashEntry[]>
+  trash(path: string, etag: string): Promise<unknown>
+}
+export interface TransferPlan extends FilingPlan {
+  targetResource?: string
+}
+export interface TransferApproval {
+  source: import('../src/domain/review.ts').Source
+  actions: { targetSpace: string; target: string; addTags: string[] }
+}
+export interface MutationOwner extends ConfigurationOwner {
+  configuration: Configuration
+  transfers: import('./transfers.mjs').Transfers
+  documentTrash?: import('./document-trash.mjs').DocumentTrash
+  metadata?: import('./metadata.mjs').Metadata
+  automation?: object
+  conversions?: object
+  intake?: { configuration(actor: Actor): { folder: string } }
+  lock(key: string): () => void
+  job(actor: Actor, id: string): { id: string }
+  decision(actor: Actor, id: string): { state: string } | null
+  location(actor: Actor, api: MutationAdapter, id: string): Promise<FileEntry & { space: string }>
+  check(
+    api: MutationAdapter,
+    path: string,
+    source: { resourceId: string; sha256: string },
+    etag?: string,
+    actor?: Actor
+  ): Promise<(FileEntry & { size: number }) | null>
+  set(actor: Actor, id: string, state: string, plan: TransferPlan): void
+}
+export interface TransferRow {
+  job: string
+  scope: string
+  source: string
+  target_space: string
+  target_path: string
+  state: string
+  resource: string | null
+  baseline: string
+  trash_ack: number
+}
+export interface TrashRow {
+  id: string
+  scope: string
+  resource: string
+  source: string
+  sha: string
+  baseline: string
+  state: string
+  created: string
+  ack: number
+  trash_id: string | null
+}
+export interface TrashInput {
+  id: string
+  path: string
+  resourceId: string
+  etag: string
+  sha256: string
+  documentSpace?: string
+  job?: string
+}

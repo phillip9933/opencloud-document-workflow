@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import {
+  resourceIdentities,
+  hasPendingFiling,
+  hasPendingAutomation,
+  hasPendingMetadata
+} from './pending-operations.mjs'
 import { WorkflowError } from '../src/domain/errors.ts'
 import { withTransaction } from './transactions.mjs'
 import { applyFiling } from './filing.mjs'
@@ -366,36 +372,16 @@ export class Workflow {
   assertReprocessable(actor, source) {
     const resource =
       this.transfers?.canonical(actor, source.resourceId, source.space) ?? source.resourceId
-    const aliases = this.transfers
-      ? this.db
-          .prepare('select resource from resource_aliases where scope=? and canonical=?')
-          .all(this.scope(actor), resource)
-          .map((row) => row.resource)
-      : []
-    const resources = JSON.stringify([...new Set([resource, source.resourceId, ...aliases])])
-    const pending = this.db
-      .prepare(
-        "select d.state from proposals p left join decisions d on d.job=p.id where p.scope=? and json_extract(p.input,'$.source.resourceId') in (select value from json_each(?)) and (p.state='running' or (d.state is not null and d.state not in ('done','rejected','conflict'))) limit 1"
-      )
-      .get(this.scope(actor), resources)
-    if (pending)
-      throw new Error('Finish or verify the existing operation before reprocessing this document')
+    const scope = this.scope(actor),
+      resources = resourceIdentities(this.db, scope, source.resourceId, resource, !!this.transfers)
     if (
-      this.automation &&
-      this.db
-        .prepare(
-          "select 1 from proposals p join automatic_runs a on a.job=p.id where p.scope=? and json_extract(p.input,'$.source.resourceId') in (select value from json_each(?)) and a.state in ('pending','running') limit 1"
-        )
-        .get(this.scope(actor), resources)
+      hasPendingFiling(this.db, scope, resources) ||
+      (this.automation && hasPendingAutomation(this.db, scope, resources))
     )
       throw new Error('Finish or verify the existing operation before reprocessing this document')
     if (
       this.metadata &&
-      this.db
-        .prepare(
-          "select 1 from metadata_changes where scope=? and resource=? and state='intent' limit 1"
-        )
-        .get(this.scope(actor), this.metadata.key(actor, source.resourceId))
+      hasPendingMetadata(this.db, scope, this.metadata.key(actor, source.resourceId))
     )
       throw new Error('Verify the pending metadata change before reprocessing this document')
   }
@@ -409,27 +395,11 @@ export class Workflow {
       const canonical = this.transfers?.canonical(actor, resourceId) ?? resourceId
       resourceLock = this.lock(`resource:${this.scope(actor)}:${canonical}`)
       this.documentTrash?.assertAvailable(actor, resourceId)
-      const aliases = this.transfers
-          ? this.db
-              .prepare('select resource from resource_aliases where scope=? and canonical=?')
-              .all(this.scope(actor), canonical)
-              .map((row) => row.resource)
-          : [],
-        resources = JSON.stringify([...new Set([resourceId, canonical, ...aliases])])
-      if (
-        this.db
-          .prepare(
-            "select 1 from proposals p left join decisions d on d.job=p.id where p.scope=? and json_extract(p.input,'$.source.resourceId') in (select value from json_each(?)) and (p.state='running' or (d.state is not null and d.state not in ('done','rejected','conflict'))) limit 1"
-          )
-          .get(this.scope(actor), resources)
-      )
+      const scope = this.scope(actor),
+        resources = resourceIdentities(this.db, scope, resourceId, canonical, !!this.transfers)
+      if (hasPendingFiling(this.db, scope, resources))
         throw new Error('Finish or verify the existing operation before reprocessing this document')
-      if (
-        this.metadata &&
-        this.db
-          .prepare("select 1 from metadata_changes where scope=? and resource=? and state='intent'")
-          .get(this.scope(actor), canonical)
-      )
+      if (this.metadata && hasPendingMetadata(this.db, scope, canonical))
         throw new Error('Verify the pending metadata change before reprocessing this document')
       const file = await this.metadata.inspect(actor, api, path)
       if (file.resourceId !== resourceId || file.etag !== etag)

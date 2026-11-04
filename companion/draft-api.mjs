@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { bindWorkflowServices } from './services.mjs'
+import { describeFiles } from './file-listing.mjs'
 import { WorkflowError } from '../src/domain/errors.ts'
 import { readRequestBody } from './http-body.mjs'
 import { apiError } from './api-errors.mjs'
@@ -23,15 +25,14 @@ import { SimilarDocuments } from './similarity.mjs'
 import { Intake, validateIntake } from './intake.mjs'
 import { DemoAdapter } from './demo.mjs'
 import { inboxFiles, inboxSummary } from './inbox.mjs'
-import { processingIssue, bulkPreparation, preparationState } from './processing-issues.mjs'
-import { processingProgress } from '../src/domain/processing.ts'
+import { processingIssue, preparationState } from './processing-issues.mjs'
 import { OpenCloudAdapter } from './opencloud.mjs'
 import { listModels, localEndpoint } from './ollama.mjs'
 import { executionConfig, cloudEndpoint } from './providers.mjs'
 import { OCRPacks } from './ocr-packs.mjs'
 import { ocrLanguages, runOCRTool } from './ocr.mjs'
 import { validateAIConfig } from '../src/domain/ai.ts'
-export function createDraftAPI({
+export function createWorkflowAPI({
   logger = logEvent,
   database,
   mode = 'demo',
@@ -109,12 +110,22 @@ export function createDraftAPI({
       await duplicates.resume(actor, api)
     }
   })
-  workflow.intake = intake
   automation = new Automation(workflow, metadata, intake)
   const duplicates = new Duplicates(workflow, intake),
     transfers = new Transfers(workflow),
     similarities = new SimilarDocuments(workflow),
     documentTrash = new DocumentTrash(workflow)
+  bindWorkflowServices(workflow, {
+    configuration: configurationStore,
+    metadata,
+    intake,
+    automation,
+    transfers,
+    documentTrash,
+    conversions,
+    locations: workflow.locations,
+    similarities
+  })
   const packs = new OCRPacks(workflow, {
     directory: ocrDirectory,
     installed: ocrLanguages,
@@ -168,78 +179,13 @@ export function createDraftAPI({
         operations.resumeProcessing(session.actor, session.api)
     return actor
   }
-  function describeFiles(actor, listing) {
-    return listing.map((f) => {
-      const queued = journal.db
-        .prepare(
-          'select id,state,job,stage from intake_queue where scope=? and resource=? and etag=? order by first_seen desc limit 1'
-        )
-        .get(workflow.scope(actor), f.resourceId, f.etag)
-      const latest = journal.db
-        .prepare(
-          "select p.id,p.state,p.input,d.state decision from proposals p left join decisions d on d.job=p.id where p.scope=? and json_extract(p.input,'$.source.resourceId')=? order by p.updated desc,p.id desc limit 1"
-        )
-        .get(workflow.scope(actor), f.resourceId)
-      const current =
-          latest && (JSON.parse(latest.input).source.etag === f.etag || queued?.job === latest.id),
-        automatic = current ? automation.statusFor(actor, latest.id) : null,
-        processed = current && (latest.decision === 'done' || automatic?.state === 'done')
-      const bulk = bulkPreparation(workflow, actor, f)
-      const latestRunning =
-          current && !latest.decision && ['running', 'pending', 'failed'].includes(latest.state),
-        state = processed
-          ? 'processed'
-          : bulk?.state === 'running'
-            ? 'running'
-            : bulk?.state === 'queued'
-              ? 'queued'
-              : bulk?.state === 'held'
-                ? 'failed'
-                : latestRunning
-                  ? latest.state === 'pending'
-                    ? 'queued'
-                    : latest.state
-                  : queued?.state
-      let stage = queued?.stage ?? null
-      if (bulk && ['running', 'held'].includes(bulk.state)) {
-        stage = bulk.result.stage ?? 'reading'
-      } else if (latestRunning)
-        stage = ['running', 'failed'].includes(latest.state) ? 'analysing' : 'reading'
-      const progress =
-        !/\.pdf$/i.test(f.path) && !current
-          ? { step: 1, total: 5, label: 'Choose filing details', attention: false }
-          : processingProgress({
-              state,
-              stage,
-              reviewState: current ? (latest.decision ?? latest.state) : null,
-              automatic
-            })
-      return {
-        ...f,
-        reviewJob: current ? latest.id : null,
-        reviewState: current ? (latest.decision ?? latest.state) : null,
-        fields: metadata.read(actor, f.resourceId).fields,
-        stage,
-        progress,
-        intakeState: state ?? null,
-        ...(queued?.state === 'duplicate'
-          ? {
-              duplicate: {
-                id: queued.id,
-                job: queued.job,
-                uncertain: !!duplicates.record(actor, queued.id)
-              }
-            }
-          : {})
-      }
-    })
-  }
+  const describeFilesForActor = (actor, listing) => describeFiles({ workflow }, actor, listing)
   async function readCurrentInbox(actor, api) {
     const configuration = intake.configuration(actor),
       listing = await inboxFiles(api, configuration)
     if (JSON.stringify(configuration) !== JSON.stringify(intake.configuration(actor)))
       throw new Error('The inbox settings changed. Refresh Activity.')
-    return describeFiles(actor, listing)
+    return describeFilesForActor(actor, listing)
   }
   // Handlers run only after common origin, identity and document-Space checks.
   const routes = {
@@ -743,7 +689,7 @@ export function createDraftAPI({
       const listing = flat
         ? await inboxFiles(api, intake.configuration(actor))
         : await documentAPI.list(body.path ?? 'Inbox')
-      const files = describeFiles(actor, listing)
+      const files = describeFilesForActor(actor, listing)
       send(res, 200, { files, ...(flat ? { summary: inboxSummary(files) } : {}) })
       return true
     },
@@ -982,3 +928,6 @@ export function createDraftAPI({
   }
   return service
 }
+
+// Compatibility for development plugins and existing integrations.
+export const createDraftAPI = createWorkflowAPI

@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import {
+  defaultIntake,
+  validateIntake,
+  intakeBucket,
+  intakeRetryable,
+  intakeCancellable
+} from './intake-policy.mjs'
+export { defaultIntake, validateIntake } from './intake-policy.mjs'
 import { withTransaction } from './transactions.mjs'
 import { logEvent } from './logging.mjs'
 import { createHash, randomUUID } from 'node:crypto'
@@ -7,33 +15,6 @@ import { inboxSummary } from './inbox.mjs'
 import { safePath } from '../src/domain/review.ts'
 import { processingProgress } from '../src/domain/processing.ts'
 import { preparationIssue } from './processing-issues.mjs'
-export const defaultIntake = () => ({
-  enabled: false,
-  folder: 'Inbox',
-  recursive: true,
-  intervalSeconds: 30,
-  settleSeconds: 10,
-  cloudConsent: false
-})
-export function validateIntake(c) {
-  if (
-    !c ||
-    Object.keys(c).sort().join(',') !==
-      'cloudConsent,enabled,folder,intervalSeconds,recursive,settleSeconds' ||
-    typeof c.cloudConsent !== 'boolean' ||
-    typeof c.enabled !== 'boolean' ||
-    typeof c.recursive !== 'boolean' ||
-    !Number.isInteger(c.intervalSeconds) ||
-    (c.intervalSeconds !== 0 && c.intervalSeconds < 5) ||
-    c.intervalSeconds > 86400 ||
-    !Number.isInteger(c.settleSeconds) ||
-    c.settleSeconds < 2 ||
-    c.settleSeconds > 3600
-  )
-    throw new Error('Invalid intake settings')
-  safePath(c.folder)
-  return structuredClone(c)
-}
 const sha = (b) => createHash('sha256').update(b).digest('hex')
 export class Intake {
   constructor(
@@ -78,41 +59,13 @@ export class Intake {
       .all(actor.account, this.w.scope(actor))
   }
   bucket(row) {
-    if (['duplicate', 'trashed', 'restored'].includes(row.state)) return 'duplicates'
-    if (row.state === 'removed') return 'completed'
-    if (row.state === 'superseded') return 'superseded'
-    if (row.decision === 'done' || row.automaticState === 'done') return 'completed'
-    if (row.decision && !['rejected'].includes(row.decision)) return 'attention'
-    if (row.state === 'cancelled') return 'cancelled'
-    if (row.state === 'running' || ['pending', 'running'].includes(row.automaticState))
-      return 'running'
-    if (['settling', 'queued'].includes(row.state)) return 'waiting'
-    if (
-      row.state === 'failed' ||
-      row.automaticState === 'held' ||
-      row.proposalState === 'needs_ocr'
-    )
-      return 'attention'
-    if (row.decision === 'rejected') return 'completed'
-    return 'ready'
+    return intakeBucket(row)
   }
   retryable(row) {
-    return (
-      !row.decision &&
-      row.automaticState !== 'done' &&
-      (['failed', 'cancelled'].includes(row.state) ||
-        (row.state === 'prepared' &&
-          (row.automaticState === 'held' || row.proposalState === 'needs_ocr')))
-    )
+    return intakeRetryable(row)
   }
   cancellable(row) {
-    return (
-      row.decision !== 'done' &&
-      row.automaticState !== 'done' &&
-      row.state !== 'cancelled' &&
-      (['settling', 'queued', 'running', 'failed'].includes(row.state) ||
-        (row.state === 'prepared' && ['pending', 'running', 'held'].includes(row.automaticState)))
-    )
+    return intakeCancellable(row)
   }
   summary(actor) {
     const counts = {

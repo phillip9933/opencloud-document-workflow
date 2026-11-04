@@ -8,19 +8,23 @@ import {
   validateValues,
   suggestMetadata
 } from '../src/domain/metadata.ts'
+/** @param {Buffer} b */
 const hash = (b) => createHash('sha256').update(b).digest('hex')
 export class Metadata {
+  /** @param {import('./contracts.d.mts').MetadataOwner} workflow */
   constructor(workflow) {
     workflow.metadata = this
     this.w = workflow
     this.db = workflow.db
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @returns {import('../src/domain/metadata.ts').MetadataSchema} */
   schema(actor) {
     const r = this.db
       .prepare('select value from metadata_schema where scope=?')
       .get(this.w.scope(actor))
-    return r ? JSON.parse(r.value) : defaultMetadataSchema()
+    return r ? JSON.parse(String(r.value)) : defaultMetadataSchema()
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {unknown} value */
   saveSchema(actor, value) {
     const schema = validateMetadataSchema(value)
     this.db
@@ -31,6 +35,7 @@ export class Metadata {
     this.w.event(actor, null, 'metadata_schema_saved')
     return schema
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MetadataAdapter} api @param {unknown} value */
   async saveConnectedSchema(actor, api, value) {
     const checked = validateMetadataSchema(value)
     if (checked.tags.length) {
@@ -44,18 +49,25 @@ export class Metadata {
       throw new Error('Tag rules must be unique, ignoring capitalization')
     return this.saveSchema(actor, checked)
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {string} resource */
   key(actor, resource) {
     return this.w.transfers?.canonical(actor, resource) ?? resource
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {string} resource @returns {import('./contracts.d.mts').MetadataRecord} */
   read(actor, resource) {
     resource = this.key(actor, resource)
     const r = this.db
       .prepare('select * from metadata where scope=? and resource=?')
       .get(this.w.scope(actor), resource)
     return r
-      ? { version: r.version, fields: JSON.parse(r.fields), updated: r.updated }
+      ? {
+          version: Number(r.version),
+          fields: JSON.parse(String(r.fields)),
+          updated: String(r.updated)
+        }
       : { version: 0, fields: {} }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').DocumentReader} api @param {string} path */
   async inspect(actor, api, path) {
     const f = await api.stat(path)
     if (!f || f.folder) throw new Error('Document not found')
@@ -69,6 +81,7 @@ export class Metadata {
       throw new Error('Document changed')
     return { ...f, ...(api.space ? { space: api.space } : {}), sha256: hash(bytes) }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').DocumentReader} api @param {string} path */
   async get(actor, api, path) {
     const source = await this.inspect(actor, api, path)
     const job = this.db
@@ -86,10 +99,11 @@ export class Metadata {
       trash: this.w.documentTrash?.pending(actor, source.resourceId) ?? null,
       schema: this.schema(actor),
       record: this.read(actor, source.resourceId),
-      suggestions: this.suggestions(actor, job ? JSON.parse(job.input).pages : []),
+      suggestions: this.suggestions(actor, job ? JSON.parse(String(job.input)).pages : []),
       pending
     }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {string[]} pages */
   suggestions(actor, pages) {
     const value = suggestMetadata(this.schema(actor), pages),
       policy = this.w.preference(actor)?.policy
@@ -97,6 +111,7 @@ export class Metadata {
     if (policy?.tags === 'off') value.tags = []
     return value
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MetadataAdapter} api @param {import('./contracts.d.mts').MetadataInput & {fields:unknown,addTags:string[]}} input */
   async save(actor, api, { path, resourceId, etag, sha256, version, fields, addTags }) {
     const release = this.w.lock(`resource:${this.w.scope(actor)}:${this.key(actor, resourceId)}`)
     try {
@@ -159,6 +174,7 @@ export class Metadata {
       release()
     }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MetadataAdapter} api @param {import('./contracts.d.mts').MetadataInput & {tag:string}} input */
   async removeTag(actor, api, { path, resourceId, etag, sha256, version, tag }) {
     const release = this.w.lock(`resource:${this.w.scope(actor)}:${this.key(actor, resourceId)}`)
     try {
@@ -206,7 +222,12 @@ export class Metadata {
       } catch (error) {
         const checked = await this.reconcile(actor, api, id)
         if (checked.state === 'done') return checked
-        if ([400, 401, 403, 404, 409, 422].includes(error.status)) {
+        if (
+          error &&
+          typeof error === 'object' &&
+          'status' in error &&
+          [400, 401, 403, 404, 409, 422].includes(Number(error.status))
+        ) {
           this.db
             .prepare("update metadata_changes set state='refused' where id=? and state='intent'")
             .run(id)
@@ -220,10 +241,13 @@ export class Metadata {
       release()
     }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').DocumentReader} api @param {string} id */
   async reconcile(actor, api, id) {
-    const change = this.db
-      .prepare('select * from metadata_changes where id=? and scope=?')
-      .get(id, this.w.scope(actor))
+    const change = /** @type {import('./contracts.d.mts').MetadataChange | undefined} */ (
+      this.db
+        .prepare('select * from metadata_changes where id=? and scope=?')
+        .get(id, this.w.scope(actor))
+    )
     if (!change) throw new Error('Metadata operation not found')
     if (change.state !== 'intent')
       return { state: change.state, record: this.read(actor, change.resource) }
@@ -234,13 +258,13 @@ export class Metadata {
       .prepare('select tag from metadata_tag_removals where change_id=?')
       .get(id)
     if (
-      (removal && current.tags.includes(removal.tag)) ||
-      !JSON.parse(change.tags).every((t) => current.tags.includes(t))
+      (removal && current.tags.includes(String(removal.tag))) ||
+      !(/** @type {string[]} */ (JSON.parse(change.tags)).every((t) => current.tags.includes(t)))
     )
       return { state: 'intent', uncertain: true }
     withTransaction(this.db, () => {
       const latest = this.db.prepare('select state from metadata_changes where id=?').get(id)
-      if (latest.state === 'done') return
+      if (latest?.state === 'done') return
       if (this.read(actor, change.resource).version !== change.base)
         throw new Error('Metadata version conflict')
       this.db

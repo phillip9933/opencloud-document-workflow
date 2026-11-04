@@ -30,9 +30,10 @@ const exact = (v: unknown, keys: string[]) => {
     Object.keys(v).sort().join(',') !== keys.sort().join(',')
   )
     throw new Error('Unexpected metadata fields')
+  return v as Record<string, unknown>
 }
-export function validateMetadataSchema(value: MetadataSchema): MetadataSchema {
-  exact(value, ['fields', 'tags'])
+export function validateMetadataSchema(input: unknown): MetadataSchema {
+  const value = exact(input, ['fields', 'tags'])
   if (
     !Array.isArray(value.fields) ||
     value.fields.length > 40 ||
@@ -41,17 +42,18 @@ export function validateMetadataSchema(value: MetadataSchema): MetadataSchema {
   )
     throw new Error('Too many metadata definitions')
   const ids = new Set<string>()
-  const fields = value.fields.map((f) => {
-    exact(f, ['id', 'label', 'type', 'aliases', 'choices'])
+  const fields = value.fields.map((input): FieldDefinition => {
+    const f = exact(input, ['id', 'label', 'type', 'aliases', 'choices'])
+    const id = str(f.id, 40)
     if (
-      !/^[a-z][a-z0-9_]{0,39}$/.test(f.id) ||
-      ids.has(f.id) ||
-      ['__proto__', 'constructor', 'prototype'].includes(f.id)
+      !/^[a-z][a-z0-9_]{0,39}$/.test(id) ||
+      ids.has(id) ||
+      ['__proto__', 'constructor', 'prototype'].includes(id)
     )
       throw new Error('Field IDs must be unique safe identifiers')
-    ids.add(f.id)
-    str(f.label)
-    if (!['text', 'number', 'date', 'choice'].includes(f.type))
+    ids.add(id)
+    const label = str(f.label)
+    if (f.type !== 'text' && f.type !== 'number' && f.type !== 'date' && f.type !== 'choice')
       throw new Error('Invalid field type')
     if (
       !Array.isArray(f.aliases) ||
@@ -60,24 +62,27 @@ export function validateMetadataSchema(value: MetadataSchema): MetadataSchema {
       f.choices.length > 50
     )
       throw new Error('Invalid extraction rules')
-    f.aliases.forEach((a) => str(a))
-    f.choices.forEach((a) => str(a))
+    const aliases = f.aliases.map((a: unknown) => str(a)),
+      choices = f.choices.map((a: unknown) => str(a))
     if (f.type === 'choice' && !f.choices.length) throw new Error('Choice fields need options')
-    return structuredClone(f)
+    return { id, label, type: f.type, aliases, choices }
   })
-  const tags = value.tags.map((t) => {
-    const hasMatch = Object.prototype.hasOwnProperty.call(t, 'match')
-    exact(t, hasMatch ? ['tag', 'terms', 'match'] : ['tag', 'terms'])
-    str(t.tag, 80)
+  const tags = value.tags.map((input): TagRule => {
+    const hasMatch = input != null && Object.prototype.hasOwnProperty.call(input, 'match')
+    const t = exact(input, hasMatch ? ['tag', 'terms', 'match'] : ['tag', 'terms'])
+    const tag = str(t.tag, 80)
     if (
-      t.tag !== t.tag.normalize('NFC') ||
+      tag !== tag.normalize('NFC') ||
       !Array.isArray(t.terms) ||
       t.terms.length > 30 ||
-      (hasMatch && !['substring', 'name'].includes(t.match!))
+      (hasMatch && t.match !== 'substring' && t.match !== 'name')
     )
       throw new Error('Invalid tag rule')
-    t.terms.forEach((a) => str(a))
-    return structuredClone(t)
+    return {
+      tag,
+      terms: t.terms.map((a: unknown) => str(a)),
+      ...(t.match === 'substring' || t.match === 'name' ? { match: t.match } : {})
+    }
   })
   if (new Set(tags.map((t) => t.tag)).size !== tags.length)
     throw new Error('Tag rules must be unique')
@@ -100,7 +105,7 @@ export function validateFieldValue(field: FieldDefinition, value: unknown): stri
 }
 export function validateValues(
   schema: MetadataSchema,
-  values: Record<string, unknown>
+  values: unknown
 ): Record<string, string | number> {
   if (
     !values ||
