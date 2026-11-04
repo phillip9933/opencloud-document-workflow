@@ -11,7 +11,7 @@ import { useInboxNavigation } from '../state/inbox-navigation'
 import { useLocale } from '../state/locale'
 import { computed, ref, watch, onBeforeUnmount, onMounted, defineAsyncComponent } from 'vue'
 import { useWorkspace } from '../state/workspace'
-import { pdfHash } from '../domain/source'
+import { useVerifiedPreview } from '../state/verified-preview'
 import { statusLabel as displayStatus } from '../domain/status'
 import { actions, createApproval, reviewDigest, validateManualActions } from '../domain/review'
 import { useRoute, useRouter } from '../state/navigation'
@@ -361,10 +361,13 @@ watch(
 onBeforeUnmount(() => {
   destinationGeneration++
 })
-const preview = ref<Blob | null>(null),
-  previewLoading = ref(false),
-  previewError = ref(''),
-  previewChanged = ref(false)
+const verifiedPreview = useVerifiedPreview()
+const {
+  data: preview,
+  busy: previewLoading,
+  error: previewError,
+  changed: previewChanged
+} = verifiedPreview
 const resolvedPath = ref<string | null>(null),
   resolvedSpace = ref<string | null>(null),
   resolvedTags = ref<string[] | null>(null)
@@ -383,7 +386,6 @@ const documentPath = computed(
     resolvedPath.value ??
     (usesFilingTarget.value ? planned.value?.target : active.value?.bundle.source.path)
 )
-let previewGeneration = 0
 const inInbox = computed(() => collectionPath().endsWith('/inbox'))
 const navigation = useInboxNavigation(
   computed(() => active.value?.bundle.source.resourceId),
@@ -483,58 +485,41 @@ watch(
 watch(selected, () => {
   verification.value = null
 })
-onBeforeUnmount(() => {
-  previewGeneration++
-})
 async function loadPreview() {
-  const version = ++previewGeneration
-  preview.value = null
-  previewError.value = ''
-  previewChanged.value = false
+  verifiedPreview.reset()
   resolvedPath.value = null
   resolvedSpace.value = null
   resolvedTags.value = null
-  if (!active.value || !connection.value) {
-    previewLoading.value = false
-    return
-  }
-  previewLoading.value = true
-  try {
-    const expected = active.value.bundle.source.sha256
-    const location =
-      job.value && ['done', 'conflict'].includes(job.value.decision || '')
-        ? await store.request('document-location', { id: job.value.id })
-        : null
-    const path = location?.path ?? documentPath.value
-    if (version !== previewGeneration) return
-    if (location) {
-      resolvedSpace.value = location.space
-      resolvedTags.value = Array.isArray(location.tags) ? location.tags : null
+  if (!active.value || !connection.value) return
+  const bundle = active.value.bundle
+  await verifiedPreview.load(
+    bundle.source.sha256,
+    async (current) => {
+      const location =
+        job.value && ['done', 'conflict'].includes(job.value.decision || '')
+          ? await store.request('document-location', { id: job.value.id })
+          : null
+      if (!current()) return null
+      const path = location?.path ?? documentPath.value
+      if (location) {
+        resolvedSpace.value = location.space
+        resolvedTags.value = Array.isArray(location.tags) ? location.tags : null
+      }
+      resolvedPath.value = path
+      if (bundle.manualReview?.reason === 'original') return null
+      return store.request('preview', {
+        path,
+        ...(documentSpace.value && documentSpace.value !== connection.value?.space
+          ? { documentSpace: documentSpace.value }
+          : {})
+      })
+    },
+    {
+      changed:
+        'This PDF changed after the suggestion was prepared. Prepare a fresh suggestion to review its current contents.',
+      failed: 'Preview failed'
     }
-    resolvedPath.value = path
-    if (active.value.bundle.manualReview?.reason === 'original') return
-    const blob = await store.request('preview', {
-      path,
-      ...(documentSpace.value && documentSpace.value !== connection.value?.space
-        ? { documentSpace: documentSpace.value }
-        : {})
-    })
-    if (version !== previewGeneration) return
-    const hash = await pdfHash(blob)
-    if (version !== previewGeneration) return
-    if (hash !== expected) {
-      previewChanged.value = true
-      throw new Error(
-        'This PDF changed after the suggestion was prepared. Prepare a fresh suggestion to review its current contents.'
-      )
-    }
-    preview.value = blob
-  } catch (e) {
-    if (version === previewGeneration)
-      previewError.value = e instanceof Error ? e.message : 'Preview failed'
-  } finally {
-    if (version === previewGeneration) previewLoading.value = false
-  }
+  )
 }
 watch(
   () =>

@@ -15,7 +15,7 @@ import { useWorkspace, withinInbox } from '../state/workspace'
 import type { MetadataSchema } from '../domain/metadata'
 import ProcessingIssue from '../components/ProcessingIssue.vue'
 import type { ProcessingIssueInfo } from '../domain/processing'
-import { pdfHash } from '../domain/source'
+import { useVerifiedPreview } from '../state/verified-preview'
 type Suggestion = { value: string | number; evidence: { page: number; quote: string }[] }
 interface Detail {
   trash?: { id: string } | null
@@ -90,7 +90,6 @@ const store = useWorkspace(),
   saveNeedsCheck = ref(false)
 const tagRemovalState = ref({ busy: false, uncertain: false })
 const preparing = ref(false),
-  previewError = ref(''),
   trashUncertain = ref(false),
   fileTrashState = ref({ busy: false, uncertain: false })
 const canTrash = computed(
@@ -103,12 +102,11 @@ async function fileTrashed() {
   if (props.embedded) emit('changed')
   else await router.push('/document-workflow/documents')
 }
-const preview = ref<Blob | null>(null),
-  previewOpen = ref(true),
-  previewBusy = ref(false)
+const verifiedPreview = useVerifiedPreview()
+const { data: preview, busy: previewBusy, error: previewError } = verifiedPreview
+const previewOpen = ref(true)
 let generation = 0,
-  alive = true,
-  previewGeneration = 0
+  alive = true
 const scope = () =>
   store.connection.value &&
   JSON.stringify([
@@ -271,10 +269,7 @@ async function load({ keepDraft = false } = {}) {
     if (!alive || version !== generation) return false
     if (scope() !== pin) throw new Error('The workspace changed. Reopen this document.')
     if (data.value?.source.sha256 !== detail.source.sha256) {
-      previewGeneration++
-      preview.value = null
-      previewBusy.value = false
-      previewError.value = ''
+      verifiedPreview.reset()
     }
     data.value = detail
     fileTrashState.value.uncertain = !!detail.trash
@@ -314,11 +309,8 @@ watch(
     data.value = null
     message.value = ''
     trashUncertain.value = false
-    preview.value = null
-    previewError.value = ''
+    verifiedPreview.reset()
     previewOpen.value = true
-    previewBusy.value = false
-    previewGeneration++
     void load()
   },
   { immediate: true }
@@ -326,7 +318,6 @@ watch(
 onBeforeUnmount(() => {
   alive = false
   generation++
-  previewGeneration++
 })
 function startEdit() {
   values.value = savedValues()
@@ -489,25 +480,21 @@ function useTag(value: string | number) {
 async function loadPreview() {
   if (preview.value || previewBusy.value || !data.value) return
   if (!/\.pdf$/i.test(data.value.source.path)) return
-  const version = ++previewGeneration,
-    source = data.value.source
-  previewBusy.value = true
-  try {
-    const blob = await store.request('preview', {
-      path: source.path,
-      ...(typeof detailRoute.value.query.space === 'string'
-        ? { documentSpace: detailRoute.value.query.space }
-        : {})
-    })
-    if ((await pdfHash(blob)) !== source.sha256)
-      throw new Error('The PDF changed. Reload document details before opening it.')
-    if (alive && version === previewGeneration) preview.value = blob
-  } catch (e) {
-    if (alive && version === previewGeneration)
-      previewError.value = e instanceof Error ? e.message : 'PDF unavailable'
-  } finally {
-    if (alive && version === previewGeneration) previewBusy.value = false
-  }
+  const source = data.value.source
+  await verifiedPreview.load(
+    source.sha256,
+    () =>
+      store.request('preview', {
+        path: source.path,
+        ...(typeof detailRoute.value.query.space === 'string'
+          ? { documentSpace: detailRoute.value.query.space }
+          : {})
+      }),
+    {
+      changed: 'The PDF changed. Reload document details before opening it.',
+      failed: 'PDF unavailable'
+    }
+  )
 }
 const retryMonitor = useRetryMonitor({
   key: computed(() =>
