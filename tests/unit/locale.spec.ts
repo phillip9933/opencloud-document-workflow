@@ -148,30 +148,26 @@ it('changes language around an unsaved document edit without discarding values o
     space: 'test',
     name: 'Test'
   }
-  const request = vi
-    .spyOn(store, 'request')
-    .mockImplementation(async (op) =>
-      op === 'preview'
-        ? new Blob(['pdf'])
-        : {
-            source: {
-              path: 'Inbox/test.pdf',
-              resourceId: 'id',
-              sha256: 'a'.repeat(64),
-              etag: 'v1',
-              tags: ['Keep']
-            },
-            schema: {
-              fields: [
-                { id: 'invoice', label: '請求番号', type: 'text', aliases: [], choices: [] }
-              ],
-              tags: []
-            },
-            record: { version: 1, fields: { invoice: 'INV-42' } },
-            suggestions: { fields: {}, tags: [] },
-            pending: []
-          }
-    )
+  const request = vi.spyOn(store, 'request').mockImplementation(async (op) =>
+    op === 'preview'
+      ? new Blob(['pdf'])
+      : {
+          source: {
+            path: 'Inbox/test.pdf',
+            resourceId: 'id',
+            sha256: 'a'.repeat(64),
+            etag: 'v1',
+            tags: ['Keep']
+          },
+          schema: {
+            fields: [{ id: 'invoice', label: '請求番号', type: 'text', aliases: [], choices: [] }],
+            tags: []
+          },
+          record: { version: 1, fields: { invoice: 'INV-42' } },
+          suggestions: { fields: {}, tags: [] },
+          pending: []
+        }
+  )
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/document-workflow/details', component: DocumentDetails }]

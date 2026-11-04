@@ -107,17 +107,15 @@ it('does not let a late poll replace the operation the user just opened', async 
 
 it('opens the fresh review produced by a completed preparation instead of its older source details', async () => {
   const { wrapper, request, store, router, finish } = await setup()
-  const open = vi
-    .spyOn(store, 'openJob')
-    .mockResolvedValue({
-      id: 'prepared-first',
-      source: samples()[0]!.source,
-      state: 'needs_review',
-      decision: null,
-      bundle: null,
-      updated: '',
-      error: null
-    })
+  const open = vi.spyOn(store, 'openJob').mockResolvedValue({
+    id: 'prepared-first',
+    source: samples()[0]!.source,
+    state: 'needs_review',
+    decision: null,
+    bundle: null,
+    updated: '',
+    error: null
+  })
   try {
     finish()
     await wrapper.findAll('li button')[0]!.trigger('click')

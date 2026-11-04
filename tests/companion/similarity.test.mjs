@@ -147,14 +147,12 @@ test('a fresh OCR review invalidates identifier hints even when the PDF bytes ar
     f.insert('b')
     const old = f.j.db.prepare("select * from proposals where id='b'").get(),
       input = JSON.parse(old.input)
-    f.j.db
-      .prepare("update proposals set input=? where id='b'")
-      .run(
-        JSON.stringify({
-          ...input,
-          pages: ['Earlier OCR had no readable identifiers. '.repeat(12)]
-        })
-      )
+    f.j.db.prepare("update proposals set input=? where id='b'").run(
+      JSON.stringify({
+        ...input,
+        pages: ['Earlier OCR had no readable identifiers. '.repeat(12)]
+      })
+    )
     assert.deepEqual(await f.service.forJob(f.actor, f.api, 'a'), [])
     f.j.db
       .prepare(

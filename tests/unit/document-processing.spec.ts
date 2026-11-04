@@ -132,34 +132,32 @@ it('keeps a document field draft while external processing changes stage and sto
     sha256: 'a'.repeat(64),
     tags: [] as string[]
   }
-  const request = vi
-    .spyOn(store, 'request')
-    .mockImplementation(async (op) =>
-      op === 'document-processing'
+  const request = vi.spyOn(store, 'request').mockImplementation(async (op) =>
+    op === 'document-processing'
+      ? {
+          source,
+          state,
+          stage,
+          processingIssue:
+            state === 'failed'
+              ? { message: 'Processing timed out.', nextStep: 'Retry.', retryable: false }
+              : null
+        }
+      : op === 'metadata'
         ? {
             source,
-            state,
-            stage,
-            processingIssue:
-              state === 'failed'
-                ? { message: 'Processing timed out.', nextStep: 'Retry.', retryable: false }
-                : null
+            schema: {
+              fields: [{ id: 'note', label: 'Note', type: 'text', aliases: [], choices: [] }],
+              tags: []
+            },
+            record: { version: 0, fields: {} },
+            suggestions: { fields: {}, tags: [] },
+            pending: []
           }
-        : op === 'metadata'
-          ? {
-              source,
-              schema: {
-                fields: [{ id: 'note', label: 'Note', type: 'text', aliases: [], choices: [] }],
-                tags: []
-              },
-              record: { version: 0, fields: {} },
-              suggestions: { fields: {}, tags: [] },
-              pending: []
-            }
-          : op === 'preview'
-            ? new Blob(['synthetic'])
-            : {}
-    )
+        : op === 'preview'
+          ? new Blob(['synthetic'])
+          : {}
+  )
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/document-workflow/details', component: DocumentDetails }]

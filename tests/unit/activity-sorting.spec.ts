@@ -32,22 +32,20 @@ async function setup() {
       ]
     })
   await router.push('/')
-  const request = vi
-    .spyOn(store, 'request')
-    .mockImplementation(async (op, body: any) =>
-      op === 'intake'
-        ? {
-            queue: body?.cursor ? [rows[2]] : rows.slice(0, 2),
-            nextCursor: body?.cursor ? null : 'next',
-            configuration: { enabled: true },
-            paused: false
-          }
-        : op === 'document-location'
-          ? { path: 'Docs/Filed/zeta.pdf', resourceId: 'r-a', etag: 'current', space: 'library' }
-          : op === 'operation-start'
-            ? { id: 'fresh-operation' }
-            : { affected: 1 }
-    )
+  const request = vi.spyOn(store, 'request').mockImplementation(async (op, body: any) =>
+    op === 'intake'
+      ? {
+          queue: body?.cursor ? [rows[2]] : rows.slice(0, 2),
+          nextCursor: body?.cursor ? null : 'next',
+          configuration: { enabled: true },
+          paused: false
+        }
+      : op === 'document-location'
+        ? { path: 'Docs/Filed/zeta.pdf', resourceId: 'r-a', etag: 'current', space: 'library' }
+        : op === 'operation-start'
+          ? { id: 'fresh-operation' }
+          : { affected: 1 }
+  )
   const w = mount(IngestionHistory, {
     global: { plugins: [router], provide: { [workspaceKey as symbol]: store } }
   })

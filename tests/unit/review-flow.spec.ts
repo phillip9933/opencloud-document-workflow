@@ -223,19 +223,17 @@ it('holds approval when a read-only folder check finds an occupied destination',
   ]
   vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
   vi.spyOn(store, 'refresh').mockResolvedValue()
-  const request = vi
-    .spyOn(store, 'request')
-    .mockImplementation(async (operation) =>
-      operation === 'preview'
-        ? new Blob(['pdf'])
-        : {
-            files: [
-              {
-                path: 'Filed/Utilities/Electricity/2026-10-29 Example Electricity Company Electricity invoice.pdf'
-              }
-            ]
-          }
-    )
+  const request = vi.spyOn(store, 'request').mockImplementation(async (operation) =>
+    operation === 'preview'
+      ? new Blob(['pdf'])
+      : {
+          files: [
+            {
+              path: 'Filed/Utilities/Electricity/2026-10-29 Example Electricity Company Electricity invoice.pdf'
+            }
+          ]
+        }
+  )
   const w = await mountReview(store)
   await flushPromises()
   expect(w.text()).toContain('Destination already exists')

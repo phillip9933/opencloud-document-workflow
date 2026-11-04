@@ -78,21 +78,18 @@ export class Workflow {
         after?.id ?? null,
         limit + 1
       )
-    const jobs = rows
-        .slice(0, limit)
-        .map((j) => ({
-          ...j,
-          source: JSON.parse(j.sourceInput).source,
-          sourceInput: undefined,
-          conversion:
-            this.conversions?.association(actor, JSON.parse(j.sourceInput).source.resourceId) ??
-            null,
-          approval: j.approval ? JSON.parse(j.approval) : null,
-          workflowSpace: actor.space,
-          automation: this.automation?.statusFor(actor, j.id) ?? null,
-          bundle: j.result ? JSON.parse(j.result) : null,
-          result: undefined
-        })),
+    const jobs = rows.slice(0, limit).map((j) => ({
+        ...j,
+        source: JSON.parse(j.sourceInput).source,
+        sourceInput: undefined,
+        conversion:
+          this.conversions?.association(actor, JSON.parse(j.sourceInput).source.resourceId) ?? null,
+        approval: j.approval ? JSON.parse(j.approval) : null,
+        workflowSpace: actor.space,
+        automation: this.automation?.statusFor(actor, j.id) ?? null,
+        bundle: j.result ? JSON.parse(j.result) : null,
+        result: undefined
+      })),
       last = jobs.at(-1)
     return {
       jobs,

@@ -20,44 +20,42 @@ async function setup(path = '/document-workflow/settings/processing') {
     { id: 'destination', name: 'Archive Space', type: 'project' }
   ]
   vi.spyOn(store, 'loadSpaces').mockResolvedValue(store.spaces.value)
-  const request = vi
-    .spyOn(store, 'request')
-    .mockImplementation(async (op) =>
-      op === 'ocr-languages'
-        ? { installed: ['eng', 'jpn'], selected: ['eng'] }
-        : op === 'filing-settings'
-          ? {
-              rules: defaultFilingRules(),
-              destinationSpace: 'destination',
-              limits: {
-                maxMiB: 100,
-                maxPages: 1000,
-                maxCharacters: 1000000,
-                documentsPerCycle: 20,
-                contextTokens: 32768
-              }
+  const request = vi.spyOn(store, 'request').mockImplementation(async (op) =>
+    op === 'ocr-languages'
+      ? { installed: ['eng', 'jpn'], selected: ['eng'] }
+      : op === 'filing-settings'
+        ? {
+            rules: defaultFilingRules(),
+            destinationSpace: 'destination',
+            limits: {
+              maxMiB: 100,
+              maxPages: 1000,
+              maxCharacters: 1000000,
+              documentsPerCycle: 20,
+              contextTokens: 32768
             }
-          : op === 'intake'
+          }
+        : op === 'intake'
+          ? {
+              configuration: {
+                folder: 'Inbox',
+                enabled: false,
+                recursive: true,
+                intervalSeconds: 30,
+                settleSeconds: 10,
+                cloudConsent: false
+              },
+              duplicateAction: 'keep',
+              destinationSpace: 'destination',
+              destinationRoot: 'Filed'
+            }
+          : op === 'reliability'
             ? {
-                configuration: {
-                  folder: 'Inbox',
-                  enabled: false,
-                  recursive: true,
-                  intervalSeconds: 30,
-                  settleSeconds: 10,
-                  cloudConsent: false
-                },
-                duplicateAction: 'keep',
-                destinationSpace: 'destination',
-                destinationRoot: 'Filed'
+                backgroundSession: { available: true, configured: false, method: 'app_token' },
+                backups: { configured: true, state: 'ready' }
               }
-            : op === 'reliability'
-              ? {
-                  backgroundSession: { available: true, configured: false, method: 'app_token' },
-                  backups: { configured: true, state: 'ready' }
-                }
-              : {}
-    )
+            : {}
+  )
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/document-workflow/settings/:section?', component: Settings }]
@@ -297,22 +295,20 @@ it('refreshes backup status without overwriting an unsaved backup destination', 
     mode: 'live',
     name: 'Tester'
   }
-  const request = vi
-      .spyOn(store, 'request')
-      .mockResolvedValue({
-        backups: {
-          configured: true,
-          canManage: true,
-          state: 'ready',
-          settings: {
-            enabled: true,
-            intervalMinutes: 360,
-            maxSnapshots: 28,
-            maxMiB: 1024,
-            destination: { space: 'personal', folder: 'Backups/Document Workflow' }
-          }
+  const request = vi.spyOn(store, 'request').mockResolvedValue({
+      backups: {
+        configured: true,
+        canManage: true,
+        state: 'ready',
+        settings: {
+          enabled: true,
+          intervalMinutes: 360,
+          maxSnapshots: 28,
+          maxMiB: 1024,
+          destination: { space: 'personal', folder: 'Backups/Document Workflow' }
         }
-      }),
+      }
+    }),
     w = mount(BackupSettings, { global: { provide: { [workspaceKey as symbol]: store } } })
   try {
     await flushPromises()

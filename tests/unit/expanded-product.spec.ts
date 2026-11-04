@@ -19,22 +19,20 @@ function workspace() {
 }
 it('saves edited filing/capacity settings only on explicit submit and does not call a provider', async () => {
   const store = workspace(),
-    request = vi
-      .spyOn(store, 'request')
-      .mockImplementation(async (operation) =>
-        operation === 'filing-settings'
-          ? {
-              rules: defaultFilingRules(),
-              limits: {
-                maxMiB: 100,
-                maxPages: 1000,
-                maxCharacters: 1000000,
-                contextTokens: 32768,
-                documentsPerCycle: 20
-              }
+    request = vi.spyOn(store, 'request').mockImplementation(async (operation) =>
+      operation === 'filing-settings'
+        ? {
+            rules: defaultFilingRules(),
+            limits: {
+              maxMiB: 100,
+              maxPages: 1000,
+              maxCharacters: 1000000,
+              contextTokens: 32768,
+              documentsPerCycle: 20
             }
-          : {}
-      )
+          }
+        : {}
+    )
   const wrapper = mount(FilingSettings, {
     global: { provide: { [workspaceKey as symbol]: store } }
   })
@@ -151,22 +149,20 @@ it('navigates to the registered filing and background settings pages without los
 it('saves category-specific year patterns and removes empty overrides without changing inherited rules', async () => {
   const store = workspace(),
     original = defaultFilingRules(),
-    request = vi
-      .spyOn(store, 'request')
-      .mockImplementation(async (operation) =>
-        operation === 'filing-settings'
-          ? {
-              rules: structuredClone(original),
-              limits: {
-                maxMiB: 100,
-                maxPages: 1000,
-                maxCharacters: 1000000,
-                contextTokens: 32768,
-                documentsPerCycle: 20
-              }
+    request = vi.spyOn(store, 'request').mockImplementation(async (operation) =>
+      operation === 'filing-settings'
+        ? {
+            rules: structuredClone(original),
+            limits: {
+              maxMiB: 100,
+              maxPages: 1000,
+              maxCharacters: 1000000,
+              contextTokens: 32768,
+              documentsPerCycle: 20
             }
-          : {}
-      )
+          }
+        : {}
+    )
   const wrapper = mount(FilingSettings, {
     global: { provide: { [workspaceKey as symbol]: store } }
   })

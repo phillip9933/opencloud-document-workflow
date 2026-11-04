@@ -13,21 +13,19 @@ it('loads recorded results on expansion without replaying processing actions', a
     mode: 'demo',
     name: 'Fixture'
   }
-  const request = vi
-      .spyOn(store, 'request')
-      .mockResolvedValue({
-        document: { attempts: 2 },
-        attempts: [
-          {
-            id: 'review',
-            kind: 'prepare',
-            state: 'needs_details',
-            created: '2026-11-04T00:00:00Z',
-            result: { manualReview: { reason: 'rules' } }
-          }
-        ],
-        events: []
-      }),
+  const request = vi.spyOn(store, 'request').mockResolvedValue({
+      document: { attempts: 2 },
+      attempts: [
+        {
+          id: 'review',
+          kind: 'prepare',
+          state: 'needs_details',
+          created: '2026-11-04T00:00:00Z',
+          result: { manualReview: { reason: 'rules' } }
+        }
+      ],
+      events: []
+    }),
     w = mount(ProcessingAttempts, {
       props: { id: 'queue-one' },
       global: { provide: { [workspaceKey as symbol]: store } }

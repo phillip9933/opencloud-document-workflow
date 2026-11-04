@@ -258,19 +258,17 @@ it('prepares a fresh review from the located canonical resource after a filing c
 })
 it('holds filed-document metadata editing if another resource replaced the recorded path', async () => {
   const { store, job } = fixture()
-  const request = vi
-    .spyOn(store, 'request')
-    .mockImplementation(async (op) =>
-      op === 'job'
-        ? { job }
-        : {
-            source: { path: 'Filed/checked.pdf', resourceId: 'replacement' },
-            schema: { fields: [], tags: [] },
-            record: { version: 0, fields: {} },
-            suggestions: { fields: {}, tags: [] },
-            pending: []
-          }
-    )
+  const request = vi.spyOn(store, 'request').mockImplementation(async (op) =>
+    op === 'job'
+      ? { job }
+      : {
+          source: { path: 'Filed/checked.pdf', resourceId: 'replacement' },
+          schema: { fields: [], tags: [] },
+          record: { version: 0, fields: {} },
+          suggestions: { fields: {}, tags: [] },
+          pending: []
+        }
+  )
   const { wrapper: w } = await mounted(
     DocumentDetails,
     store,
@@ -377,20 +375,18 @@ it('offers reprocessing for a filed review and pins its current location without
     vi.fn(async () => Response.json({ job }))
   )
   const prepare = vi.spyOn(store, 'prepareDocument').mockResolvedValue({ id: 'new-review', bundle })
-  const request = vi
-    .spyOn(store, 'request')
-    .mockImplementation(async (op) =>
-      op === 'document-location'
-        ? {
-            path: 'Filed/checked.pdf',
-            space: 'destination',
-            resourceId: 'current-resource',
-            etag: 'current-version'
-          }
-        : op === 'preview'
-          ? new Blob(['pdf'])
-          : { files: [] }
-    )
+  const request = vi.spyOn(store, 'request').mockImplementation(async (op) =>
+    op === 'document-location'
+      ? {
+          path: 'Filed/checked.pdf',
+          space: 'destination',
+          resourceId: 'current-resource',
+          etag: 'current-version'
+        }
+      : op === 'preview'
+        ? new Blob(['pdf'])
+        : { files: [] }
+  )
   const { wrapper: w } = await mounted(
     ReviewInbox,
     store,

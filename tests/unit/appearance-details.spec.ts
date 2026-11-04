@@ -368,12 +368,10 @@ it('loads background access and backup status separately on direct Settings relo
       name: 'Tester'
     }
   })
-  const request = vi
-    .spyOn(store, 'request')
-    .mockResolvedValue({
-      backgroundSession: { configured: false, state: 'not_configured' },
-      backups: { configured: true, state: 'ready', lastSuccess: 1 }
-    })
+  const request = vi.spyOn(store, 'request').mockResolvedValue({
+    backgroundSession: { configured: false, state: 'not_configured' },
+    backups: { configured: true, state: 'ready', lastSuccess: 1 }
+  })
   const { default: Reliability } = await import('../../src/components/ReliabilityStatus.vue')
   const w = mount(Reliability, { global: { provide: { [workspaceKey as symbol]: store } } })
   await flushPromises()

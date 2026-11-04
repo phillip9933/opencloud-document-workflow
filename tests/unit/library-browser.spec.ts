@@ -280,15 +280,13 @@ it('updates a confirmed document in place without re-indexing folders and refres
     await button(s.w, 'registration.pdf').trigger('click')
     await flushPromises()
     const n = s.request.mock.calls.length
-    s.w
-      .findComponent(Details)
-      .vm.$emit('changed', {
-        path: 'Docs/Vehicles/registration.pdf',
-        resourceId: 'Docs/Vehicles/registration.pdf',
-        etag: 'v1',
-        tags: ['Alex'],
-        fields: { number: 'AB123' }
-      })
+    s.w.findComponent(Details).vm.$emit('changed', {
+      path: 'Docs/Vehicles/registration.pdf',
+      resourceId: 'Docs/Vehicles/registration.pdf',
+      etag: 'v1',
+      tags: ['Alex'],
+      fields: { number: 'AB123' }
+    })
     await flushPromises()
     expect(s.request).toHaveBeenCalledTimes(n)
     expect(s.w.find('.test-editor').exists()).toBe(true)

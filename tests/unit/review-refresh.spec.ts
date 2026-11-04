@@ -31,15 +31,13 @@ it('refreshes new background reviews on entry and preserves the selected resourc
             url.endsWith('/status')
               ? {
                   actor: store.connection.value,
-                  jobs: [...bundles]
-                    .reverse()
-                    .map((bundle, i) => ({
-                      id: String(i),
-                      source: bundle.source,
-                      state: 'needs_review',
-                      decision: null as null,
-                      bundle
-                    })),
+                  jobs: [...bundles].reverse().map((bundle, i) => ({
+                    id: String(i),
+                    source: bundle.source,
+                    state: 'needs_review',
+                    decision: null as null,
+                    bundle
+                  })),
                   preferences: { policy: defaultPolicy(), ai: defaultAIConfig() }
                 }
               : url.endsWith('/intake')

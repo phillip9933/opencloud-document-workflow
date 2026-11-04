@@ -34,24 +34,22 @@ function setup(override?: Record<string, unknown>, response: Record<string, unkn
       attempts: 3,
       job: null as string | null
     }
-  const request = vi
-    .spyOn(store, 'request')
-    .mockImplementation(async (op, body: any) =>
-      op === 'intake'
-        ? {
-            queue: body.cursor ? [row('second')] : [row('first')],
-            nextCursor: body.cursor ? 'third-page' : 'next-page',
-            configuration: { enabled: true },
-            paused: false,
-            summary,
-            health: { state: 'ready' },
-            sessionAttached: true,
-            ...response
-          }
-        : op === 'intake-control'
-          ? { affected: 20 }
-          : {}
-    )
+  const request = vi.spyOn(store, 'request').mockImplementation(async (op, body: any) =>
+    op === 'intake'
+      ? {
+          queue: body.cursor ? [row('second')] : [row('first')],
+          nextCursor: body.cursor ? 'third-page' : 'next-page',
+          configuration: { enabled: true },
+          paused: false,
+          summary,
+          health: { state: 'ready' },
+          sessionAttached: true,
+          ...response
+        }
+      : op === 'intake-control'
+        ? { affected: 20 }
+        : {}
+  )
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/', component: IngestionHistory }]

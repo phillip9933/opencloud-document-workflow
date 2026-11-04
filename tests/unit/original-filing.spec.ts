@@ -110,21 +110,19 @@ it('accepts an explicit same-format destination on a native review without inven
   ]
   vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
   vi.spyOn(store, 'refresh').mockResolvedValue()
-  const request = vi
-    .spyOn(store, 'request')
-    .mockImplementation(async (op) =>
-      op === 'metadata'
-        ? {
-            source: { ...source, tags: [] },
-            schema: { fields: [], tags: [] },
-            record: { version: 0, fields: {} },
-            pending: [],
-            suggestions: { fields: {}, tags: [] }
-          }
-        : op === 'tag-options'
-          ? { tags: [] }
-          : { files: [] }
-    )
+  const request = vi.spyOn(store, 'request').mockImplementation(async (op) =>
+    op === 'metadata'
+      ? {
+          source: { ...source, tags: [] },
+          schema: { fields: [], tags: [] },
+          record: { version: 0, fields: {} },
+          pending: [],
+          suggestions: { fields: {}, tags: [] }
+        }
+      : op === 'tag-options'
+        ? { tags: [] }
+        : { files: [] }
+  )
   const { w } = await mounted(ReviewInbox, store, '/document-workflow/inbox')
   try {
     await vi.waitFor(() => expect(w.find('#manual-target').exists()).toBe(true))
