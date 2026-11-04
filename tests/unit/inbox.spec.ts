@@ -1,73 +1,565 @@
-import {mount,flushPromises} from '@vue/test-utils'
-import {createRouter,createMemoryHistory} from 'vue-router'
+import { mount, flushPromises } from '@vue/test-utils'
+import { createRouter, createMemoryHistory } from 'vue-router'
 import WorkspaceShell from '../../src/components/WorkspaceShell.vue'
 import Inbox from '../../src/views/Inbox.vue'
 import ReviewInbox from '../../src/views/ReviewInbox.vue'
-import {workspaceChildren} from '../../src/routes'
-import {createWorkspace,workspaceKey,type DraftJob} from '../../src/state/workspace'
-import {samples} from '../../src/domain/samples'
-import {validateBundle,inspectProposal} from '../../src/domain/review'
-import {defaultAIConfig} from '../../src/domain/ai'
-afterEach(()=>vi.unstubAllGlobals())
-it('hides the previous field warnings during fresh preparation and restores them on request failure',async()=>{
- const store=createWorkspace(),sample=samples()[0]!,bundle={...sample,proposal:null as null,manualReview:{reason:'date' as const}}
- const {proposal:original,...input}=sample,raw=structuredClone(original!);raw.date.value='2099-12-31'
- const job:DraftJob={updated:'2026-11-01',error:null,id:'manual-pending',source:bundle.source,bundle,state:'needs_details',decision:null,preparationReview:inspectProposal(input,raw)}
- store.connection.value={...bundle.source,mode:'demo',name:'Test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[job]
- vi.spyOn(store,'jobFor').mockReturnValue(job);vi.spyOn(store,'openJob').mockResolvedValue(job);vi.spyOn(store,'request').mockImplementation(async op=>op==='document-location'?bundle.source:op==='preview'?new Blob(['synthetic'],{type:'application/pdf'}):op==='files'?{files:[]}:{} )
- let reject!:(error:Error)=>void;vi.spyOn(store,'prepareDocument').mockImplementation(()=>new Promise((_resolve,no)=>{reject=no}))
- const router=createRouter({history:createMemoryHistory(),routes:[{path:'/document-workflow/inbox',component:ReviewInbox}]});await router.push('/document-workflow/inbox?job=manual-pending')
- const w=mount(ReviewInbox,{global:{plugins:[router],provide:{[workspaceKey as symbol]:store}}})
- try{await flushPromises();expect(w.text()).toContain('does not match its quoted text');await w.findAll('button').find(b=>b.text()==='Reprocess')!.trigger('click');await flushPromises();expect(w.text()).toContain('Reprocessing…');expect(w.text()).not.toContain('does not match its quoted text');reject(new Error('Provider temporarily unavailable'));await flushPromises();expect(w.text()).toContain('Provider temporarily unavailable');expect(w.text()).toContain('does not match its quoted text')}finally{w.unmount()}
+import { workspaceChildren } from '../../src/routes'
+import { createWorkspace, workspaceKey, type DraftJob } from '../../src/state/workspace'
+import { samples } from '../../src/domain/samples'
+import { validateBundle, inspectProposal } from '../../src/domain/review'
+import { defaultAIConfig } from '../../src/domain/ai'
+afterEach(() => vi.unstubAllGlobals())
+it('hides the previous field warnings during fresh preparation and restores them on request failure', async () => {
+  const store = createWorkspace(),
+    sample = samples()[0]!,
+    bundle = { ...sample, proposal: null as null, manualReview: { reason: 'date' as const } }
+  const { proposal: original, ...input } = sample,
+    raw = structuredClone(original!)
+  raw.date.value = '2099-12-31'
+  const job: DraftJob = {
+    updated: '2026-11-01',
+    error: null,
+    id: 'manual-pending',
+    source: bundle.source,
+    bundle,
+    state: 'needs_details',
+    decision: null,
+    preparationReview: inspectProposal(input, raw)
+  }
+  store.connection.value = { ...bundle.source, mode: 'demo', name: 'Test' }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [job]
+  vi.spyOn(store, 'jobFor').mockReturnValue(job)
+  vi.spyOn(store, 'openJob').mockResolvedValue(job)
+  vi.spyOn(store, 'request').mockImplementation(async (op) =>
+    op === 'document-location'
+      ? bundle.source
+      : op === 'preview'
+        ? new Blob(['synthetic'], { type: 'application/pdf' })
+        : op === 'files'
+          ? { files: [] }
+          : {}
+  )
+  let reject!: (error: Error) => void
+  vi.spyOn(store, 'prepareDocument').mockImplementation(
+    () =>
+      new Promise((_resolve, no) => {
+        reject = no
+      })
+  )
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/document-workflow/inbox', component: ReviewInbox }]
+  })
+  await router.push('/document-workflow/inbox?job=manual-pending')
+  const w = mount(ReviewInbox, {
+    global: { plugins: [router], provide: { [workspaceKey as symbol]: store } }
+  })
+  try {
+    await flushPromises()
+    expect(w.text()).toContain('does not match its quoted text')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Reprocess')!
+      .trigger('click')
+    await flushPromises()
+    expect(w.text()).toContain('Reprocessing…')
+    expect(w.text()).not.toContain('does not match its quoted text')
+    reject(new Error('Provider temporarily unavailable'))
+    await flushPromises()
+    expect(w.text()).toContain('Provider temporarily unavailable')
+    expect(w.text()).toContain('does not match its quoted text')
+  } finally {
+    w.unmount()
+  }
 })
-async function shell(path='/document-workflow/inbox'){
- let preferences:any;const ai=defaultAIConfig();ai.local.model='fixture';for(const task of ['facts','filing','tags'] as const)ai.tasks[task]='local'
- const calls:any[]=[];vi.stubGlobal('fetch',vi.fn(async(url:string,options:any)=>{const operation=url.split('/').pop(),body=JSON.parse(options.body);if(operation==='preferences')preferences=body.configuration;calls.push({operation,body});return Response.json(operation==='spaces'?{spaces:[{id:'test',name:'Test'}]}:operation==='status'?{actor:{mode:'demo',name:'Test'},jobs:[],preferences:preferences??{ai,policy:{ocr:'suggest',rename:'suggest',move:'suggest',tags:'suggest',fields:'suggest',aiInput:'suggest',aiOutput:'suggest'}}}:operation==='intake'?{configured:true,configuration:{folder:'Inbox',enabled:false},queue:[]}:operation==='documents'?{documents:[],nextCursor:null}:operation==='saved-views'?{views:[]}:operation==='files'?{files:[]}:{} )}))
- const router=createRouter({history:createMemoryHistory(),routes:[{path:'/document-workflow',component:WorkspaceShell,children:workspaceChildren}]});await router.push(path);await router.isReady();const w=mount({template:'<RouterView />'},{global:{plugins:[router]}});await flushPromises();return{w,router,calls}
+async function shell(path = '/document-workflow/inbox') {
+  let preferences: any
+  const ai = defaultAIConfig()
+  ai.local.model = 'fixture'
+  for (const task of ['facts', 'filing', 'tags'] as const) ai.tasks[task] = 'local'
+  const calls: any[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, options: any) => {
+      const operation = url.split('/').pop(),
+        body = JSON.parse(options.body)
+      if (operation === 'preferences') preferences = body.configuration
+      calls.push({ operation, body })
+      return Response.json(
+        operation === 'spaces'
+          ? { spaces: [{ id: 'test', name: 'Test' }] }
+          : operation === 'status'
+            ? {
+                actor: { mode: 'demo', name: 'Test' },
+                jobs: [],
+                preferences: preferences ?? {
+                  ai,
+                  policy: {
+                    ocr: 'suggest',
+                    rename: 'suggest',
+                    move: 'suggest',
+                    tags: 'suggest',
+                    fields: 'suggest',
+                    aiInput: 'suggest',
+                    aiOutput: 'suggest'
+                  }
+                }
+              }
+            : operation === 'intake'
+              ? { configured: true, configuration: { folder: 'Inbox', enabled: false }, queue: [] }
+              : operation === 'documents'
+                ? { documents: [], nextCursor: null }
+                : operation === 'saved-views'
+                  ? { views: [] }
+                  : operation === 'files'
+                    ? { files: [] }
+                    : {}
+      )
+    })
+  )
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/document-workflow', component: WorkspaceShell, children: workspaceChildren }]
+  })
+  await router.push(path)
+  await router.isReady()
+  const w = mount({ template: '<RouterView />' }, { global: { plugins: [router] } })
+  await flushPromises()
+  return { w, router, calls }
 }
-it('has one inbox destination and keeps ingestion setup in Settings',async()=>{
- const {w,router}=await shell();expect(w.get('.dw-sidebar nav').text()).toBe('Inbox Documents Activity Settings');expect(w.find('.intake-settings').exists()).toBe(false);await router.push('/document-workflow/intake');await flushPromises();expect(router.currentRoute.value.path).toBe('/document-workflow/settings/ingestion');expect(w.get('#intake-folder').element).toHaveProperty('value','Inbox');expect(w.find('table').exists()).toBe(false);w.unmount()
+it('has one inbox destination and keeps ingestion setup in Settings', async () => {
+  const { w, router } = await shell()
+  expect(w.get('.dw-sidebar nav').text()).toBe('Inbox Documents Activity Settings')
+  expect(w.find('.intake-settings').exists()).toBe(false)
+  await router.push('/document-workflow/intake')
+  await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/document-workflow/settings/ingestion')
+  expect(w.get('#intake-folder').element).toHaveProperty('value', 'Inbox')
+  expect(w.find('table').exists()).toBe(false)
+  w.unmount()
 })
-it('keeps model choices across navigation without contacting a provider',async()=>{
- const {w,router,calls}=await shell('/document-workflow/settings/ai');await w.get('#ai-provider').setValue('custom');await w.get('#local-model').setValue('chosen-model');await w.get('[aria-label="Model for Extract document facts"]').setValue('task-model');await w.get('form').trigger('submit');await flushPromises();await router.push('/document-workflow/documents');await router.push('/document-workflow/settings/ai');await flushPromises();expect(w.get('#local-model').element).toHaveProperty('value','chosen-model');expect(w.get('[aria-label="Model for Extract document facts"]').element).toHaveProperty('value','task-model');expect(calls.some(c=>['prepare','models','approve','apply'].includes(c.operation))).toBe(false);w.unmount()
+it('keeps model choices across navigation without contacting a provider', async () => {
+  const { w, router, calls } = await shell('/document-workflow/settings/ai')
+  await w.get('#ai-provider').setValue('custom')
+  await w.get('#local-model').setValue('chosen-model')
+  await w.get('[aria-label="Model for Extract document facts"]').setValue('task-model')
+  await w.get('form').trigger('submit')
+  await flushPromises()
+  await router.push('/document-workflow/documents')
+  await router.push('/document-workflow/settings/ai')
+  await flushPromises()
+  expect(w.get('#local-model').element).toHaveProperty('value', 'chosen-model')
+  expect(w.get('[aria-label="Model for Extract document facts"]').element).toHaveProperty(
+    'value',
+    'task-model'
+  )
+  expect(calls.some((c) => ['prepare', 'models', 'approve', 'apply'].includes(c.operation))).toBe(
+    false
+  )
+  w.unmount()
 })
-it('preserves old review bookmarks while opening details within the correct collection',async()=>{
- const {w,router}=await shell('/document-workflow/review?job=older&from=filed');expect(router.currentRoute.value.path).toBe('/document-workflow/documents');expect(router.currentRoute.value.query.job).toBe('older');await router.push('/document-workflow/review?job=waiting');expect(router.currentRoute.value.path).toBe('/document-workflow/inbox');expect(router.currentRoute.value.query.job).toBe('waiting');w.unmount()
+it('preserves old review bookmarks while opening details within the correct collection', async () => {
+  const { w, router } = await shell('/document-workflow/review?job=older&from=filed')
+  expect(router.currentRoute.value.path).toBe('/document-workflow/documents')
+  expect(router.currentRoute.value.query.job).toBe('older')
+  await router.push('/document-workflow/review?job=waiting')
+  expect(router.currentRoute.value.path).toBe('/document-workflow/inbox')
+  expect(router.currentRoute.value.query.job).toBe('waiting')
+  w.unmount()
 })
-it('searches arrivals while retaining the saved inbox boundary',async()=>{
- const store=createWorkspace();store.connection.value={mode:'demo',server:'test',space:'test',account:'test',name:'Test'};store.intakeConfigured.value=true;store.files.value=samples().map(b=>({...b.source,folder:false,size:3,tags:[] as string[]}));vi.spyOn(store,'refresh').mockResolvedValue();const request=vi.spyOn(store,'request');const router=createRouter({history:createMemoryHistory(),routes:[{path:'/document-workflow/inbox',component:Inbox}]});await router.push('/document-workflow/inbox');const w=mount(Inbox,{global:{plugins:[router],provide:{[workspaceKey as symbol]:store}}});await flushPromises();await w.get('input[type="search"]').setValue('electricity');expect(w.findAll('.document-link')).toHaveLength(1);expect(store.folder.value).toBe('Inbox');expect(request).not.toHaveBeenCalled();w.unmount()
+it('searches arrivals while retaining the saved inbox boundary', async () => {
+  const store = createWorkspace()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    space: 'test',
+    account: 'test',
+    name: 'Test'
+  }
+  store.intakeConfigured.value = true
+  store.files.value = samples().map((b) => ({
+    ...b.source,
+    folder: false,
+    size: 3,
+    tags: [] as string[]
+  }))
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  const request = vi.spyOn(store, 'request')
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/document-workflow/inbox', component: Inbox }]
+  })
+  await router.push('/document-workflow/inbox')
+  const w = mount(Inbox, {
+    global: { plugins: [router], provide: { [workspaceKey as symbol]: store } }
+  })
+  await flushPromises()
+  await w.get('input[type="search"]').setValue('electricity')
+  expect(w.findAll('.document-link')).toHaveLength(1)
+  expect(store.folder.value).toBe('Inbox')
+  expect(request).not.toHaveBeenCalled()
+  w.unmount()
 })
-it('shows nested files in one table with folder paths, queue totals and processing steps',async()=>{
- const store=createWorkspace();store.connection.value={mode:'demo',server:'test',space:'test',account:'test',name:'Test'};store.intakeConfigured.value=true;store.inboxSummary.value={total:211,waiting:100,running:1,ready:90,attention:20,completed:0,cancelled:0,duplicates:0,superseded:0,retryable:20,cancellable:121};store.files.value=[{path:'Inbox/Employment',resourceId:'folder',etag:'v1',folder:true,size:0,tags:[]},{path:'Inbox/Employment/same.pdf',resourceId:'nested',etag:'v1',folder:false,size:3,tags:[],intakeState:'running',progress:{step:3,total:5,label:'Analysing with AI'}},{path:'Inbox/Receipts/same.pdf',resourceId:'other',etag:'v1',folder:false,size:3,tags:[]}];vi.spyOn(store,'refresh').mockResolvedValue()
- const router=createRouter({history:createMemoryHistory(),routes:[{path:'/document-workflow/inbox',component:Inbox}]});await router.push('/document-workflow/inbox');const w=mount(Inbox,{global:{plugins:[router],provide:{[workspaceKey as symbol]:store}}});try{await flushPromises();expect(w.findAll('.document-link')).toHaveLength(2);expect(w.text()).toContain('Inbox/Employment');expect(w.text()).toContain('Inbox/Receipts');expect(w.get('h1').text()).toContain('211 discovered');expect(w.text()).toContain('3 / 5');expect(w.text()).toContain('Analysing with AI');expect(w.find('.breadcrumbs').exists()).toBe(false)}finally{w.unmount()}
+it('shows nested files in one table with folder paths, queue totals and processing steps', async () => {
+  const store = createWorkspace()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    space: 'test',
+    account: 'test',
+    name: 'Test'
+  }
+  store.intakeConfigured.value = true
+  store.inboxSummary.value = {
+    total: 211,
+    waiting: 100,
+    running: 1,
+    ready: 90,
+    attention: 20,
+    completed: 0,
+    cancelled: 0,
+    duplicates: 0,
+    superseded: 0,
+    retryable: 20,
+    cancellable: 121
+  }
+  store.files.value = [
+    { path: 'Inbox/Employment', resourceId: 'folder', etag: 'v1', folder: true, size: 0, tags: [] },
+    {
+      path: 'Inbox/Employment/same.pdf',
+      resourceId: 'nested',
+      etag: 'v1',
+      folder: false,
+      size: 3,
+      tags: [],
+      intakeState: 'running',
+      progress: { step: 3, total: 5, label: 'Analysing with AI' }
+    },
+    {
+      path: 'Inbox/Receipts/same.pdf',
+      resourceId: 'other',
+      etag: 'v1',
+      folder: false,
+      size: 3,
+      tags: []
+    }
+  ]
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/document-workflow/inbox', component: Inbox }]
+  })
+  await router.push('/document-workflow/inbox')
+  const w = mount(Inbox, {
+    global: { plugins: [router], provide: { [workspaceKey as symbol]: store } }
+  })
+  try {
+    await flushPromises()
+    expect(w.findAll('.document-link')).toHaveLength(2)
+    expect(w.text()).toContain('Inbox/Employment')
+    expect(w.text()).toContain('Inbox/Receipts')
+    expect(w.get('h1').text()).toContain('211 discovered')
+    expect(w.text()).toContain('3 / 5')
+    expect(w.text()).toContain('Analysing with AI')
+    expect(w.find('.breadcrumbs').exists()).toBe(false)
+  } finally {
+    w.unmount()
+  }
 })
-it('opens preparation for an arrival without a model call during navigation',async()=>{
- const store=createWorkspace();store.connection.value={mode:'demo',server:'test',space:'test',account:'test',name:'Test'};store.intakeConfigured.value=true;store.files.value=[{...samples()[0]!.source,folder:false,size:3,tags:[] as string[]}];vi.spyOn(store,'refresh').mockResolvedValue();const prepare=vi.spyOn(store,'prepareDocument');const router=createRouter({history:createMemoryHistory(),routes:[{path:'/document-workflow/inbox',component:Inbox},{path:'/document-workflow/details',component:{template:'<p>Details</p>'}}]});await router.push('/document-workflow/inbox');const w=mount(Inbox,{global:{plugins:[router],provide:{[workspaceKey as symbol]:store}}});await flushPromises();await w.get('.document-link').trigger('click');await flushPromises();expect(router.currentRoute.value.query).toEqual({path:'Inbox/electricity.pdf',return:'inbox'});expect(prepare).not.toHaveBeenCalled();w.unmount()
+it('opens preparation for an arrival without a model call during navigation', async () => {
+  const store = createWorkspace()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    space: 'test',
+    account: 'test',
+    name: 'Test'
+  }
+  store.intakeConfigured.value = true
+  store.files.value = [{ ...samples()[0]!.source, folder: false, size: 3, tags: [] as string[] }]
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  const prepare = vi.spyOn(store, 'prepareDocument')
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/document-workflow/inbox', component: Inbox },
+      { path: '/document-workflow/details', component: { template: '<p>Details</p>' } }
+    ]
+  })
+  await router.push('/document-workflow/inbox')
+  const w = mount(Inbox, {
+    global: { plugins: [router], provide: { [workspaceKey as symbol]: store } }
+  })
+  await flushPromises()
+  await w.get('.document-link').trigger('click')
+  await flushPromises()
+  expect(router.currentRoute.value.query).toEqual({
+    path: 'Inbox/electricity.pdf',
+    return: 'inbox'
+  })
+  expect(prepare).not.toHaveBeenCalled()
+  w.unmount()
 })
-it('escapes document markup on review without rendering source text as HTML',async()=>{
- const store=createWorkspace(),bundle=samples()[0]!;bundle.pages[0]+='\n<img src=x onerror=alert(1)>';store.reviews.value=[validateBundle(bundle)];const router=createRouter({history:createMemoryHistory(),routes:[{path:'/document-workflow/inbox',component:ReviewInbox}]});await router.push('/document-workflow/inbox');const w=mount(ReviewInbox,{global:{plugins:[router],provide:{[workspaceKey as symbol]:store}}});await flushPromises();expect(w.find('img').exists()).toBe(false);expect(w.get('.technical').text()).toContain('<img src=x onerror=alert(1)>');w.unmount()
+it('escapes document markup on review without rendering source text as HTML', async () => {
+  const store = createWorkspace(),
+    bundle = samples()[0]!
+  bundle.pages[0] += '\n<img src=x onerror=alert(1)>'
+  store.reviews.value = [validateBundle(bundle)]
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/document-workflow/inbox', component: ReviewInbox }]
+  })
+  await router.push('/document-workflow/inbox')
+  const w = mount(ReviewInbox, {
+    global: { plugins: [router], provide: { [workspaceKey as symbol]: store } }
+  })
+  await flushPromises()
+  expect(w.find('img').exists()).toBe(false)
+  expect(w.get('.technical').text()).toContain('<img src=x onerror=alert(1)>')
+  w.unmount()
 })
-it('preserves attention during refresh and clears it after an accepted retry',async()=>{
- const bundle=samples()[0]!,store=createWorkspace(),issue={queueId:'held',message:'Some PDF pages have no readable text.',nextStep:'Enable text recognition.',retryable:true},job:DraftJob={updated:'2026-11-01',error:null,id:'held-job',source:bundle.source,bundle,state:'needs_ocr',decision:null,processingIssue:issue}
- store.connection.value={...bundle.source,mode:'demo',name:'Test'};store.folder.value='Inbox';vi.stubGlobal('fetch',vi.fn(async()=>Response.json({job})));await store.openJob(job.id)
- const refresh=vi.spyOn(store,'refresh').mockResolvedValue(),pending:(()=>void)[]=[]
- vi.spyOn(store,'openJob').mockImplementation(async()=>{await new Promise<void>(resolve=>pending.push(resolve));return job})
- const retryRequest=vi.spyOn(store,'request').mockResolvedValue({affected:1})
- const router=createRouter({history:createMemoryHistory(),routes:[{path:'/document-workflow/inbox',component:Inbox}]});await router.push('/document-workflow/inbox?job=held-job')
- const w=mount(Inbox,{global:{plugins:[router],provide:{[workspaceKey as symbol]:store}}})
- try{await flushPromises();const banner=w.get('[aria-label="Needs attention"]').element;expect(w.text()).not.toContain('Text recognition required');expect(refresh).not.toHaveBeenCalled();expect(pending).toHaveLength(1);pending.shift()!();await flushPromises();expect(w.get('[aria-label="Needs attention"]').element).toBe(banner);vi.useFakeTimers();await w.get('[aria-label="Needs attention"] button').trigger('click');await flushPromises();expect(w.find('[aria-label="Needs attention"]').exists()).toBe(false);expect(w.text()).toContain('Queued for retry');expect(w.text()).not.toContain('Text recognition required');expect(pending).toHaveLength(0);expect(refresh).not.toHaveBeenCalled();retryRequest.mockResolvedValue({state:'failed',job:job.id,source:bundle.source,processingIssue:{...issue,message:'The AI result could not be verified against the document.'}});await vi.advanceTimersByTimeAsync(2500);await flushPromises();expect(w.get('[aria-label="Needs attention"]').text()).toContain('AI result could not be verified');expect(w.text()).not.toContain('Queued for retry');expect(w.text()).not.toContain('Text recognition required')}finally{w.unmount();vi.useRealTimers()}
+it('preserves attention during refresh and clears it after an accepted retry', async () => {
+  const bundle = samples()[0]!,
+    store = createWorkspace(),
+    issue = {
+      queueId: 'held',
+      message: 'Some PDF pages have no readable text.',
+      nextStep: 'Enable text recognition.',
+      retryable: true
+    },
+    job: DraftJob = {
+      updated: '2026-11-01',
+      error: null,
+      id: 'held-job',
+      source: bundle.source,
+      bundle,
+      state: 'needs_ocr',
+      decision: null,
+      processingIssue: issue
+    }
+  store.connection.value = { ...bundle.source, mode: 'demo', name: 'Test' }
+  store.folder.value = 'Inbox'
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ job }))
+  )
+  await store.openJob(job.id)
+  const refresh = vi.spyOn(store, 'refresh').mockResolvedValue(),
+    pending: (() => void)[] = []
+  vi.spyOn(store, 'openJob').mockImplementation(async () => {
+    await new Promise<void>((resolve) => pending.push(resolve))
+    return job
+  })
+  const retryRequest = vi.spyOn(store, 'request').mockResolvedValue({ affected: 1 })
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/document-workflow/inbox', component: Inbox }]
+  })
+  await router.push('/document-workflow/inbox?job=held-job')
+  const w = mount(Inbox, {
+    global: { plugins: [router], provide: { [workspaceKey as symbol]: store } }
+  })
+  try {
+    await flushPromises()
+    const banner = w.get('[aria-label="Needs attention"]').element
+    expect(w.text()).not.toContain('Text recognition required')
+    expect(refresh).not.toHaveBeenCalled()
+    expect(pending).toHaveLength(1)
+    pending.shift()!()
+    await flushPromises()
+    expect(w.get('[aria-label="Needs attention"]').element).toBe(banner)
+    vi.useFakeTimers()
+    await w.get('[aria-label="Needs attention"] button').trigger('click')
+    await flushPromises()
+    expect(w.find('[aria-label="Needs attention"]').exists()).toBe(false)
+    expect(w.text()).toContain('Queued for retry')
+    expect(w.text()).not.toContain('Text recognition required')
+    expect(pending).toHaveLength(0)
+    expect(refresh).not.toHaveBeenCalled()
+    retryRequest.mockResolvedValue({
+      state: 'failed',
+      job: job.id,
+      source: bundle.source,
+      processingIssue: {
+        ...issue,
+        message: 'The AI result could not be verified against the document.'
+      }
+    })
+    await vi.advanceTimersByTimeAsync(2500)
+    await flushPromises()
+    expect(w.get('[aria-label="Needs attention"]').text()).toContain(
+      'AI result could not be verified'
+    )
+    expect(w.text()).not.toContain('Queued for retry')
+    expect(w.text()).not.toContain('Text recognition required')
+  } finally {
+    w.unmount()
+    vi.useRealTimers()
+  }
 })
-it('sorts inbox columns in both directions and separates status from stage without reordering source data',async()=>{
- const store=createWorkspace();store.connection.value={mode:'demo',server:'test',space:'test',account:'test',name:'Test'};store.intakeConfigured.value=true
- store.files.value=[{path:'Inbox/Z/doc10.pdf',resourceId:'a',etag:'1',folder:false,size:1,tags:['Z'],intakeState:'failed',progress:{step:3,total:5,label:'Analysing with AI',attention:true}},{path:'Inbox/A/doc2.pdf',resourceId:'b',etag:'1',folder:false,size:1,tags:['A'],intakeState:'queued',progress:{step:1,total:5,label:'Waiting to prepare'}}];vi.spyOn(store,'refresh').mockResolvedValue()
- const router=createRouter({history:createMemoryHistory(),routes:[{path:'/document-workflow/inbox',component:Inbox}]});await router.push('/document-workflow/inbox');const w=mount(Inbox,{global:{plugins:[router],provide:{[workspaceKey as symbol]:store}}});try{await flushPromises();const names=()=>w.findAll('.document-link').map(b=>b.text());expect(names()).toEqual(['doc2.pdf','doc10.pdf']);const sort=async(label:string)=>{await w.findAll('th button').find(b=>b.text().startsWith(label))!.trigger('click')};await sort('Document');expect(names()).toEqual(['doc10.pdf','doc2.pdf']);for(const column of ['Folder','Status','Stage','Tags']){await sort(column);expect(w.findAll('th').find(th=>th.attributes('aria-sort')==='ascending')?.text()).toContain(column);await sort(column);expect(w.findAll('th').find(th=>th.attributes('aria-sort')==='descending')?.text()).toContain(column)}const cells=w.findAll('tbody tr').find(row=>row.text().includes('doc10.pdf'))!.findAll('td');expect(cells[3]!.text()).toBe('Needs attention');expect(cells[4]!.text()).toContain('3 / 5');expect(cells[4]!.text()).not.toContain('Needs attention');expect(store.files.value.map(f=>f.resourceId)).toEqual(['a','b'])}finally{w.unmount()}
+it('sorts inbox columns in both directions and separates status from stage without reordering source data', async () => {
+  const store = createWorkspace()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    space: 'test',
+    account: 'test',
+    name: 'Test'
+  }
+  store.intakeConfigured.value = true
+  store.files.value = [
+    {
+      path: 'Inbox/Z/doc10.pdf',
+      resourceId: 'a',
+      etag: '1',
+      folder: false,
+      size: 1,
+      tags: ['Z'],
+      intakeState: 'failed',
+      progress: { step: 3, total: 5, label: 'Analysing with AI', attention: true }
+    },
+    {
+      path: 'Inbox/A/doc2.pdf',
+      resourceId: 'b',
+      etag: '1',
+      folder: false,
+      size: 1,
+      tags: ['A'],
+      intakeState: 'queued',
+      progress: { step: 1, total: 5, label: 'Waiting to prepare' }
+    }
+  ]
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/document-workflow/inbox', component: Inbox }]
+  })
+  await router.push('/document-workflow/inbox')
+  const w = mount(Inbox, {
+    global: { plugins: [router], provide: { [workspaceKey as symbol]: store } }
+  })
+  try {
+    await flushPromises()
+    const names = () => w.findAll('.document-link').map((b) => b.text())
+    expect(names()).toEqual(['doc2.pdf', 'doc10.pdf'])
+    const sort = async (label: string) => {
+      await w
+        .findAll('th button')
+        .find((b) => b.text().startsWith(label))!
+        .trigger('click')
+    }
+    await sort('Document')
+    expect(names()).toEqual(['doc10.pdf', 'doc2.pdf'])
+    for (const column of ['Folder', 'Status', 'Stage', 'Tags']) {
+      await sort(column)
+      expect(
+        w
+          .findAll('th')
+          .find((th) => th.attributes('aria-sort') === 'ascending')
+          ?.text()
+      ).toContain(column)
+      await sort(column)
+      expect(
+        w
+          .findAll('th')
+          .find((th) => th.attributes('aria-sort') === 'descending')
+          ?.text()
+      ).toContain(column)
+    }
+    const cells = w
+      .findAll('tbody tr')
+      .find((row) => row.text().includes('doc10.pdf'))!
+      .findAll('td')
+    expect(cells[3]!.text()).toBe('Needs attention')
+    expect(cells[4]!.text()).toContain('3 / 5')
+    expect(cells[4]!.text()).not.toContain('Needs attention')
+    expect(store.files.value.map((f) => f.resourceId)).toEqual(['a', 'b'])
+  } finally {
+    w.unmount()
+  }
 })
-it('opens an incomplete preparation for manual review without showing rejected AI facts or allowing an empty plan',async()=>{
- const store=createWorkspace(),bundle={...samples()[0]!,proposal:null as null,manualReview:{reason:'date' as const}},pdf=new Blob(['synthetic-pdf'],{type:'application/pdf'});bundle.source.sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await pdf.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('')
- const review=validateBundle(bundle),job:DraftJob={updated:'2026-11-01',error:null,id:'manual-job',source:bundle.source,bundle,state:'needs_details',decision:null}
- store.connection.value={...bundle.source,mode:'demo',name:'Test'};store.reviews.value=[review];store.jobs.value=[job];store.selected.value=0;vi.spyOn(store,'jobFor').mockReturnValue(job);vi.spyOn(store,'openJob').mockResolvedValue(job);const request=vi.spyOn(store,'request').mockImplementation(async op=>op==='document-location'?bundle.source:op==='preview'?pdf:op==='files'?{files:[]}:{})
- const prepared=vi.spyOn(store,'prepareDocument').mockResolvedValue({id:'replacement-job'} as any)
- const router=createRouter({history:createMemoryHistory(),routes:[{path:'/document-workflow/inbox',component:ReviewInbox}]});await router.push('/document-workflow/inbox?job=manual-job');const w=mount(ReviewInbox,{global:{plugins:[router],provide:{[workspaceKey as symbol]:store}}})
- try{await flushPromises();expect(w.text()).toContain('Manual review');expect(w.text()).toContain('The printed date needs review');expect(w.find('.facts').exists()).toBe(false);expect(w.get('#manual-target').element).toHaveProperty('value','');const file=()=>w.findAll('button').find(b=>b.text()==='Accept')!;expect(file().attributes('disabled')).toBeDefined();await w.get('#manual-target').setValue('Filed/Checked/document.pdf');await w.get('#manual-target').trigger('change');await flushPromises();expect(w.text()).not.toContain('Choose a destination before filing.');expect(request.mock.calls.some(c=>['approve','apply'].includes(c[0]))).toBe(false);expect(store.filingDrafts.value[job.id]?.target).toBe('Filed/Checked/document.pdf');await w.findAll('button').find(b=>b.text()==='Reprocess')!.trigger('click');await flushPromises();expect(prepared).toHaveBeenCalledWith(bundle.source.path,{newReview:true,retry:true,resourceId:bundle.source.resourceId,etag:bundle.source.etag,cloudConsent:false});expect(router.currentRoute.value.query).toEqual({job:'replacement-job'});expect(request.mock.calls.some(c=>['approve','apply','reject'].includes(c[0]))).toBe(false)
- }finally{w.unmount()}
+it('opens an incomplete preparation for manual review without showing rejected AI facts or allowing an empty plan', async () => {
+  const store = createWorkspace(),
+    bundle = {
+      ...samples()[0]!,
+      proposal: null as null,
+      manualReview: { reason: 'date' as const }
+    },
+    pdf = new Blob(['synthetic-pdf'], { type: 'application/pdf' })
+  bundle.source.sha256 = Array.from(
+    new Uint8Array(await crypto.subtle.digest('SHA-256', await pdf.arrayBuffer())),
+    (b) => b.toString(16).padStart(2, '0')
+  ).join('')
+  const review = validateBundle(bundle),
+    job: DraftJob = {
+      updated: '2026-11-01',
+      error: null,
+      id: 'manual-job',
+      source: bundle.source,
+      bundle,
+      state: 'needs_details',
+      decision: null
+    }
+  store.connection.value = { ...bundle.source, mode: 'demo', name: 'Test' }
+  store.reviews.value = [review]
+  store.jobs.value = [job]
+  store.selected.value = 0
+  vi.spyOn(store, 'jobFor').mockReturnValue(job)
+  vi.spyOn(store, 'openJob').mockResolvedValue(job)
+  const request = vi
+    .spyOn(store, 'request')
+    .mockImplementation(async (op) =>
+      op === 'document-location'
+        ? bundle.source
+        : op === 'preview'
+          ? pdf
+          : op === 'files'
+            ? { files: [] }
+            : {}
+    )
+  const prepared = vi
+    .spyOn(store, 'prepareDocument')
+    .mockResolvedValue({ id: 'replacement-job' } as any)
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/document-workflow/inbox', component: ReviewInbox }]
+  })
+  await router.push('/document-workflow/inbox?job=manual-job')
+  const w = mount(ReviewInbox, {
+    global: { plugins: [router], provide: { [workspaceKey as symbol]: store } }
+  })
+  try {
+    await flushPromises()
+    expect(w.text()).toContain('Manual review')
+    expect(w.text()).toContain('The printed date needs review')
+    expect(w.find('.facts').exists()).toBe(false)
+    expect(w.get('#manual-target').element).toHaveProperty('value', '')
+    const file = () => w.findAll('button').find((b) => b.text() === 'Accept')!
+    expect(file().attributes('disabled')).toBeDefined()
+    await w.get('#manual-target').setValue('Filed/Checked/document.pdf')
+    await w.get('#manual-target').trigger('change')
+    await flushPromises()
+    expect(w.text()).not.toContain('Choose a destination before filing.')
+    expect(request.mock.calls.some((c) => ['approve', 'apply'].includes(c[0]))).toBe(false)
+    expect(store.filingDrafts.value[job.id]?.target).toBe('Filed/Checked/document.pdf')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Reprocess')!
+      .trigger('click')
+    await flushPromises()
+    expect(prepared).toHaveBeenCalledWith(bundle.source.path, {
+      newReview: true,
+      retry: true,
+      resourceId: bundle.source.resourceId,
+      etag: bundle.source.etag,
+      cloudConsent: false
+    })
+    expect(router.currentRoute.value.query).toEqual({ job: 'replacement-job' })
+    expect(request.mock.calls.some((c) => ['approve', 'apply', 'reject'].includes(c[0]))).toBe(
+      false
+    )
+  } finally {
+    w.unmount()
+  }
 })

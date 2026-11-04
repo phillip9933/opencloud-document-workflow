@@ -23,12 +23,14 @@ export default defineWebApplication({
       color: '#21665b'
     }
 
-    const routes: RouteRecordRaw[] = [{
-      path: '/',
-      component: () => import('./components/NativeWorkspace.vue'),
-      meta: { authContext: 'user' },
-      children: workspaceChildren
-    }]
+    const routes: RouteRecordRaw[] = [
+      {
+        path: '/',
+        component: () => import('./components/NativeWorkspace.vue'),
+        meta: { authContext: 'user' },
+        children: workspaceChildren
+      }
+    ]
 
     const extensions = ({ applicationConfig }: ApplicationSetupOptions) => {
       return computed<Extension[]>(() => {

@@ -1,13 +1,79 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import{samples}from'../../src/domain/samples'
-import{validateBundle,inspectProposal,actions,defaultPolicy,reviewDigest}from'../../src/domain/review'
-import{validateTagDiscovery,tagCatalog}from'../../src/domain/tag-discovery'
-import{validateAIConfig,defaultAIConfig}from'../../src/domain/ai'
-function bundle(mode:'existing'|'create'='existing'){const b=structuredClone(samples()[0]!);b.pages[0]+='\nMotor vehicle registration';b.tagDiscovery={mode,catalog:['Vehicles','Registration']};b.proposal!.tags=[{value:'Vehicles',evidence:[{page:1,quote:'Motor vehicle registration'}]}];return b}
-it('keeps matching-rule validation unchanged when discovery is absent or off',()=>{const b=bundle();delete b.tagDiscovery;expect(validateBundle(b).proposal!.tags).toEqual([]);expect(validateAIConfig(defaultAIConfig()).tagDiscovery).toBeUndefined();expect(()=>validateAIConfig({...defaultAIConfig(),tagDiscovery:'anything'} as any)).toThrow()})
-it('reuses canonical existing names with case and width differences, retaining exact evidence',()=>{const b=bundle();b.proposal!.tags[0]!.value='Ｖｅｈｉｃｌｅｓ';const r=validateBundle(b);expect(r.proposal!.tags).toEqual([{value:'Vehicles',evidence:[{page:1,quote:'Motor vehicle registration'}]}]);expect(inspectProposal((({proposal,...i})=>i)(b),b.proposal).verified.tags).toEqual(r.proposal!.tags)})
-it('excludes unknown names in existing-only mode and permits quoted new candidates only when enabled',()=>{const b=bundle();b.proposal!.tags[0]!.value='Maintenance';expect(validateBundle(b).excluded.map(t=>t.value)).toEqual(['Maintenance']);b.tagDiscovery!.mode='create';const r=validateBundle(b);expect(r.proposal!.tags[0]!.value).toBe('Maintenance');expect(actions(r,defaultPolicy())!.addTags).toEqual(['Maintenance']);expect(actions(r,{...defaultPolicy(),tags:'off'})!.addTags).toEqual([])})
-it('never accepts missing or invented source evidence for semantic tags',()=>{for(const mode of ['existing','create'] as const){const b=bundle(mode);b.proposal!.tags[0]!.evidence[0]!.quote='This text is absent';expect(()=>validateBundle(b)).toThrow('Quote is absent');b.proposal!.tags[0]!.evidence=[];expect(()=>validateBundle(b)).toThrow('Missing bounded evidence')}})
-it.each(['Bad, tag','\nBad',' leading','trailing ','x'.repeat(81)])('rejects unsafe new names: %s',name=>{const b=bundle('create');b.proposal!.tags[0]!.value=name;expect(()=>validateBundle(b)).toThrow()})
-it('bounds and snapshots the complete directory without silent clipping',()=>{expect(tagCatalog(['Vehicles','vehicles','Registration'])).toEqual(['Registration','Vehicles']);expect(()=>tagCatalog(Array(5001).fill('Vehicles'))).toThrow();expect(()=>validateTagDiscovery({mode:'create',catalog:[],extra:true})).toThrow();expect(()=>validateTagDiscovery({mode:'off',catalog:[]})).toThrow()})
-it('binds discovery mode and catalogue to the approval digest',async()=>{const b=bundle('create'),before=await reviewDigest(validateBundle(b),defaultPolicy());b.tagDiscovery!.catalog.push('Other');expect(await reviewDigest(validateBundle(b),defaultPolicy())).not.toBe(before)})
+import { samples } from '../../src/domain/samples'
+import {
+  validateBundle,
+  inspectProposal,
+  actions,
+  defaultPolicy,
+  reviewDigest
+} from '../../src/domain/review'
+import { validateTagDiscovery, tagCatalog } from '../../src/domain/tag-discovery'
+import { validateAIConfig, defaultAIConfig } from '../../src/domain/ai'
+function bundle(mode: 'existing' | 'create' = 'existing') {
+  const b = structuredClone(samples()[0]!)
+  b.pages[0] += '\nMotor vehicle registration'
+  b.tagDiscovery = { mode, catalog: ['Vehicles', 'Registration'] }
+  b.proposal!.tags = [
+    { value: 'Vehicles', evidence: [{ page: 1, quote: 'Motor vehicle registration' }] }
+  ]
+  return b
+}
+it('keeps matching-rule validation unchanged when discovery is absent or off', () => {
+  const b = bundle()
+  delete b.tagDiscovery
+  expect(validateBundle(b).proposal!.tags).toEqual([])
+  expect(validateAIConfig(defaultAIConfig()).tagDiscovery).toBeUndefined()
+  expect(() =>
+    validateAIConfig({ ...defaultAIConfig(), tagDiscovery: 'anything' } as any)
+  ).toThrow()
+})
+it('reuses canonical existing names with case and width differences, retaining exact evidence', () => {
+  const b = bundle()
+  b.proposal!.tags[0]!.value = 'Ｖｅｈｉｃｌｅｓ'
+  const r = validateBundle(b)
+  expect(r.proposal!.tags).toEqual([
+    { value: 'Vehicles', evidence: [{ page: 1, quote: 'Motor vehicle registration' }] }
+  ])
+  expect(inspectProposal((({ proposal, ...i }) => i)(b), b.proposal).verified.tags).toEqual(
+    r.proposal!.tags
+  )
+})
+it('excludes unknown names in existing-only mode and permits quoted new candidates only when enabled', () => {
+  const b = bundle()
+  b.proposal!.tags[0]!.value = 'Maintenance'
+  expect(validateBundle(b).excluded.map((t) => t.value)).toEqual(['Maintenance'])
+  b.tagDiscovery!.mode = 'create'
+  const r = validateBundle(b)
+  expect(r.proposal!.tags[0]!.value).toBe('Maintenance')
+  expect(actions(r, defaultPolicy())!.addTags).toEqual(['Maintenance'])
+  expect(actions(r, { ...defaultPolicy(), tags: 'off' })!.addTags).toEqual([])
+})
+it('never accepts missing or invented source evidence for semantic tags', () => {
+  for (const mode of ['existing', 'create'] as const) {
+    const b = bundle(mode)
+    b.proposal!.tags[0]!.evidence[0]!.quote = 'This text is absent'
+    expect(() => validateBundle(b)).toThrow('Quote is absent')
+    b.proposal!.tags[0]!.evidence = []
+    expect(() => validateBundle(b)).toThrow('Missing bounded evidence')
+  }
+})
+it.each(['Bad, tag', '\nBad', ' leading', 'trailing ', 'x'.repeat(81)])(
+  'rejects unsafe new names: %s',
+  (name) => {
+    const b = bundle('create')
+    b.proposal!.tags[0]!.value = name
+    expect(() => validateBundle(b)).toThrow()
+  }
+)
+it('bounds and snapshots the complete directory without silent clipping', () => {
+  expect(tagCatalog(['Vehicles', 'vehicles', 'Registration'])).toEqual(['Registration', 'Vehicles'])
+  expect(() => tagCatalog(Array(5001).fill('Vehicles'))).toThrow()
+  expect(() => validateTagDiscovery({ mode: 'create', catalog: [], extra: true })).toThrow()
+  expect(() => validateTagDiscovery({ mode: 'off', catalog: [] })).toThrow()
+})
+it('binds discovery mode and catalogue to the approval digest', async () => {
+  const b = bundle('create'),
+    before = await reviewDigest(validateBundle(b), defaultPolicy())
+  b.tagDiscovery!.catalog.push('Other')
+  expect(await reviewDigest(validateBundle(b), defaultPolicy())).not.toBe(before)
+})

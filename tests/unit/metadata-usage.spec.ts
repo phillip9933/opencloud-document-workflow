@@ -1,3 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import {metadataUsage} from '../../src/domain/metadata-usage'
-it('counts saved values and applied tags once per physical document, including zero amounts and native files',()=>{expect(metadataUsage([{path:'Docs/a.pdf',resourceId:'a',folder:false,tags:['Vehicles','Vehicles'],fields:{amount:0,blank:' ',note:'saved'}},{path:'Docs/copy.pdf',resourceId:'a',folder:false,tags:['Vehicles'],fields:{amount:0}},{path:'Docs/drawing.dwg',resourceId:'b',folder:false,tags:['Vehicles'],fields:{amount:12}},{path:'Docs/Folder',resourceId:'folder',folder:true,tags:['Vehicles'],fields:{amount:2}}])).toEqual({fields:{amount:2,note:1},tags:{Vehicles:2}})})
+import { metadataUsage } from '../../src/domain/metadata-usage'
+it('counts saved values and applied tags once per physical document, including zero amounts and native files', () => {
+  expect(
+    metadataUsage([
+      {
+        path: 'Docs/a.pdf',
+        resourceId: 'a',
+        folder: false,
+        tags: ['Vehicles', 'Vehicles'],
+        fields: { amount: 0, blank: ' ', note: 'saved' }
+      },
+      {
+        path: 'Docs/copy.pdf',
+        resourceId: 'a',
+        folder: false,
+        tags: ['Vehicles'],
+        fields: { amount: 0 }
+      },
+      {
+        path: 'Docs/drawing.dwg',
+        resourceId: 'b',
+        folder: false,
+        tags: ['Vehicles'],
+        fields: { amount: 12 }
+      },
+      {
+        path: 'Docs/Folder',
+        resourceId: 'folder',
+        folder: true,
+        tags: ['Vehicles'],
+        fields: { amount: 2 }
+      }
+    ])
+  ).toEqual({ fields: { amount: 2, note: 1 }, tags: { Vehicles: 2 } })
+})

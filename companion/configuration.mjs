@@ -1,12 +1,87 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import {validateSpace} from '../src/domain/review.ts'
-import {defaultFilingRules,validateFilingRules} from '../src/domain/filing.ts'
-export const defaultLimits=()=>({maxMiB:100,maxPages:1000,maxCharacters:1000000,documentsPerCycle:20,contextTokens:32768})
-export function validateLimits(value){const bounds={maxMiB:[1,1024],maxPages:[1,10000],maxCharacters:[1000,8000000],documentsPerCycle:[1,1000],contextTokens:[8192,1048576]};if(!value||Object.keys(value).sort().join(',')!==Object.keys(bounds).sort().join(',')||Object.entries(bounds).some(([key,[min,max]])=>!Number.isInteger(value[key])||value[key]<min||value[key]>max))throw new Error('Invalid processing capacity settings');return structuredClone(value)}
+import { validateSpace } from '../src/domain/review.ts'
+import { defaultFilingRules, validateFilingRules } from '../src/domain/filing.ts'
+export const defaultLimits = () => ({
+  maxMiB: 100,
+  maxPages: 1000,
+  maxCharacters: 1000000,
+  documentsPerCycle: 20,
+  contextTokens: 32768
+})
+export function validateLimits(value) {
+  const bounds = {
+    maxMiB: [1, 1024],
+    maxPages: [1, 10000],
+    maxCharacters: [1000, 8000000],
+    documentsPerCycle: [1, 1000],
+    contextTokens: [8192, 1048576]
+  }
+  if (
+    !value ||
+    Object.keys(value).sort().join(',') !== Object.keys(bounds).sort().join(',') ||
+    Object.entries(bounds).some(
+      ([key, [min, max]]) => !Number.isInteger(value[key]) || value[key] < min || value[key] > max
+    )
+  )
+    throw new Error('Invalid processing capacity settings')
+  return structuredClone(value)
+}
 export class Configuration {
- constructor(workflow){this.w=workflow;this.db=workflow.db;this.db.exec('CREATE TABLE IF NOT EXISTS processing_settings(scope TEXT PRIMARY KEY,rules TEXT NOT NULL,limits TEXT NOT NULL)');this.db.exec('CREATE TABLE IF NOT EXISTS filing_locations(scope TEXT PRIMARY KEY,space TEXT NOT NULL)');workflow.configuration=this}
- settings(actor){const row=this.db.prepare('select * from processing_settings where scope=?').get(this.w.scope(actor));return row?{rules:JSON.parse(row.rules),limits:{...defaultLimits(),...JSON.parse(row.limits)}}:{rules:defaultFilingRules(),limits:defaultLimits()}}
- destinationSpace(actor){return this.db.prepare('select space from filing_locations where scope=?').get(this.w.scope(actor))?.space??actor.space}
- saveDestination(actor,space){validateSpace(space);this.db.prepare('insert into filing_locations values(?,?) on conflict(scope) do update set space=excluded.space').run(this.w.scope(actor),space);this.w.event(actor,null,'destination_space_saved',{space})}
- save(actor,{rules,limits}){rules=validateFilingRules(rules);limits=validateLimits(limits);const inbox=this.db.prepare("select value from intake_settings where scope=?").get(this.w.scope(actor));if(inbox){const current=JSON.parse(inbox.value);if(this.destinationSpace(actor)===actor.space&&current.enabled&&(current.folder===rules.root||current.folder.startsWith(rules.root+'/')))throw new Error('Pause ingestion and select an inbox outside the filing destination first')}this.db.prepare('insert into processing_settings values(?,?,?) on conflict(scope) do update set rules=excluded.rules,limits=excluded.limits').run(this.w.scope(actor),JSON.stringify(rules),JSON.stringify(limits));this.w.event(actor,null,'filing_rules_saved');return{rules,limits}}
+  constructor(workflow) {
+    this.w = workflow
+    this.db = workflow.db
+    this.db.exec(
+      'CREATE TABLE IF NOT EXISTS processing_settings(scope TEXT PRIMARY KEY,rules TEXT NOT NULL,limits TEXT NOT NULL)'
+    )
+    this.db.exec(
+      'CREATE TABLE IF NOT EXISTS filing_locations(scope TEXT PRIMARY KEY,space TEXT NOT NULL)'
+    )
+    workflow.configuration = this
+  }
+  settings(actor) {
+    const row = this.db
+      .prepare('select * from processing_settings where scope=?')
+      .get(this.w.scope(actor))
+    return row
+      ? { rules: JSON.parse(row.rules), limits: { ...defaultLimits(), ...JSON.parse(row.limits) } }
+      : { rules: defaultFilingRules(), limits: defaultLimits() }
+  }
+  destinationSpace(actor) {
+    return (
+      this.db.prepare('select space from filing_locations where scope=?').get(this.w.scope(actor))
+        ?.space ?? actor.space
+    )
+  }
+  saveDestination(actor, space) {
+    validateSpace(space)
+    this.db
+      .prepare(
+        'insert into filing_locations values(?,?) on conflict(scope) do update set space=excluded.space'
+      )
+      .run(this.w.scope(actor), space)
+    this.w.event(actor, null, 'destination_space_saved', { space })
+  }
+  save(actor, { rules, limits }) {
+    rules = validateFilingRules(rules)
+    limits = validateLimits(limits)
+    const inbox = this.db
+      .prepare('select value from intake_settings where scope=?')
+      .get(this.w.scope(actor))
+    if (inbox) {
+      const current = JSON.parse(inbox.value)
+      if (
+        this.destinationSpace(actor) === actor.space &&
+        current.enabled &&
+        (current.folder === rules.root || current.folder.startsWith(rules.root + '/'))
+      )
+        throw new Error('Pause ingestion and select an inbox outside the filing destination first')
+    }
+    this.db
+      .prepare(
+        'insert into processing_settings values(?,?,?) on conflict(scope) do update set rules=excluded.rules,limits=excluded.limits'
+      )
+      .run(this.w.scope(actor), JSON.stringify(rules), JSON.stringify(limits))
+    this.w.event(actor, null, 'filing_rules_saved')
+    return { rules, limits }
+  }
 }

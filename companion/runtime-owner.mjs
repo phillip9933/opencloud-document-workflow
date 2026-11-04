@@ -18,18 +18,33 @@ export function acquireRuntime(database) {
       guard.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE')
     } catch (cause) {
       guard.close()
-      throw Object.assign(new Error('Another companion process owns this journal', { cause }), { code: 'RUNTIME_BUSY' })
+      throw Object.assign(new Error('Another companion process owns this journal', { cause }), {
+        code: 'RUNTIME_BUSY'
+      })
     }
-    runtime = { guard, references: 0, locks: new Set(), proposals: new Set(), preparations: new Set() }
+    runtime = {
+      guard,
+      references: 0,
+      locks: new Set(),
+      proposals: new Set(),
+      preparations: new Set()
+    }
     runtimes.set(key, runtime)
   }
   runtime.references++
   let released = false
-  return { runtime, release() {
-    if (released) return
-    released = true
-    if (--runtime.references === 0) {
-      try { runtime.guard.close() } finally { runtimes.delete(key) }
+  return {
+    runtime,
+    release() {
+      if (released) return
+      released = true
+      if (--runtime.references === 0) {
+        try {
+          runtime.guard.close()
+        } finally {
+          runtimes.delete(key)
+        }
+      }
     }
-  } }
+  }
 }

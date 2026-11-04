@@ -1,17 +1,213 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import{test}from'node:test';import assert from'node:assert/strict'
-import{generateProposal}from'../../companion/ollama.mjs';import{generateRouted}from'../../companion/providers.mjs';import{samples}from'../../src/domain/samples.ts'
-const endpoint='http://127.0.0.1:11434',capacity=/Document exceeds configured model context capacity/
-function fixture(name,{legacy=false,metrics=true,overflow=false}={}){const{proposal,...input}=samples()[0];input.pages.push('PRIVATE_SOURCE_SENTINEL '+ 'Synthetic readable document content. '.repeat(600));let version='strict-test-v1',probes=0,requests=0;const bodies=[];const fetcher=async(url,options={})=>{assert.ok(url.startsWith(endpoint+'/api/'));assert.equal(options.redirect,'error');if(url.endsWith('/api/tags'))return Response.json({models:[{name,digest:'fixture-digest-'+name}]});if(url.endsWith('/api/version'))return Response.json({version});const body=JSON.parse(options.body);assert.equal(body.truncate,false);assert.equal(body.shift,false);if(body.options.num_predict===1){probes++;assert.equal(JSON.stringify(body).includes('PRIVATE_SOURCE_SENTINEL'),false);return legacy||version!=='strict-test-v1'?Response.json({done:true,message:{content:'x'}}):Response.json({error:'request (117054 tokens) exceeds the available context size (8192 tokens), try increasing it'},{status:400})}requests++;bodies.push(body);const pages=JSON.parse(body.messages[1].content).CURRENT_DOCUMENT;assert.equal(pages.length,2);assert.equal(pages[1].text,input.pages[1]);assert.equal(body.options.num_ctx,8192);return Response.json({done:true,done_reason:'stop',message:{content:JSON.stringify(proposal)},...(metrics?{prompt_eval_count:overflow?8000:2048,eval_count:overflow?500:200}:{})})};return{input,fetcher,model:name,bodies,get probes(){return probes},get requests(){return requests},changeVersion(){version='changed-server-version'}}}
-test('verified native context rejection permits full inputs beyond the conservative byte estimate without raising capacity',async()=>{const f=fixture('strict-context-full');let recorded=0;const result=await generateProposal(f.input,f.model,endpoint,f.fetcher,()=>{recorded++},{contextTokens:8192});assert.equal(result.state,'needs_review');assert.equal(result.bundle.pages.length,2);assert.equal(f.probes,1);assert.equal(f.requests,1);assert.equal(recorded,1)})
-test('an older or clipping server never receives an over-budget private document',async()=>{const f=fixture('strict-context-legacy',{legacy:true});await assert.rejects(generateProposal(f.input,f.model,endpoint,f.fetcher,()=>assert.fail('Probe responses are not document proposals'),{contextTokens:8192}),capacity);assert.equal(f.probes,1);assert.equal(f.requests,0)})
-test('strict capability is cached by model digest and checked server version, and a changed server must prove it again',async()=>{const f=fixture('strict-context-version');for(let i=0;i<2;i++)await generateProposal(f.input,f.model,endpoint,f.fetcher,()=>{},{contextTokens:8192});assert.equal(f.probes,1);assert.equal(f.requests,2);f.changeVersion();await assert.rejects(generateProposal(f.input,f.model,endpoint,f.fetcher,()=>{},{contextTokens:8192}),capacity);assert.equal(f.probes,2);assert.equal(f.requests,2)})
-test('over-budget responses require complete token metrics and cannot overflow the configured window',async()=>{for(const [name,options,error]of [['missing',{metrics:false},/Incomplete/],['overflow',{overflow:true},capacity]]){const f=fixture('strict-context-'+name,options);await assert.rejects(generateProposal(f.input,f.model,endpoint,f.fetcher,()=>assert.fail('Unverified output is not retained'),{contextTokens:8192}),error)}})
-test('local task routing uses verified native capacity while a cloud route keeps its conservative preflight',async()=>{const f=fixture('strict-context-routed'),route={provider:'local',model:f.model,endpoint},configuration={routes:{facts:route,filing:route,tags:route},contextTokens:8192};assert.equal((await generateRouted(f.input,configuration,{fetcher:f.fetcher})).state,'needs_review');assert.equal(f.requests,1);await assert.rejects(generateRouted(f.input,{...configuration,routes:{...configuration.routes,tags:{provider:'cloud',model:'cloud-model',endpoint:'https://cloud.example/v1'}}},{cloudKey:'synthetic-key',fetcher:()=>assert.fail('No source is sent after the cloud capacity hold')}),capacity)})
-test('unrelated provider errors cannot masquerade as a positive capacity proof',async()=>{const f=fixture('strict-context-unrelated');const fetcher=(url,options)=>url.endsWith('/api/chat')?Promise.resolve(Response.json({error:'private failure mentioning context, not a capacity proof'},{status:400})):f.fetcher(url,options);await assert.rejects(generateProposal(f.input,f.model,endpoint,fetcher,()=>{},{contextTokens:8192}),capacity);assert.equal(f.requests,0)})
-test('capacity negotiation does not hide service failures or turn them into manual-capacity results',async()=>{
- for(const phase of ['version','probe']){const f=fixture('strict-context-transient-'+phase),fetcher=(url,options)=>phase==='version'&&url.endsWith('/api/version')?Promise.resolve(Response.json({error:'temporarily unavailable'},{status:503})):phase==='probe'&&url.endsWith('/api/chat')?Promise.reject(new TypeError('fetch failed')):f.fetcher(url,options);await assert.rejects(generateProposal(f.input,f.model,endpoint,fetcher,()=>{},{contextTokens:8192}),phase==='version'?/Ollama HTTP 503/:/fetch failed/);assert.equal(f.requests,0);assert.equal((await generateProposal(f.input,f.model,endpoint,f.fetcher,()=>{},{contextTokens:8192})).state,'needs_review')}
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { generateProposal } from '../../companion/ollama.mjs'
+import { generateRouted } from '../../companion/providers.mjs'
+import { samples } from '../../src/domain/samples.ts'
+const endpoint = 'http://127.0.0.1:11434',
+  capacity = /Document exceeds configured model context capacity/
+function fixture(name, { legacy = false, metrics = true, overflow = false } = {}) {
+  const { proposal, ...input } = samples()[0]
+  input.pages.push('PRIVATE_SOURCE_SENTINEL ' + 'Synthetic readable document content. '.repeat(600))
+  let version = 'strict-test-v1',
+    probes = 0,
+    requests = 0
+  const bodies = []
+  const fetcher = async (url, options = {}) => {
+    assert.ok(url.startsWith(endpoint + '/api/'))
+    assert.equal(options.redirect, 'error')
+    if (url.endsWith('/api/tags'))
+      return Response.json({ models: [{ name, digest: 'fixture-digest-' + name }] })
+    if (url.endsWith('/api/version')) return Response.json({ version })
+    const body = JSON.parse(options.body)
+    assert.equal(body.truncate, false)
+    assert.equal(body.shift, false)
+    if (body.options.num_predict === 1) {
+      probes++
+      assert.equal(JSON.stringify(body).includes('PRIVATE_SOURCE_SENTINEL'), false)
+      return legacy || version !== 'strict-test-v1'
+        ? Response.json({ done: true, message: { content: 'x' } })
+        : Response.json(
+            {
+              error:
+                'request (117054 tokens) exceeds the available context size (8192 tokens), try increasing it'
+            },
+            { status: 400 }
+          )
+    }
+    requests++
+    bodies.push(body)
+    const pages = JSON.parse(body.messages[1].content).CURRENT_DOCUMENT
+    assert.equal(pages.length, 2)
+    assert.equal(pages[1].text, input.pages[1])
+    assert.equal(body.options.num_ctx, 8192)
+    return Response.json({
+      done: true,
+      done_reason: 'stop',
+      message: { content: JSON.stringify(proposal) },
+      ...(metrics
+        ? { prompt_eval_count: overflow ? 8000 : 2048, eval_count: overflow ? 500 : 200 }
+        : {})
+    })
+  }
+  return {
+    input,
+    fetcher,
+    model: name,
+    bodies,
+    get probes() {
+      return probes
+    },
+    get requests() {
+      return requests
+    },
+    changeVersion() {
+      version = 'changed-server-version'
+    }
+  }
+}
+test('verified native context rejection permits full inputs beyond the conservative byte estimate without raising capacity', async () => {
+  const f = fixture('strict-context-full')
+  let recorded = 0
+  const result = await generateProposal(
+    f.input,
+    f.model,
+    endpoint,
+    f.fetcher,
+    () => {
+      recorded++
+    },
+    { contextTokens: 8192 }
+  )
+  assert.equal(result.state, 'needs_review')
+  assert.equal(result.bundle.pages.length, 2)
+  assert.equal(f.probes, 1)
+  assert.equal(f.requests, 1)
+  assert.equal(recorded, 1)
 })
-test('large local documents receive more time while keeping every attempt bounded',async()=>{
- const{localRequestTimeout}=await import('../../companion/ollama.mjs');assert.equal(localRequestTimeout(['Short document']),120000);for(const length of [40001,100000,1000000]){const duration=localRequestTimeout(['x'.repeat(length)]);assert.ok(duration>120000);assert.ok(duration<=300000)}
+test('an older or clipping server never receives an over-budget private document', async () => {
+  const f = fixture('strict-context-legacy', { legacy: true })
+  await assert.rejects(
+    generateProposal(
+      f.input,
+      f.model,
+      endpoint,
+      f.fetcher,
+      () => assert.fail('Probe responses are not document proposals'),
+      { contextTokens: 8192 }
+    ),
+    capacity
+  )
+  assert.equal(f.probes, 1)
+  assert.equal(f.requests, 0)
+})
+test('strict capability is cached by model digest and checked server version, and a changed server must prove it again', async () => {
+  const f = fixture('strict-context-version')
+  for (let i = 0; i < 2; i++)
+    await generateProposal(f.input, f.model, endpoint, f.fetcher, () => {}, { contextTokens: 8192 })
+  assert.equal(f.probes, 1)
+  assert.equal(f.requests, 2)
+  f.changeVersion()
+  await assert.rejects(
+    generateProposal(f.input, f.model, endpoint, f.fetcher, () => {}, { contextTokens: 8192 }),
+    capacity
+  )
+  assert.equal(f.probes, 2)
+  assert.equal(f.requests, 2)
+})
+test('over-budget responses require complete token metrics and cannot overflow the configured window', async () => {
+  for (const [name, options, error] of [
+    ['missing', { metrics: false }, /Incomplete/],
+    ['overflow', { overflow: true }, capacity]
+  ]) {
+    const f = fixture('strict-context-' + name, options)
+    await assert.rejects(
+      generateProposal(
+        f.input,
+        f.model,
+        endpoint,
+        f.fetcher,
+        () => assert.fail('Unverified output is not retained'),
+        { contextTokens: 8192 }
+      ),
+      error
+    )
+  }
+})
+test('local task routing uses verified native capacity while a cloud route keeps its conservative preflight', async () => {
+  const f = fixture('strict-context-routed'),
+    route = { provider: 'local', model: f.model, endpoint },
+    configuration = { routes: { facts: route, filing: route, tags: route }, contextTokens: 8192 }
+  assert.equal(
+    (await generateRouted(f.input, configuration, { fetcher: f.fetcher })).state,
+    'needs_review'
+  )
+  assert.equal(f.requests, 1)
+  await assert.rejects(
+    generateRouted(
+      f.input,
+      {
+        ...configuration,
+        routes: {
+          ...configuration.routes,
+          tags: { provider: 'cloud', model: 'cloud-model', endpoint: 'https://cloud.example/v1' }
+        }
+      },
+      {
+        cloudKey: 'synthetic-key',
+        fetcher: () => assert.fail('No source is sent after the cloud capacity hold')
+      }
+    ),
+    capacity
+  )
+})
+test('unrelated provider errors cannot masquerade as a positive capacity proof', async () => {
+  const f = fixture('strict-context-unrelated')
+  const fetcher = (url, options) =>
+    url.endsWith('/api/chat')
+      ? Promise.resolve(
+          Response.json(
+            { error: 'private failure mentioning context, not a capacity proof' },
+            { status: 400 }
+          )
+        )
+      : f.fetcher(url, options)
+  await assert.rejects(
+    generateProposal(f.input, f.model, endpoint, fetcher, () => {}, { contextTokens: 8192 }),
+    capacity
+  )
+  assert.equal(f.requests, 0)
+})
+test('capacity negotiation does not hide service failures or turn them into manual-capacity results', async () => {
+  for (const phase of ['version', 'probe']) {
+    const f = fixture('strict-context-transient-' + phase),
+      fetcher = (url, options) =>
+        phase === 'version' && url.endsWith('/api/version')
+          ? Promise.resolve(Response.json({ error: 'temporarily unavailable' }, { status: 503 }))
+          : phase === 'probe' && url.endsWith('/api/chat')
+            ? Promise.reject(new TypeError('fetch failed'))
+            : f.fetcher(url, options)
+    await assert.rejects(
+      generateProposal(f.input, f.model, endpoint, fetcher, () => {}, { contextTokens: 8192 }),
+      phase === 'version' ? /Ollama HTTP 503/ : /fetch failed/
+    )
+    assert.equal(f.requests, 0)
+    assert.equal(
+      (
+        await generateProposal(f.input, f.model, endpoint, f.fetcher, () => {}, {
+          contextTokens: 8192
+        })
+      ).state,
+      'needs_review'
+    )
+  }
+})
+test('large local documents receive more time while keeping every attempt bounded', async () => {
+  const { localRequestTimeout } = await import('../../companion/ollama.mjs')
+  assert.equal(localRequestTimeout(['Short document']), 120000)
+  for (const length of [40001, 100000, 1000000]) {
+    const duration = localRequestTimeout(['x'.repeat(length)])
+    assert.ok(duration > 120000)
+    assert.ok(duration <= 300000)
+  }
 })

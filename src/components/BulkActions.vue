@@ -1,25 +1,419 @@
 <script setup lang="ts">
 // SPDX-License-Identifier: AGPL-3.0-only
-import {useLocale} from '../state/locale'
-import {actions,reviewDigest,validateBundle,validateManualActions} from '../domain/review'
-import {computed,ref,watch,onBeforeUnmount} from 'vue'
-import {useWorkspace} from '../state/workspace'
-const props=defineProps<{documents:{space?:string;path:string;resourceId:string;etag?:string;reviewJob?:string|null;reviewState?:string|null}[];prepare?:boolean;file?:boolean;hideEdit?:boolean}>(),emit=defineEmits<{changed:[]}>(),store=useWorkspace(),{t}=useLocale(),busy=ref(false),error=ref(''),result=ref<any>(null),tags=ref(''),field=ref(''),value=ref(''),schema=ref<any>(null),prepared=ref<any[]|null>(null),cloudConsent=ref(false)
-const convertible=computed(()=>props.documents.filter(doc=>/\.(jpe?g|png|tiff?|bmp|webp|docx?|xlsx?|pptx?|odt|ods|odp|rtf|txt|oxps|xps)$/i.test(doc.path))),conversion=ref<any>(null)
-async function inspectConversion(){busy.value=true;error.value='';try{conversion.value=await store.request('conversion-settings');if(!conversion.value.available)throw new Error('The conversion service is not configured')}catch(e){conversion.value=null;error.value=e instanceof Error?e.message:'Could not load conversion settings'}finally{busy.value=false}}
-async function convertSelected(){if(busy.value)return;busy.value=true;error.value='';try{const items=[];for(const doc of convertible.value){const r=await store.request('metadata',{path:doc.path});if(r.source.resourceId!==doc.resourceId)throw new Error('A selected document changed');items.push({path:doc.path,resourceId:r.source.resourceId,etag:r.source.etag})}busy.value=false;conversion.value=null;await start('convert',items)}catch(e){busy.value=false;error.value=e instanceof Error?e.message:'Conversion held'}}
-const filing=ref<any[]|null>(null),canFile=computed(()=>props.documents.length>0&&props.documents.every(doc=>doc.reviewState==='needs_review'||store.jobs.value.some(job=>job.source.resourceId===doc.resourceId&&job.bundle?.proposal&&!job.decision)))
-let selectionGeneration=0
-watch(()=>props.documents.map(doc=>doc.resourceId).join(','),()=>{selectionGeneration++;prepared.value=null;filing.value=null})
-let timer:ReturnType<typeof setTimeout>|undefined,alive=true
-onBeforeUnmount(()=>{alive=false;clearTimeout(timer)})
-async function poll(id:string){try{const r=await store.request('operation',{id});if(!alive)return;result.value=r;if(['queued','running'].includes(r.state))timer=setTimeout(()=>void poll(id),1500);else{busy.value=false;emit('changed')}}catch(e){if(alive){busy.value=false;error.value=e instanceof Error?e.message:'Refresh operation history to inspect this result'}}}
-function prepareSelected(){void start('prepare',props.documents.filter(doc=>/\.pdf$/i.test(doc.path)).map(doc=>({path:doc.path,resourceId:doc.resourceId,...(doc.etag?{etag:doc.etag}:{}),...(doc.space?{documentSpace:doc.space}:{}),newReview:true,retry:true,cloudConsent:cloudConsent.value})))}
-async function start(kind:string,items:any[]){if(busy.value)return;busy.value=true;error.value='';try{const r=await store.request('operation-start',{id:crypto.randomUUID(),kind,items});result.value=r;void poll(r.id)}catch(e){busy.value=false;error.value=e instanceof Error?e.message:'Could not start operation'}}
-async function inspect(){if(busy.value)return;const generation=selectionGeneration;busy.value=true;error.value='';prepared.value=null;try{schema.value=await store.request('metadata-schema');const rows=[];for(const doc of props.documents){const r=await store.request('metadata',{path:doc.path,...(doc.space?{documentSpace:doc.space}:{})});if(generation!==selectionGeneration||!alive)return;if(r.source.resourceId!==doc.resourceId||r.pending.length)throw new Error('A selected document changed or has an unconfirmed save');rows.push({path:r.source.path,...(doc.space?{documentSpace:doc.space}:{}),resourceId:r.source.resourceId,etag:r.source.etag,sha256:r.source.sha256,version:r.record.version,fields:Object.fromEntries(Object.entries(r.record.fields).filter(([id])=>schema.value.fields.some((f:any)=>f.id===id))),addTags:[]})}prepared.value=rows}catch(e){error.value=e instanceof Error?e.message:'Could not inspect selection'}finally{busy.value=false}}
-function save(){if(!prepared.value)return;try{const definition=schema.value.fields.find((f:any)=>f.id===field.value),fields=field.value?{[field.value]:definition?.type==='number'?Number(value.value):value.value}:{};void start('metadata',prepared.value.map(row=>({...row,fields:{...row.fields,...fields},addTags:tags.value.split(',').map(t=>t.trim()).filter(Boolean)})));prepared.value=null}catch(e){error.value=e instanceof Error?e.message:'Check the field value'}}
-async function inspectFiling(){if(busy.value)return;const generation=selectionGeneration;busy.value=true;error.value='';filing.value=null;try{const rows=[],policy=JSON.parse(JSON.stringify(store.policy.value));for(const doc of props.documents){let job=store.jobs.value.find(job=>job.source.resourceId===doc.resourceId);if(!job&&doc.reviewJob)job=(await store.request('job',{id:doc.reviewJob})).job;if(generation!==selectionGeneration||!alive)return;if(!job?.bundle||job.decision)throw new Error('Open the document before continuing');if(store.fieldDrafts.value[JSON.stringify([job.source.resourceId,job.source.sha256])])throw new Error('Save field changes before filing');const review=validateBundle(job.bundle),draft=store.filingDrafts.value[job.id],manual=draft?validateManualActions({target:draft.target,addTags:draft.tags.split(',').map(tag=>tag.trim()).filter(Boolean)},review.bundle.manualReview?.reason==='original'?review.bundle.source.path:undefined):undefined,plan=actions(review,policy,manual);if(!plan)throw new Error('Text recognition required');rows.push({id:job.id,path:doc.path,policy,reviewDigest:await reviewDigest(review,policy,manual),...(manual?{manualActions:manual}:{}),plan})}if(generation===selectionGeneration&&alive)filing.value=rows}catch(e){error.value=e instanceof Error?e.message:'Could not load filing plans'}finally{busy.value=false}}
-function fileSelected(){if(!filing.value)return;void start('file',filing.value.map(({plan,path,...item})=>item));filing.value=null}
+import { useLocale } from '../state/locale'
+import { actions, reviewDigest, validateBundle, validateManualActions } from '../domain/review'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { useWorkspace } from '../state/workspace'
+const props = defineProps<{
+    documents: {
+      space?: string
+      path: string
+      resourceId: string
+      etag?: string
+      reviewJob?: string | null
+      reviewState?: string | null
+    }[]
+    prepare?: boolean
+    file?: boolean
+    hideEdit?: boolean
+  }>(),
+  emit = defineEmits<{ changed: [] }>(),
+  store = useWorkspace(),
+  { t } = useLocale(),
+  busy = ref(false),
+  error = ref(''),
+  result = ref<any>(null),
+  tags = ref(''),
+  field = ref(''),
+  value = ref(''),
+  schema = ref<any>(null),
+  prepared = ref<any[] | null>(null),
+  cloudConsent = ref(false)
+const convertible = computed(() =>
+    props.documents.filter((doc) =>
+      /\.(jpe?g|png|tiff?|bmp|webp|docx?|xlsx?|pptx?|odt|ods|odp|rtf|txt|oxps|xps)$/i.test(doc.path)
+    )
+  ),
+  conversion = ref<any>(null)
+async function inspectConversion() {
+  busy.value = true
+  error.value = ''
+  try {
+    conversion.value = await store.request('conversion-settings')
+    if (!conversion.value.available) throw new Error('The conversion service is not configured')
+  } catch (e) {
+    conversion.value = null
+    error.value = e instanceof Error ? e.message : 'Could not load conversion settings'
+  } finally {
+    busy.value = false
+  }
+}
+async function convertSelected() {
+  if (busy.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    const items = []
+    for (const doc of convertible.value) {
+      const r = await store.request('metadata', { path: doc.path })
+      if (r.source.resourceId !== doc.resourceId) throw new Error('A selected document changed')
+      items.push({ path: doc.path, resourceId: r.source.resourceId, etag: r.source.etag })
+    }
+    busy.value = false
+    conversion.value = null
+    await start('convert', items)
+  } catch (e) {
+    busy.value = false
+    error.value = e instanceof Error ? e.message : 'Conversion held'
+  }
+}
+const filing = ref<any[] | null>(null),
+  canFile = computed(
+    () =>
+      props.documents.length > 0 &&
+      props.documents.every(
+        (doc) =>
+          doc.reviewState === 'needs_review' ||
+          store.jobs.value.some(
+            (job) =>
+              job.source.resourceId === doc.resourceId && job.bundle?.proposal && !job.decision
+          )
+      )
+  )
+let selectionGeneration = 0
+watch(
+  () => props.documents.map((doc) => doc.resourceId).join(','),
+  () => {
+    selectionGeneration++
+    prepared.value = null
+    filing.value = null
+  }
+)
+let timer: ReturnType<typeof setTimeout> | undefined,
+  alive = true
+onBeforeUnmount(() => {
+  alive = false
+  clearTimeout(timer)
+})
+async function poll(id: string) {
+  try {
+    const r = await store.request('operation', { id })
+    if (!alive) return
+    result.value = r
+    if (['queued', 'running'].includes(r.state)) timer = setTimeout(() => void poll(id), 1500)
+    else {
+      busy.value = false
+      emit('changed')
+    }
+  } catch (e) {
+    if (alive) {
+      busy.value = false
+      error.value =
+        e instanceof Error ? e.message : 'Refresh operation history to inspect this result'
+    }
+  }
+}
+function prepareSelected() {
+  void start(
+    'prepare',
+    props.documents
+      .filter((doc) => /\.pdf$/i.test(doc.path))
+      .map((doc) => ({
+        path: doc.path,
+        resourceId: doc.resourceId,
+        ...(doc.etag ? { etag: doc.etag } : {}),
+        ...(doc.space ? { documentSpace: doc.space } : {}),
+        newReview: true,
+        retry: true,
+        cloudConsent: cloudConsent.value
+      }))
+  )
+}
+async function start(kind: string, items: any[]) {
+  if (busy.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    const r = await store.request('operation-start', { id: crypto.randomUUID(), kind, items })
+    result.value = r
+    void poll(r.id)
+  } catch (e) {
+    busy.value = false
+    error.value = e instanceof Error ? e.message : 'Could not start operation'
+  }
+}
+async function inspect() {
+  if (busy.value) return
+  const generation = selectionGeneration
+  busy.value = true
+  error.value = ''
+  prepared.value = null
+  try {
+    schema.value = await store.request('metadata-schema')
+    const rows = []
+    for (const doc of props.documents) {
+      const r = await store.request('metadata', {
+        path: doc.path,
+        ...(doc.space ? { documentSpace: doc.space } : {})
+      })
+      if (generation !== selectionGeneration || !alive) return
+      if (r.source.resourceId !== doc.resourceId || r.pending.length)
+        throw new Error('A selected document changed or has an unconfirmed save')
+      rows.push({
+        path: r.source.path,
+        ...(doc.space ? { documentSpace: doc.space } : {}),
+        resourceId: r.source.resourceId,
+        etag: r.source.etag,
+        sha256: r.source.sha256,
+        version: r.record.version,
+        fields: Object.fromEntries(
+          Object.entries(r.record.fields).filter(([id]) =>
+            schema.value.fields.some((f: any) => f.id === id)
+          )
+        ),
+        addTags: []
+      })
+    }
+    prepared.value = rows
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Could not inspect selection'
+  } finally {
+    busy.value = false
+  }
+}
+function save() {
+  if (!prepared.value) return
+  try {
+    const definition = schema.value.fields.find((f: any) => f.id === field.value),
+      fields = field.value
+        ? { [field.value]: definition?.type === 'number' ? Number(value.value) : value.value }
+        : {}
+    void start(
+      'metadata',
+      prepared.value.map((row) => ({
+        ...row,
+        fields: { ...row.fields, ...fields },
+        addTags: tags.value
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+      }))
+    )
+    prepared.value = null
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Check the field value'
+  }
+}
+async function inspectFiling() {
+  if (busy.value) return
+  const generation = selectionGeneration
+  busy.value = true
+  error.value = ''
+  filing.value = null
+  try {
+    const rows = [],
+      policy = JSON.parse(JSON.stringify(store.policy.value))
+    for (const doc of props.documents) {
+      let job = store.jobs.value.find((job) => job.source.resourceId === doc.resourceId)
+      if (!job && doc.reviewJob) job = (await store.request('job', { id: doc.reviewJob })).job
+      if (generation !== selectionGeneration || !alive) return
+      if (!job?.bundle || job.decision) throw new Error('Open the document before continuing')
+      if (store.fieldDrafts.value[JSON.stringify([job.source.resourceId, job.source.sha256])])
+        throw new Error('Save field changes before filing')
+      const review = validateBundle(job.bundle),
+        draft = store.filingDrafts.value[job.id],
+        manual = draft
+          ? validateManualActions(
+              {
+                target: draft.target,
+                addTags: draft.tags
+                  .split(',')
+                  .map((tag) => tag.trim())
+                  .filter(Boolean)
+              },
+              review.bundle.manualReview?.reason === 'original'
+                ? review.bundle.source.path
+                : undefined
+            )
+          : undefined,
+        plan = actions(review, policy, manual)
+      if (!plan) throw new Error('Text recognition required')
+      rows.push({
+        id: job.id,
+        path: doc.path,
+        policy,
+        reviewDigest: await reviewDigest(review, policy, manual),
+        ...(manual ? { manualActions: manual } : {}),
+        plan
+      })
+    }
+    if (generation === selectionGeneration && alive) filing.value = rows
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Could not load filing plans'
+  } finally {
+    busy.value = false
+  }
+}
+function fileSelected() {
+  if (!filing.value) return
+  void start(
+    'file',
+    filing.value.map(({ plan, path, ...item }) => item)
+  )
+  filing.value = null
+}
 </script>
-<template><section v-if="documents.length||result" class="panel bulk-actions" :aria-label="t('Selected documents')"><div class="bulk-toolbar"><span v-if="documents.length&&!hideEdit">{{ t('{count} selected',{count:documents.length}) }}</span><template v-if="documents.length&&!prepared&&!filing"><button v-if="prepare&&documents.some(doc=>/\.pdf$/i.test(doc.path))" class="button" :disabled="busy" @click="prepareSelected">{{ t(documents.some(doc=>doc.reviewState||doc.reviewJob)?'Reprocess':'Prepare') }}</button><button v-if="prepare&&convertible.length" class="button" :disabled="busy" @click="inspectConversion">{{ t(hideEdit?'Create PDF copy':'Create PDF copies') }}</button><button v-if="file" class="button primary" :disabled="busy||!canFile" @click="inspectFiling">{{ t('Accept') }}</button><button v-if="!hideEdit" class="button" :disabled="busy" @click="inspect">{{ t('Edit') }}</button></template></div><label v-if="prepare&&store.cloudProcessing.value" class="check-label"><input v-model="cloudConsent" type="checkbox" />{{ t('Allow cloud processing') }}</label><section v-if="conversion" class="conversion-confirmation"><p>{{ t('PDF copies will appear beside the selected files. Verified originals move to {archive}, keeping their subfolders.',{archive:conversion.archive}) }}</p><button class="button primary" :disabled="busy" @click="convertSelected">{{ t('Create PDF copies') }} ({{ convertible.length }})</button><button class="button subtle" :disabled="busy" @click="conversion=null">{{ t('Cancel') }}</button></section><form v-if="prepared" @submit.prevent="save"><label>{{ t('Field') }}<select v-model="field"><option value="">{{ t('Tags only') }}</option><option v-for="definition in schema.fields" :key="definition.id" :value="definition.id">{{ definition.label }}</option></select></label><label v-if="field">{{ t('Value') }}<input v-model="value" required /></label><label>{{ t('Tags to add') }}<input v-model="tags" /></label><button class="button primary" :disabled="busy">{{ t('Save') }}</button><button class="button subtle" type="button" @click="prepared=null">{{ t('Cancel') }}</button></form><section v-if="filing" class="filing-selection"><article v-for="item in filing" :key="item.id"><strong>{{ item.path.split('/').pop() }}</strong><p>{{ item.plan.target }}</p><span v-for="tag in item.plan.addTags" :key="tag" class="tag">{{ tag }}</span></article><button class="button primary" :disabled="busy" @click="fileSelected">{{ t('Accept selected') }}</button><button class="button subtle" @click="filing=null">{{ t('Cancel') }}</button></section><p v-if="error" class="error" role="alert">{{ t(error) }}</p><details v-if="result"><summary>{{ t(result.state==='completed'?'Completed':'Processing') }}</summary><ul><li v-for="item in result.items" :key="item.position">{{ item.input.path||item.input.id.slice(0,12) }} · {{ t(item.state==='done'?'Done':item.state==='held'?'Needs attention':'Processing') }}<p v-if="item.result?.error||item.result?.detail">{{ t(item.result.error||item.result.detail) }}</p></li></ul><RouterLink to="/document-workflow/activity?view=operations">{{ t('Activity') }}</RouterLink></details></section></template>
-<style scoped>.bulk-actions{margin:16px 0;padding:16px}.bulk-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.bulk-toolbar>span{font-size:12px;color:var(--muted);margin-right:auto}form{margin-top:16px}label{display:block;margin:12px 0}label input,label select{display:block;width:100%}li{font-size:12px;overflow-wrap:anywhere;margin:8px 0}summary{cursor:pointer;margin-top:14px}.filing-selection article{padding:12px 0;border-bottom:1px solid var(--line);font-size:12px;overflow-wrap:anywhere}.filing-selection>.button{margin-top:16px}</style>
+<template>
+  <section
+    v-if="documents.length || result"
+    class="panel bulk-actions"
+    :aria-label="t('Selected documents')"
+  >
+    <div class="bulk-toolbar">
+      <span v-if="documents.length && !hideEdit">{{
+        t('{count} selected', { count: documents.length })
+      }}</span
+      ><template v-if="documents.length && !prepared && !filing"
+        ><button
+          v-if="prepare && documents.some((doc) => /\.pdf$/i.test(doc.path))"
+          class="button"
+          :disabled="busy"
+          @click="prepareSelected"
+        >
+          {{
+            t(documents.some((doc) => doc.reviewState || doc.reviewJob) ? 'Reprocess' : 'Prepare')
+          }}</button
+        ><button
+          v-if="prepare && convertible.length"
+          class="button"
+          :disabled="busy"
+          @click="inspectConversion"
+        >
+          {{ t(hideEdit ? 'Create PDF copy' : 'Create PDF copies') }}</button
+        ><button
+          v-if="file"
+          class="button primary"
+          :disabled="busy || !canFile"
+          @click="inspectFiling"
+        >
+          {{ t('Accept') }}</button
+        ><button v-if="!hideEdit" class="button" :disabled="busy" @click="inspect">
+          {{ t('Edit') }}
+        </button></template
+      >
+    </div>
+    <label v-if="prepare && store.cloudProcessing.value" class="check-label"
+      ><input v-model="cloudConsent" type="checkbox" />{{ t('Allow cloud processing') }}</label
+    >
+    <section v-if="conversion" class="conversion-confirmation">
+      <p>
+        {{
+          t(
+            'PDF copies will appear beside the selected files. Verified originals move to {archive}, keeping their subfolders.',
+            { archive: conversion.archive }
+          )
+        }}
+      </p>
+      <button class="button primary" :disabled="busy" @click="convertSelected">
+        {{ t('Create PDF copies') }} ({{ convertible.length }})</button
+      ><button class="button subtle" :disabled="busy" @click="conversion = null">
+        {{ t('Cancel') }}
+      </button>
+    </section>
+    <form v-if="prepared" @submit.prevent="save">
+      <label
+        >{{ t('Field')
+        }}<select v-model="field">
+          <option value="">{{ t('Tags only') }}</option>
+          <option v-for="definition in schema.fields" :key="definition.id" :value="definition.id">
+            {{ definition.label }}
+          </option>
+        </select></label
+      ><label v-if="field">{{ t('Value') }}<input v-model="value" required /></label
+      ><label>{{ t('Tags to add') }}<input v-model="tags" /></label
+      ><button class="button primary" :disabled="busy">{{ t('Save') }}</button
+      ><button class="button subtle" type="button" @click="prepared = null">
+        {{ t('Cancel') }}
+      </button>
+    </form>
+    <section v-if="filing" class="filing-selection">
+      <article v-for="item in filing" :key="item.id">
+        <strong>{{ item.path.split('/').pop() }}</strong>
+        <p>{{ item.plan.target }}</p>
+        <span v-for="tag in item.plan.addTags" :key="tag" class="tag">{{ tag }}</span>
+      </article>
+      <button class="button primary" :disabled="busy" @click="fileSelected">
+        {{ t('Accept selected') }}</button
+      ><button class="button subtle" @click="filing = null">{{ t('Cancel') }}</button>
+    </section>
+    <p v-if="error" class="error" role="alert">{{ t(error) }}</p>
+    <details v-if="result">
+      <summary>{{ t(result.state === 'completed' ? 'Completed' : 'Processing') }}</summary>
+      <ul>
+        <li v-for="item in result.items" :key="item.position">
+          {{ item.input.path || item.input.id.slice(0, 12) }} ·
+          {{
+            t(
+              item.state === 'done'
+                ? 'Done'
+                : item.state === 'held'
+                  ? 'Needs attention'
+                  : 'Processing'
+            )
+          }}
+          <p v-if="item.result?.error || item.result?.detail">
+            {{ t(item.result.error || item.result.detail) }}
+          </p>
+        </li>
+      </ul>
+      <RouterLink to="/document-workflow/activity?view=operations">{{ t('Activity') }}</RouterLink>
+    </details>
+  </section>
+</template>
+<style scoped>
+.bulk-actions {
+  margin: 16px 0;
+  padding: 16px;
+}
+.bulk-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.bulk-toolbar > span {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: auto;
+}
+form {
+  margin-top: 16px;
+}
+label {
+  display: block;
+  margin: 12px 0;
+}
+label input,
+label select {
+  display: block;
+  width: 100%;
+}
+li {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  margin: 8px 0;
+}
+summary {
+  cursor: pointer;
+  margin-top: 14px;
+}
+.filing-selection article {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.filing-selection > .button {
+  margin-top: 16px;
+}
+</style>

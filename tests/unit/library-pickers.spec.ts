@@ -1,14 +1,218 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import {mount,flushPromises} from '@vue/test-utils'
-import {createRouter,createMemoryHistory} from 'vue-router'
-import {createWorkspace,workspaceKey} from '../../src/state/workspace'
+import { mount, flushPromises } from '@vue/test-utils'
+import { createRouter, createMemoryHistory } from 'vue-router'
+import { createWorkspace, workspaceKey } from '../../src/state/workspace'
 import LibraryFiles from '../../src/components/LibraryFiles.vue'
 import DestinationPicker from '../../src/components/DestinationPicker.vue'
 import TagPicker from '../../src/components/TagPicker.vue'
-function fixture(){const store=createWorkspace();store.connection.value={mode:'live',account:'fixture',server:'https://example.org',space:'inbox-space',name:'Fixture'};return store}
-it('browses manually stored images and office files without conversion or preparation requests',async()=>{const store=fixture(),request=vi.spyOn(store,'request').mockResolvedValue({root:'Docs',path:'Docs',space:'library-space',files:[{path:'Docs/photo.jpg',resourceId:'image',folder:false,tags:[]},{path:'Docs/report.xlsx',resourceId:'sheet',folder:false,tags:['Finance']}]});const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:rest(.*)',component:{template:'<div />'}}]});await router.push('/document-workflow/documents');const w=mount(LibraryFiles,{global:{plugins:[router],provide:{[workspaceKey as symbol]:store}}});try{await flushPromises();expect(w.text()).toContain('photo.jpg');expect(w.text()).toContain('report.xlsx');await w.findAll('button').find(b=>b.text()==='photo.jpg')!.trigger('click');await flushPromises();expect(router.currentRoute.value.fullPath).toBe('/document-workflow/documents');expect(w.find('.expanded-content').exists()).toBe(true);expect(request.mock.calls.every(c=>['library-files','metadata'].includes(c[0]))).toBe(true)}finally{w.unmount()}})
-it('chooses a destination folder while retaining the filename and never writes or files',async()=>{const store=fixture(),request=vi.spyOn(store,'request').mockImplementation(async(_op,body:any)=>({files:body.path==='Docs'?[{path:'Docs/Receipts',folder:true},{path:'Docs/ignore.pdf',folder:false}]:[]}));const w=mount(DestinationPicker,{props:{modelValue:'Docs/old.pdf',root:'Docs',space:'destination-space',filename:'source.pdf'},global:{provide:{[workspaceKey as symbol]:store}}});try{await w.get('button').trigger('click');await flushPromises();await w.findAll('button').find(b=>b.text()==='Receipts')!.trigger('click');await flushPromises();await w.findAll('button').find(b=>b.text()==='Use this folder')!.trigger('click');expect(w.emitted('update:modelValue')).toEqual([['Docs/Receipts/old.pdf']]);expect(request.mock.calls).toEqual([['files',{path:'Docs',documentSpace:'destination-space'}],['files',{path:'Docs/Receipts',documentSpace:'destination-space'}]])}finally{w.unmount()}})
-it('selects existing tags and explicitly creates or removes draft chips without writing metadata',async()=>{const store=fixture(),request=vi.spyOn(store,'request').mockResolvedValue({tags:['Existing'],available:true});const w=mount(TagPicker,{props:{id:'tags',modelValue:'Selected',options:['Suggested']},global:{provide:{[workspaceKey as symbol]:store}}});try{await flushPromises();await w.get('input').trigger('focus');await w.findAll('button').find(b=>b.text()==='Existing')!.trigger('click');expect(w.emitted('update:modelValue')?.at(-1)).toEqual(['Selected, Existing']);await w.setProps({modelValue:'Selected, Existing'});await w.get('input').setValue('New tag');await w.get('input').trigger('keydown',{key:'Enter'});expect(w.emitted('update:modelValue')?.at(-1)).toEqual(['Selected, Existing, New tag']);await w.get('[aria-label="Remove tag Selected"]').trigger('click');expect(w.emitted('update:modelValue')?.at(-1)).toEqual(['Existing']);expect(request.mock.calls.map(c=>c[0])).toEqual(['tag-options'])}finally{w.unmount()}})
-it('selects a new Japanese destination folder as a draft, preserves the filename, and performs no creation before Accept',async()=>{const store=fixture(),request=vi.spyOn(store,'request').mockResolvedValue({files:[{path:'Docs/Receipts',folder:true}]});const w=mount(DestinationPicker,{props:{modelValue:'Docs/custom.dwg',root:'Docs',space:'destination-space',filename:'source.dwg'},global:{provide:{[workspaceKey as symbol]:store}}});try{await w.get('button').trigger('click');await flushPromises();await w.findAll('button').find(b=>b.text()==='Receipts')!.trigger('click');await flushPromises();await w.findAll('button').find(b=>b.text()==='New folder')!.trigger('click');expect(w.text()).toContain('The folder will be created when you accept the document.');const useNew=()=>w.findAll('button').find(b=>b.text()==='Use new folder')!;for(const value of ['','..','../outside','a/b','a\\b','bad:name']){await w.get('#destination-folder-name').setValue(value);expect(useNew().attributes('disabled')).toBeDefined()}await w.get('#destination-folder-name').setValue(' 車両 ');await w.get('#destination-folder-name').trigger('keydown',{key:'Enter'});expect(w.emitted('update:modelValue')).toEqual([['Docs/Receipts/車両/custom.dwg']]);expect(w.find('.folder-picker').exists()).toBe(false);expect(request.mock.calls.map(c=>c[0])).toEqual(['files','files'])}finally{w.unmount()}})
-it('discards an unfinished new folder when the picker is cancelled or its Space changes',async()=>{const store=fixture(),request=vi.spyOn(store,'request').mockResolvedValue({files:[]});const w=mount(DestinationPicker,{props:{modelValue:'Docs/old.pdf',root:'Docs',space:'destination-space',filename:'source.pdf'},global:{provide:{[workspaceKey as symbol]:store}}});try{await w.get('button').trigger('click');await flushPromises();await w.findAll('button').find(b=>b.text()==='New folder')!.trigger('click');await w.get('#destination-folder-name').setValue('Unused');await w.findAll('button').find(b=>b.text()==='Cancel')!.trigger('click');expect(w.find('.new-folder').exists()).toBe(false);expect(w.emitted('update:modelValue')).toBeUndefined();await w.findAll('button').find(b=>b.text()==='New folder')!.trigger('click');await w.setProps({space:'other-space'});expect(w.find('.folder-picker').exists()).toBe(false);expect(w.emitted('update:modelValue')).toBeUndefined();expect(request.mock.calls.map(c=>c[0])).toEqual(['files'])}finally{w.unmount()}})
-it('reuses native tag capitalization and does not offer Create for a case-only variant',async()=>{const store=fixture();vi.spyOn(store,'request').mockResolvedValue({tags:['Vehicles']});const w=mount(TagPicker,{props:{id:'tags',modelValue:'',options:['vehicles']},global:{provide:{[workspaceKey as symbol]:store}}});try{await flushPromises();await w.get('input').trigger('focus');await w.get('input').setValue('VEHICLES');expect(w.text()).not.toContain('Create tag');expect(w.findAll('.tag-choice').map(button=>button.text())).toEqual(['Vehicles']);await w.get('input').trigger('keydown',{key:'Enter'});expect(w.emitted('update:modelValue')?.at(-1)).toEqual(['Vehicles'])}finally{w.unmount()}})
+function fixture() {
+  const store = createWorkspace()
+  store.connection.value = {
+    mode: 'live',
+    account: 'fixture',
+    server: 'https://example.org',
+    space: 'inbox-space',
+    name: 'Fixture'
+  }
+  return store
+}
+it('browses manually stored images and office files without conversion or preparation requests', async () => {
+  const store = fixture(),
+    request = vi.spyOn(store, 'request').mockResolvedValue({
+      root: 'Docs',
+      path: 'Docs',
+      space: 'library-space',
+      files: [
+        { path: 'Docs/photo.jpg', resourceId: 'image', folder: false, tags: [] },
+        { path: 'Docs/report.xlsx', resourceId: 'sheet', folder: false, tags: ['Finance'] }
+      ]
+    })
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/:rest(.*)', component: { template: '<div />' } }]
+  })
+  await router.push('/document-workflow/documents')
+  const w = mount(LibraryFiles, {
+    global: { plugins: [router], provide: { [workspaceKey as symbol]: store } }
+  })
+  try {
+    await flushPromises()
+    expect(w.text()).toContain('photo.jpg')
+    expect(w.text()).toContain('report.xlsx')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'photo.jpg')!
+      .trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/document-workflow/documents')
+    expect(w.find('.expanded-content').exists()).toBe(true)
+    expect(request.mock.calls.every((c) => ['library-files', 'metadata'].includes(c[0]))).toBe(true)
+  } finally {
+    w.unmount()
+  }
+})
+it('chooses a destination folder while retaining the filename and never writes or files', async () => {
+  const store = fixture(),
+    request = vi.spyOn(store, 'request').mockImplementation(async (_op, body: any) => ({
+      files:
+        body.path === 'Docs'
+          ? [
+              { path: 'Docs/Receipts', folder: true },
+              { path: 'Docs/ignore.pdf', folder: false }
+            ]
+          : []
+    }))
+  const w = mount(DestinationPicker, {
+    props: {
+      modelValue: 'Docs/old.pdf',
+      root: 'Docs',
+      space: 'destination-space',
+      filename: 'source.pdf'
+    },
+    global: { provide: { [workspaceKey as symbol]: store } }
+  })
+  try {
+    await w.get('button').trigger('click')
+    await flushPromises()
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Receipts')!
+      .trigger('click')
+    await flushPromises()
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Use this folder')!
+      .trigger('click')
+    expect(w.emitted('update:modelValue')).toEqual([['Docs/Receipts/old.pdf']])
+    expect(request.mock.calls).toEqual([
+      ['files', { path: 'Docs', documentSpace: 'destination-space' }],
+      ['files', { path: 'Docs/Receipts', documentSpace: 'destination-space' }]
+    ])
+  } finally {
+    w.unmount()
+  }
+})
+it('selects existing tags and explicitly creates or removes draft chips without writing metadata', async () => {
+  const store = fixture(),
+    request = vi.spyOn(store, 'request').mockResolvedValue({ tags: ['Existing'], available: true })
+  const w = mount(TagPicker, {
+    props: { id: 'tags', modelValue: 'Selected', options: ['Suggested'] },
+    global: { provide: { [workspaceKey as symbol]: store } }
+  })
+  try {
+    await flushPromises()
+    await w.get('input').trigger('focus')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Existing')!
+      .trigger('click')
+    expect(w.emitted('update:modelValue')?.at(-1)).toEqual(['Selected, Existing'])
+    await w.setProps({ modelValue: 'Selected, Existing' })
+    await w.get('input').setValue('New tag')
+    await w.get('input').trigger('keydown', { key: 'Enter' })
+    expect(w.emitted('update:modelValue')?.at(-1)).toEqual(['Selected, Existing, New tag'])
+    await w.get('[aria-label="Remove tag Selected"]').trigger('click')
+    expect(w.emitted('update:modelValue')?.at(-1)).toEqual(['Existing'])
+    expect(request.mock.calls.map((c) => c[0])).toEqual(['tag-options'])
+  } finally {
+    w.unmount()
+  }
+})
+it('selects a new Japanese destination folder as a draft, preserves the filename, and performs no creation before Accept', async () => {
+  const store = fixture(),
+    request = vi
+      .spyOn(store, 'request')
+      .mockResolvedValue({ files: [{ path: 'Docs/Receipts', folder: true }] })
+  const w = mount(DestinationPicker, {
+    props: {
+      modelValue: 'Docs/custom.dwg',
+      root: 'Docs',
+      space: 'destination-space',
+      filename: 'source.dwg'
+    },
+    global: { provide: { [workspaceKey as symbol]: store } }
+  })
+  try {
+    await w.get('button').trigger('click')
+    await flushPromises()
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Receipts')!
+      .trigger('click')
+    await flushPromises()
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'New folder')!
+      .trigger('click')
+    expect(w.text()).toContain('The folder will be created when you accept the document.')
+    const useNew = () => w.findAll('button').find((b) => b.text() === 'Use new folder')!
+    for (const value of ['', '..', '../outside', 'a/b', 'a\\b', 'bad:name']) {
+      await w.get('#destination-folder-name').setValue(value)
+      expect(useNew().attributes('disabled')).toBeDefined()
+    }
+    await w.get('#destination-folder-name').setValue(' 車両 ')
+    await w.get('#destination-folder-name').trigger('keydown', { key: 'Enter' })
+    expect(w.emitted('update:modelValue')).toEqual([['Docs/Receipts/車両/custom.dwg']])
+    expect(w.find('.folder-picker').exists()).toBe(false)
+    expect(request.mock.calls.map((c) => c[0])).toEqual(['files', 'files'])
+  } finally {
+    w.unmount()
+  }
+})
+it('discards an unfinished new folder when the picker is cancelled or its Space changes', async () => {
+  const store = fixture(),
+    request = vi.spyOn(store, 'request').mockResolvedValue({ files: [] })
+  const w = mount(DestinationPicker, {
+    props: {
+      modelValue: 'Docs/old.pdf',
+      root: 'Docs',
+      space: 'destination-space',
+      filename: 'source.pdf'
+    },
+    global: { provide: { [workspaceKey as symbol]: store } }
+  })
+  try {
+    await w.get('button').trigger('click')
+    await flushPromises()
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'New folder')!
+      .trigger('click')
+    await w.get('#destination-folder-name').setValue('Unused')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Cancel')!
+      .trigger('click')
+    expect(w.find('.new-folder').exists()).toBe(false)
+    expect(w.emitted('update:modelValue')).toBeUndefined()
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'New folder')!
+      .trigger('click')
+    await w.setProps({ space: 'other-space' })
+    expect(w.find('.folder-picker').exists()).toBe(false)
+    expect(w.emitted('update:modelValue')).toBeUndefined()
+    expect(request.mock.calls.map((c) => c[0])).toEqual(['files'])
+  } finally {
+    w.unmount()
+  }
+})
+it('reuses native tag capitalization and does not offer Create for a case-only variant', async () => {
+  const store = fixture()
+  vi.spyOn(store, 'request').mockResolvedValue({ tags: ['Vehicles'] })
+  const w = mount(TagPicker, {
+    props: { id: 'tags', modelValue: '', options: ['vehicles'] },
+    global: { provide: { [workspaceKey as symbol]: store } }
+  })
+  try {
+    await flushPromises()
+    await w.get('input').trigger('focus')
+    await w.get('input').setValue('VEHICLES')
+    expect(w.text()).not.toContain('Create tag')
+    expect(w.findAll('.tag-choice').map((button) => button.text())).toEqual(['Vehicles'])
+    await w.get('input').trigger('keydown', { key: 'Enter' })
+    expect(w.emitted('update:modelValue')?.at(-1)).toEqual(['Vehicles'])
+  } finally {
+    w.unmount()
+  }
+})

@@ -1,75 +1,796 @@
-import {createHash} from 'node:crypto'
-import {mount,flushPromises} from '@vue/test-utils'
-import {createRouter,createMemoryHistory} from 'vue-router'
+import { createHash } from 'node:crypto'
+import { mount, flushPromises } from '@vue/test-utils'
+import { createRouter, createMemoryHistory } from 'vue-router'
 import ReviewInbox from '../../src/views/ReviewInbox.vue'
-import {createWorkspace,workspaceKey} from '../../src/state/workspace'
-import {samples} from '../../src/domain/samples'
-import {validateBundle} from '../../src/domain/review'
-import {defaultFilingRules} from '../../src/domain/filing'
-function fixtureBundle(index=0,body='pdf'){const bundle=samples()[index]!;bundle.source.sha256=createHash('sha256').update(body).digest('hex');return bundle}
-async function mountReview(store:ReturnType<typeof createWorkspace>){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/document-workflow/review',component:ReviewInbox},{path:'/document-workflow/:rest(.*)',component:{template:'<div />'}}]});await router.push('/document-workflow/review');await router.isReady();const original=vi.mocked(store.request).getMockImplementation()??store.request;vi.spyOn(store,'request').mockImplementation(async(op,body)=>op==='metadata'?{source:{...store.reviews.value[store.selected.value]!.bundle.source,tags:[]},schema:{fields:[],tags:[]},record:{version:0,fields:{}},suggestions:{fields:{},tags:[]},pending:[]}:op==='tag-options'?{tags:[],available:true}:original(op,body));const wrapper=mount(ReviewInbox,{global:{plugins:[router],provide:{[workspaceKey as symbol]:store},stubs:{PdfPreview:{props:['data'],template:'<div data-test="pdf">{{ data.size }}</div>'}}}});if(store.connection.value){await flushPromises();await vi.waitFor(()=>expect(wrapper.find('.review-tags-section').exists()).toBe(true));await flushPromises()}return wrapper}
-it('loads the PDF automatically and discards a late response for the previous document',async()=>{
- const store=createWorkspace();store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[fixtureBundle(0,'English'),fixtureBundle(1,'Japanese')].map(b=>validateBundle(b));vi.spyOn(store,'refresh').mockResolvedValue();const pending:{resolve:(blob:Blob)=>void;path:string}[]=[];vi.spyOn(store,'request').mockImplementation(async(operation,body:any)=>{if(operation==='preview')return new Promise(resolve=>pending.push({resolve,path:body.path}));throw new Error('Unexpected operation')})
- const w=await mountReview(store);await flushPromises();expect(pending[0]?.path).toBe('Inbox/electricity.pdf');store.selected.value=1;await flushPromises();expect(pending[1]?.path).toBe('Inbox/water.pdf');pending[1]!.resolve(new Blob(['Japanese']));await flushPromises();await vi.waitFor(()=>expect(w.get('[data-test="pdf"]').text()).toBe('8'));pending[0]!.resolve(new Blob(['stale']));await flushPromises();expect(w.get('[data-test="pdf"]').text()).toBe('8');expect(vi.mocked(store.request).mock.calls.filter(c=>c[0]==='preview')).toHaveLength(2);w.unmount()
+import { createWorkspace, workspaceKey } from '../../src/state/workspace'
+import { samples } from '../../src/domain/samples'
+import { validateBundle } from '../../src/domain/review'
+import { defaultFilingRules } from '../../src/domain/filing'
+function fixtureBundle(index = 0, body = 'pdf') {
+  const bundle = samples()[index]!
+  bundle.source.sha256 = createHash('sha256').update(body).digest('hex')
+  return bundle
+}
+async function mountReview(store: ReturnType<typeof createWorkspace>) {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/document-workflow/review', component: ReviewInbox },
+      { path: '/document-workflow/:rest(.*)', component: { template: '<div />' } }
+    ]
+  })
+  await router.push('/document-workflow/review')
+  await router.isReady()
+  const original = vi.mocked(store.request).getMockImplementation() ?? store.request
+  vi.spyOn(store, 'request').mockImplementation(async (op, body) =>
+    op === 'metadata'
+      ? {
+          source: { ...store.reviews.value[store.selected.value]!.bundle.source, tags: [] },
+          schema: { fields: [], tags: [] },
+          record: { version: 0, fields: {} },
+          suggestions: { fields: {}, tags: [] },
+          pending: []
+        }
+      : op === 'tag-options'
+        ? { tags: [], available: true }
+        : original(op, body)
+  )
+  const wrapper = mount(ReviewInbox, {
+    global: {
+      plugins: [router],
+      provide: { [workspaceKey as symbol]: store },
+      stubs: {
+        PdfPreview: { props: ['data'], template: '<div data-test="pdf">{{ data.size }}</div>' }
+      }
+    }
+  })
+  if (store.connection.value) {
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.find('.review-tags-section').exists()).toBe(true))
+    await flushPromises()
+  }
+  return wrapper
+}
+it('loads the PDF automatically and discards a late response for the previous document', async () => {
+  const store = createWorkspace()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [fixtureBundle(0, 'English'), fixtureBundle(1, 'Japanese')].map((b) =>
+    validateBundle(b)
+  )
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  const pending: { resolve: (blob: Blob) => void; path: string }[] = []
+  vi.spyOn(store, 'request').mockImplementation(async (operation, body: any) => {
+    if (operation === 'preview')
+      return new Promise((resolve) => pending.push({ resolve, path: body.path }))
+    throw new Error('Unexpected operation')
+  })
+  const w = await mountReview(store)
+  await flushPromises()
+  expect(pending[0]?.path).toBe('Inbox/electricity.pdf')
+  store.selected.value = 1
+  await flushPromises()
+  expect(pending[1]?.path).toBe('Inbox/water.pdf')
+  pending[1]!.resolve(new Blob(['Japanese']))
+  await flushPromises()
+  await vi.waitFor(() => expect(w.get('[data-test="pdf"]').text()).toBe('8'))
+  pending[0]!.resolve(new Blob(['stale']))
+  await flushPromises()
+  expect(w.get('[data-test="pdf"]').text()).toBe('8')
+  expect(vi.mocked(store.request).mock.calls.filter((c) => c[0] === 'preview')).toHaveLength(2)
+  w.unmount()
 })
-it('keeps unattached records read-only and exports a record without document writes',async()=>{
- const store=createWorkspace();store.reviews.value=[validateBundle(samples()[0]!)];const request=vi.spyOn(store,'request');const w=await mountReview(store);await flushPromises();expect(w.find('[data-test="pdf"]').exists()).toBe(false);expect(w.text()).toContain('Export record');expect(w.text()).not.toContain('FileReject');expect(request).not.toHaveBeenCalled();w.unmount()
+it('keeps unattached records read-only and exports a record without document writes', async () => {
+  const store = createWorkspace()
+  store.reviews.value = [validateBundle(samples()[0]!)]
+  const request = vi.spyOn(store, 'request')
+  const w = await mountReview(store)
+  await flushPromises()
+  expect(w.find('[data-test="pdf"]').exists()).toBe(false)
+  expect(w.text()).toContain('Export record')
+  expect(w.text()).not.toContain('FileReject')
+  expect(request).not.toHaveBeenCalled()
+  w.unmount()
 })
-it('files in one explicit action, recording approval before applying exactly once',async()=>{
- const store=createWorkspace(),bundle=fixtureBundle();store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'job',bundle,source:bundle.source,state:'needs_review',decision:null,updated:'',error:null}];vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue();const request=vi.spyOn(store,'request').mockImplementation(async(operation)=>{if(operation==='preview')return new Blob(['pdf']);if(operation==='files')return{files:[]};if(operation==='approve'){store.jobs.value[0]!.decision='approved';return{state:'approved'}}if(operation==='apply'){store.jobs.value[0]!.decision='done';return{state:'done'}}throw Error(operation)})
- const w=await mountReview(store);await flushPromises();expect(request.mock.calls.some(c=>['approve','apply'].includes(c[0]))).toBe(false);expect(w.text()).not.toContain('1 Check');await w.findAll('button').find(b=>b.text()==='Accept')!.trigger('click');await flushPromises();await vi.waitFor(()=>expect(w.text()).toContain('Filed'));expect(request.mock.calls.filter(c=>['approve','apply'].includes(c[0])).map(c=>c[0])).toEqual(['approve','apply']);expect(w.text()).toContain('Filed');w.unmount()
+it('files in one explicit action, recording approval before applying exactly once', async () => {
+  const store = createWorkspace(),
+    bundle = fixtureBundle()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [
+    {
+      id: 'job',
+      bundle,
+      source: bundle.source,
+      state: 'needs_review',
+      decision: null,
+      updated: '',
+      error: null
+    }
+  ]
+  vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  const request = vi.spyOn(store, 'request').mockImplementation(async (operation) => {
+    if (operation === 'preview') return new Blob(['pdf'])
+    if (operation === 'files') return { files: [] }
+    if (operation === 'approve') {
+      store.jobs.value[0]!.decision = 'approved'
+      return { state: 'approved' }
+    }
+    if (operation === 'apply') {
+      store.jobs.value[0]!.decision = 'done'
+      return { state: 'done' }
+    }
+    throw Error(operation)
+  })
+  const w = await mountReview(store)
+  await flushPromises()
+  expect(request.mock.calls.some((c) => ['approve', 'apply'].includes(c[0]))).toBe(false)
+  expect(w.text()).not.toContain('1 Check')
+  await w
+    .findAll('button')
+    .find((b) => b.text() === 'Accept')!
+    .trigger('click')
+  await flushPromises()
+  await vi.waitFor(() => expect(w.text()).toContain('Filed'))
+  expect(
+    request.mock.calls.filter((c) => ['approve', 'apply'].includes(c[0])).map((c) => c[0])
+  ).toEqual(['approve', 'apply'])
+  expect(w.text()).toContain('Filed')
+  w.unmount()
 })
-it('keeps an edited filing plan when the reviewer visits another screen and returns',async()=>{
- const store=createWorkspace(),bundle=fixtureBundle();store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'job',bundle,source:bundle.source,state:'needs_review',decision:null,updated:'',error:null}];vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue();vi.spyOn(store,'request').mockResolvedValue(new Blob(['pdf']))
- let w=await mountReview(store);await flushPromises();await w.findAll('button').find(b=>b.attributes('aria-label')==='Edit filing')!.trigger('click');await w.get('#manual-target').setValue('Filed/Acceptance/changed.pdf');for(const button of w.findAll('.selected-tags button'))await button.trigger('click');await w.get('#manual-tags').setValue('Synthetic');await w.get('#manual-tags').trigger('keydown',{key:'Enter'});await w.get('#manual-tags').setValue('Water');await w.get('#manual-tags').trigger('keydown',{key:'Enter'});await flushPromises();w.unmount();w=await mountReview(store);await flushPromises();expect((w.get('#manual-target').element as HTMLInputElement).value).toBe('Filed/Acceptance/changed.pdf');expect(w.get('.selected-tags').text()).toContain('Synthetic');expect(w.get('.selected-tags').text()).toContain('Water');w.unmount()
+it('keeps an edited filing plan when the reviewer visits another screen and returns', async () => {
+  const store = createWorkspace(),
+    bundle = fixtureBundle()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [
+    {
+      id: 'job',
+      bundle,
+      source: bundle.source,
+      state: 'needs_review',
+      decision: null,
+      updated: '',
+      error: null
+    }
+  ]
+  vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  vi.spyOn(store, 'request').mockResolvedValue(new Blob(['pdf']))
+  let w = await mountReview(store)
+  await flushPromises()
+  await w
+    .findAll('button')
+    .find((b) => b.attributes('aria-label') === 'Edit filing')!
+    .trigger('click')
+  await w.get('#manual-target').setValue('Filed/Acceptance/changed.pdf')
+  for (const button of w.findAll('.selected-tags button')) await button.trigger('click')
+  await w.get('#manual-tags').setValue('Synthetic')
+  await w.get('#manual-tags').trigger('keydown', { key: 'Enter' })
+  await w.get('#manual-tags').setValue('Water')
+  await w.get('#manual-tags').trigger('keydown', { key: 'Enter' })
+  await flushPromises()
+  w.unmount()
+  w = await mountReview(store)
+  await flushPromises()
+  expect((w.get('#manual-target').element as HTMLInputElement).value).toBe(
+    'Filed/Acceptance/changed.pdf'
+  )
+  expect(w.get('.selected-tags').text()).toContain('Synthetic')
+  expect(w.get('.selected-tags').text()).toContain('Water')
+  w.unmount()
 })
 
-it('holds approval when a read-only folder check finds an occupied destination',async()=>{
- const store=createWorkspace(),bundle=fixtureBundle();store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'job',bundle,source:bundle.source,state:'needs_review',decision:null,updated:'',error:null}];vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue();const request=vi.spyOn(store,'request').mockImplementation(async(operation)=>operation==='preview'?new Blob(['pdf']):{files:[{path:'Filed/Utilities/Electricity/2026-10-29 Example Electricity Company Electricity invoice.pdf'}]});const w=await mountReview(store);await flushPromises();expect(w.text()).toContain('Destination already exists');expect(w.findAll('button').find(b=>b.text()==='Accept')!.attributes('disabled')).toBeDefined();expect(request.mock.calls.some(c=>c[0]==='approve')).toBe(false);w.unmount()
+it('holds approval when a read-only folder check finds an occupied destination', async () => {
+  const store = createWorkspace(),
+    bundle = fixtureBundle()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [
+    {
+      id: 'job',
+      bundle,
+      source: bundle.source,
+      state: 'needs_review',
+      decision: null,
+      updated: '',
+      error: null
+    }
+  ]
+  vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  const request = vi
+    .spyOn(store, 'request')
+    .mockImplementation(async (operation) =>
+      operation === 'preview'
+        ? new Blob(['pdf'])
+        : {
+            files: [
+              {
+                path: 'Filed/Utilities/Electricity/2026-10-29 Example Electricity Company Electricity invoice.pdf'
+              }
+            ]
+          }
+    )
+  const w = await mountReview(store)
+  await flushPromises()
+  expect(w.text()).toContain('Destination already exists')
+  expect(
+    w
+      .findAll('button')
+      .find((b) => b.text() === 'Accept')!
+      .attributes('disabled')
+  ).toBeDefined()
+  expect(request.mock.calls.some((c) => c[0] === 'approve')).toBe(false)
+  w.unmount()
 })
-it('keeps approval blocked for a retained field draft even while its optional section is closed',async()=>{
- const store=createWorkspace(),bundle=fixtureBundle();store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'job',bundle,source:bundle.source,state:'needs_review',decision:null,updated:'',error:null}];vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue();vi.spyOn(store,'request').mockImplementation(async op=>op==='preview'?new Blob(['pdf']):{files:[]});store.fieldDrafts.value[JSON.stringify([bundle.source.resourceId,bundle.source.sha256])]={version:0,values:{invoice:'UNSAVED'}};const w=await mountReview(store);await flushPromises();expect(w.text()).toContain('Save field changes before filing');expect(w.findAll('button').find(b=>b.text()==='Accept')!.attributes('disabled')).toBeDefined();w.unmount()
+it('keeps approval blocked for a retained field draft even while its optional section is closed', async () => {
+  const store = createWorkspace(),
+    bundle = fixtureBundle()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [
+    {
+      id: 'job',
+      bundle,
+      source: bundle.source,
+      state: 'needs_review',
+      decision: null,
+      updated: '',
+      error: null
+    }
+  ]
+  vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  vi.spyOn(store, 'request').mockImplementation(async (op) =>
+    op === 'preview' ? new Blob(['pdf']) : { files: [] }
+  )
+  store.fieldDrafts.value[JSON.stringify([bundle.source.resourceId, bundle.source.sha256])] = {
+    version: 0,
+    values: { invoice: 'UNSAVED' }
+  }
+  const w = await mountReview(store)
+  await flushPromises()
+  expect(w.text()).toContain('Save field changes before filing')
+  expect(
+    w
+      .findAll('button')
+      .find((b) => b.text() === 'Accept')!
+      .attributes('disabled')
+  ).toBeDefined()
+  w.unmount()
 })
 
-it('holds approval instead of displaying a PDF whose bytes differ from the reviewed source',async()=>{
- const store=createWorkspace(),bundle=fixtureBundle();store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'job',bundle,source:bundle.source,state:'needs_review',decision:null,updated:'',error:null}];vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue();vi.spyOn(store,'request').mockImplementation(async op=>op==='preview'?new Blob(['changed PDF']):{files:[]});const w=await mountReview(store);await flushPromises();await vi.waitFor(()=>expect(w.text()).toContain('This PDF changed'));expect(w.find('[data-test="pdf"]').exists()).toBe(false);expect(w.findAll('button').find(b=>b.text()==='Accept')!.attributes('disabled')).toBeDefined();w.unmount()
+it('holds approval instead of displaying a PDF whose bytes differ from the reviewed source', async () => {
+  const store = createWorkspace(),
+    bundle = fixtureBundle()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [
+    {
+      id: 'job',
+      bundle,
+      source: bundle.source,
+      state: 'needs_review',
+      decision: null,
+      updated: '',
+      error: null
+    }
+  ]
+  vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  vi.spyOn(store, 'request').mockImplementation(async (op) =>
+    op === 'preview' ? new Blob(['changed PDF']) : { files: [] }
+  )
+  const w = await mountReview(store)
+  await flushPromises()
+  await vi.waitFor(() => expect(w.text()).toContain('This PDF changed'))
+  expect(w.find('[data-test="pdf"]').exists()).toBe(false)
+  expect(
+    w
+      .findAll('button')
+      .find((b) => b.text() === 'Accept')!
+      .attributes('disabled')
+  ).toBeDefined()
+  w.unmount()
 })
-it('allows rejection of an invalid filing draft without trying to validate or approve it',async()=>{
- const store=createWorkspace(),bundle=fixtureBundle();store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'job',bundle,source:bundle.source,state:'needs_review',decision:null,updated:'',error:null}];vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue();const request=vi.spyOn(store,'request').mockImplementation(async op=>op==='preview'?new Blob(['pdf']):op==='files'?{files:[]}:{state:'rejected'});const w=await mountReview(store);await flushPromises();await w.findAll('button').find(b=>b.attributes('aria-label')==='Edit filing')!.trigger('click');await w.get('#manual-target').setValue('../invalid.pdf');await w.findAll('button').find(b=>b.text()==='Reject')!.trigger('click');await flushPromises();expect(request).toHaveBeenCalledWith('reject',{id:'job'});expect(request.mock.calls.some(c=>c[0]==='approve')).toBe(false);w.unmount()
+it('allows rejection of an invalid filing draft without trying to validate or approve it', async () => {
+  const store = createWorkspace(),
+    bundle = fixtureBundle()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [
+    {
+      id: 'job',
+      bundle,
+      source: bundle.source,
+      state: 'needs_review',
+      decision: null,
+      updated: '',
+      error: null
+    }
+  ]
+  vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  const request = vi
+    .spyOn(store, 'request')
+    .mockImplementation(async (op) =>
+      op === 'preview' ? new Blob(['pdf']) : op === 'files' ? { files: [] } : { state: 'rejected' }
+    )
+  const w = await mountReview(store)
+  await flushPromises()
+  await w
+    .findAll('button')
+    .find((b) => b.attributes('aria-label') === 'Edit filing')!
+    .trigger('click')
+  await w.get('#manual-target').setValue('../invalid.pdf')
+  await w
+    .findAll('button')
+    .find((b) => b.text() === 'Reject')!
+    .trigger('click')
+  await flushPromises()
+  expect(request).toHaveBeenCalledWith('reject', { id: 'job' })
+  expect(request.mock.calls.some((c) => c[0] === 'approve')).toBe(false)
+  w.unmount()
 })
-it('shows the stored immutable plan after approval and applies it by saved decision ID',async()=>{
- const store=createWorkspace(),bundle=fixtureBundle();store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'job',bundle,source:bundle.source,state:'needs_review',decision:null,updated:'',error:null}];vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue();const request=vi.spyOn(store,'request').mockImplementation(async(op,body:any)=>{if(op==='preview')return new Blob(['pdf']);if(op==='files')return{files:[]};if(op==='approve'){store.jobs.value[0]!.approval={actions:body.manualActions,policy:body.policy,reviewDigest:body.reviewDigest};store.jobs.value[0]!.decision='approved';return{state:'approved'}}if(op==='apply')throw Error('Lost apply response');return{state:'done'}});const w=await mountReview(store);await flushPromises();await w.findAll('button').find(b=>b.attributes('aria-label')==='Edit filing')!.trigger('click');await w.get('#manual-target').setValue('Filed/Edited/locked.pdf');await vi.waitFor(()=>expect(w.findAll('button').find(b=>b.text()==='Accept')!.attributes('disabled')).toBeUndefined());await w.findAll('button').find(b=>b.text()==='Accept')!.trigger('click');await flushPromises();await vi.waitFor(()=>expect(w.find('#manual-target').exists()).toBe(false));expect(w.get('.target').text()).toBe('Filed/Edited');expect(w.get('.suggested-filename').text()).toBe('locked.pdf');await w.findAll('button').find(b=>b.text()==='Continue filing')!.trigger('click');await flushPromises();expect(request).toHaveBeenCalledWith('apply',{id:'job'});w.unmount()
+it('shows the stored immutable plan after approval and applies it by saved decision ID', async () => {
+  const store = createWorkspace(),
+    bundle = fixtureBundle()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [
+    {
+      id: 'job',
+      bundle,
+      source: bundle.source,
+      state: 'needs_review',
+      decision: null,
+      updated: '',
+      error: null
+    }
+  ]
+  vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  const request = vi.spyOn(store, 'request').mockImplementation(async (op, body: any) => {
+    if (op === 'preview') return new Blob(['pdf'])
+    if (op === 'files') return { files: [] }
+    if (op === 'approve') {
+      store.jobs.value[0]!.approval = {
+        actions: body.manualActions,
+        policy: body.policy,
+        reviewDigest: body.reviewDigest
+      }
+      store.jobs.value[0]!.decision = 'approved'
+      return { state: 'approved' }
+    }
+    if (op === 'apply') throw Error('Lost apply response')
+    return { state: 'done' }
+  })
+  const w = await mountReview(store)
+  await flushPromises()
+  await w
+    .findAll('button')
+    .find((b) => b.attributes('aria-label') === 'Edit filing')!
+    .trigger('click')
+  await w.get('#manual-target').setValue('Filed/Edited/locked.pdf')
+  await vi.waitFor(() =>
+    expect(
+      w
+        .findAll('button')
+        .find((b) => b.text() === 'Accept')!
+        .attributes('disabled')
+    ).toBeUndefined()
+  )
+  await w
+    .findAll('button')
+    .find((b) => b.text() === 'Accept')!
+    .trigger('click')
+  await flushPromises()
+  await vi.waitFor(() => expect(w.find('#manual-target').exists()).toBe(false))
+  expect(w.get('.target').text()).toBe('Filed/Edited')
+  expect(w.get('.suggested-filename').text()).toBe('locked.pdf')
+  await w
+    .findAll('button')
+    .find((b) => b.text() === 'Continue filing')!
+    .trigger('click')
+  await flushPromises()
+  expect(request).toHaveBeenCalledWith('apply', { id: 'job' })
+  w.unmount()
 })
-it('discards a retained local draft when another client already approved the saved plan',async()=>{
- const store=createWorkspace(),bundle=fixtureBundle();store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'job',bundle,source:bundle.source,state:'needs_review',decision:'approved',updated:'',error:null,approval:{actions:{target:'Filed/Already-approved.pdf',addTags:['Synthetic']},policy:store.policy.value,reviewDigest:'saved'}}];store.filingDrafts.value.job={target:'Filed/UNAPPROVED-local-draft.pdf',tags:'Other'};vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue();vi.spyOn(store,'request').mockImplementation(async op=>op==='preview'?new Blob(['pdf']):{files:[]});const w=await mountReview(store);await flushPromises();expect(w.find('#manual-target').exists()).toBe(false);expect(w.get('.target').text()).toBe('Filed');expect(w.get('.suggested-filename').text()).toBe('Already-approved.pdf');expect(store.filingDrafts.value.job).toBeUndefined();w.unmount()
+it('discards a retained local draft when another client already approved the saved plan', async () => {
+  const store = createWorkspace(),
+    bundle = fixtureBundle()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [
+    {
+      id: 'job',
+      bundle,
+      source: bundle.source,
+      state: 'needs_review',
+      decision: 'approved',
+      updated: '',
+      error: null,
+      approval: {
+        actions: { target: 'Filed/Already-approved.pdf', addTags: ['Synthetic'] },
+        policy: store.policy.value,
+        reviewDigest: 'saved'
+      }
+    }
+  ]
+  store.filingDrafts.value.job = { target: 'Filed/UNAPPROVED-local-draft.pdf', tags: 'Other' }
+  vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  vi.spyOn(store, 'request').mockImplementation(async (op) =>
+    op === 'preview' ? new Blob(['pdf']) : { files: [] }
+  )
+  const w = await mountReview(store)
+  await flushPromises()
+  expect(w.find('#manual-target').exists()).toBe(false)
+  expect(w.get('.target').text()).toBe('Filed')
+  expect(w.get('.suggested-filename').text()).toBe('Already-approved.pdf')
+  expect(store.filingDrafts.value.job).toBeUndefined()
+  w.unmount()
 })
-it('does not apply when approval fails and exposes read-only verification after an uncertain apply',async()=>{
- const store=createWorkspace(),bundle=fixtureBundle();store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'job',bundle,source:bundle.source,state:'needs_review',decision:null,updated:'',error:null}];vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue();let failApproval=true;const request=vi.spyOn(store,'request').mockImplementation(async op=>{if(op==='preview')return new Blob(['pdf']);if(op==='files')return{files:[]};if(op==='approve'){if(failApproval)throw Error('Approval failed');store.jobs.value[0]!.decision='approved';return{state:'approved'}}if(op==='apply'){store.jobs.value[0]!.decision='move_intent';throw Error('Lost MOVE response')}if(op==='reconcile')return{state:'move_intent',uncertain:true};throw Error(op)});const w=await mountReview(store);await flushPromises();await w.findAll('button').find(b=>b.text()==='Accept')!.trigger('click');await flushPromises();await vi.waitFor(()=>expect(w.text()).toContain('Approval failed'));expect(request.mock.calls.some(c=>c[0]==='apply')).toBe(false);failApproval=false;await w.findAll('button').find(b=>b.text()==='Accept')!.trigger('click');await flushPromises();await vi.waitFor(()=>expect(w.text()).toContain('Verify outcome'));expect(w.findAll('button').some(b=>b.text()==='Accept'||b.text()==='Continue filing')).toBe(false);await w.findAll('button').find(b=>b.text()==='Verify outcome')!.trigger('click');await flushPromises();expect(request.mock.calls.filter(c=>c[0]==='apply')).toHaveLength(1);expect(request.mock.calls.filter(c=>c[0]==='approve')).toHaveLength(2);expect(request.mock.calls.filter(c=>c[0]==='reconcile')).toHaveLength(1);w.unmount()
+it('does not apply when approval fails and exposes read-only verification after an uncertain apply', async () => {
+  const store = createWorkspace(),
+    bundle = fixtureBundle()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [
+    {
+      id: 'job',
+      bundle,
+      source: bundle.source,
+      state: 'needs_review',
+      decision: null,
+      updated: '',
+      error: null
+    }
+  ]
+  vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  let failApproval = true
+  const request = vi.spyOn(store, 'request').mockImplementation(async (op) => {
+    if (op === 'preview') return new Blob(['pdf'])
+    if (op === 'files') return { files: [] }
+    if (op === 'approve') {
+      if (failApproval) throw Error('Approval failed')
+      store.jobs.value[0]!.decision = 'approved'
+      return { state: 'approved' }
+    }
+    if (op === 'apply') {
+      store.jobs.value[0]!.decision = 'move_intent'
+      throw Error('Lost MOVE response')
+    }
+    if (op === 'reconcile') return { state: 'move_intent', uncertain: true }
+    throw Error(op)
+  })
+  const w = await mountReview(store)
+  await flushPromises()
+  await w
+    .findAll('button')
+    .find((b) => b.text() === 'Accept')!
+    .trigger('click')
+  await flushPromises()
+  await vi.waitFor(() => expect(w.text()).toContain('Approval failed'))
+  expect(request.mock.calls.some((c) => c[0] === 'apply')).toBe(false)
+  failApproval = false
+  await w
+    .findAll('button')
+    .find((b) => b.text() === 'Accept')!
+    .trigger('click')
+  await flushPromises()
+  await vi.waitFor(() => expect(w.text()).toContain('Verify outcome'))
+  expect(
+    w.findAll('button').some((b) => b.text() === 'Accept' || b.text() === 'Continue filing')
+  ).toBe(false)
+  await w
+    .findAll('button')
+    .find((b) => b.text() === 'Verify outcome')!
+    .trigger('click')
+  await flushPromises()
+  expect(request.mock.calls.filter((c) => c[0] === 'apply')).toHaveLength(1)
+  expect(request.mock.calls.filter((c) => c[0] === 'approve')).toHaveLength(2)
+  expect(request.mock.calls.filter((c) => c[0] === 'reconcile')).toHaveLength(1)
+  w.unmount()
 })
 
-it('explains a missing tax year and requires an explicit destination before approving the manual recovery',async()=>{
- const store=createWorkspace(),bundle=fixtureBundle(),rules=defaultFilingRules();rules.root='Archive';rules.folders=[{value:'Taxes/United States',terms:['Tax return'],match:'word',folderTemplate:'{category}/{taxYear}',taxYearLabels:['Tax year']},{value:'Other',terms:[],match:'word'}];bundle.rules=rules;bundle.pages[0]+='\nTax return';bundle.proposal!.folder={value:'Taxes/United States',evidence:[{page:1,quote:'Tax return'}]}
- store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'tax-job',bundle,source:bundle.source,state:'needs_review',decision:null,updated:'',error:null}];vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue()
- const request=vi.spyOn(store,'request').mockImplementation(async(operation,body:any)=>{if(operation==='preview')return new Blob(['pdf']);if(operation==='files')return{files:[]};if(operation==='approve'){store.jobs.value[0]!.approval={actions:body.manualActions,policy:body.policy,reviewDigest:body.reviewDigest};store.jobs.value[0]!.decision='approved';return{state:'approved'}}if(operation==='apply'){store.jobs.value[0]!.decision='done';return{state:'done'}}throw Error(operation)})
- const wrapper=await mountReview(store);try{
-  await flushPromises();expect(wrapper.text()).toContain('An unambiguous labelled tax year is required. Choose the destination folder.')
-  expect(wrapper.findAll('button').find(button=>button.text()==='Accept')!.attributes('disabled')).toBeDefined()
-  await wrapper.findAll('button').find(button=>button.attributes('aria-label')==='Edit filing')!.trigger('click')
-  expect((wrapper.get('#manual-target').element as HTMLInputElement).value).toMatch(/^Archive\/Taxes\/United States\/2026-10-29 /)
-  expect(wrapper.text()).toContain('Choose a destination before filing.');expect(store.filingDrafts.value['tax-job']).toBeUndefined()
-  for(const button of wrapper.findAll('.selected-tags button'))await button.trigger('click');await wrapper.get('#manual-tags').setValue('Synthetic');await wrapper.get('#manual-tags').trigger('keydown',{key:'Enter'});expect(wrapper.findAll('button').find(button=>button.text()==='Accept')!.attributes('disabled')).toBeDefined()
-  expect(request.mock.calls.some(call=>call[0]==='approve')).toBe(false)
-  await wrapper.get('#manual-target').setValue('Archive/Taxes/United States/2025/reviewed-return.pdf');await flushPromises()
-  expect(wrapper.text()).not.toContain('Choose a destination before filing.')
-  expect(wrapper.findAll('button').find(button=>button.text()==='Accept')!.attributes('disabled')).toBeUndefined()
-  await wrapper.findAll('button').find(button=>button.text()==='Accept')!.trigger('click');await flushPromises()
-  await vi.waitFor(()=>expect(request.mock.calls.some(call=>call[0]==='apply')).toBe(true))
-  expect(request.mock.calls.find(call=>call[0]==='approve')).toMatchObject(['approve',{manualActions:{target:'Archive/Taxes/United States/2025/reviewed-return.pdf',addTags:['Synthetic']}}])
- }finally{wrapper.unmount()}
+it('explains a missing tax year and requires an explicit destination before approving the manual recovery', async () => {
+  const store = createWorkspace(),
+    bundle = fixtureBundle(),
+    rules = defaultFilingRules()
+  rules.root = 'Archive'
+  rules.folders = [
+    {
+      value: 'Taxes/United States',
+      terms: ['Tax return'],
+      match: 'word',
+      folderTemplate: '{category}/{taxYear}',
+      taxYearLabels: ['Tax year']
+    },
+    { value: 'Other', terms: [], match: 'word' }
+  ]
+  bundle.rules = rules
+  bundle.pages[0] += '\nTax return'
+  bundle.proposal!.folder = {
+    value: 'Taxes/United States',
+    evidence: [{ page: 1, quote: 'Tax return' }]
+  }
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [
+    {
+      id: 'tax-job',
+      bundle,
+      source: bundle.source,
+      state: 'needs_review',
+      decision: null,
+      updated: '',
+      error: null
+    }
+  ]
+  vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  const request = vi.spyOn(store, 'request').mockImplementation(async (operation, body: any) => {
+    if (operation === 'preview') return new Blob(['pdf'])
+    if (operation === 'files') return { files: [] }
+    if (operation === 'approve') {
+      store.jobs.value[0]!.approval = {
+        actions: body.manualActions,
+        policy: body.policy,
+        reviewDigest: body.reviewDigest
+      }
+      store.jobs.value[0]!.decision = 'approved'
+      return { state: 'approved' }
+    }
+    if (operation === 'apply') {
+      store.jobs.value[0]!.decision = 'done'
+      return { state: 'done' }
+    }
+    throw Error(operation)
+  })
+  const wrapper = await mountReview(store)
+  try {
+    await flushPromises()
+    expect(wrapper.text()).toContain(
+      'An unambiguous labelled tax year is required. Choose the destination folder.'
+    )
+    expect(
+      wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Accept')!
+        .attributes('disabled')
+    ).toBeDefined()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.attributes('aria-label') === 'Edit filing')!
+      .trigger('click')
+    expect((wrapper.get('#manual-target').element as HTMLInputElement).value).toMatch(
+      /^Archive\/Taxes\/United States\/2026-10-29 /
+    )
+    expect(wrapper.text()).toContain('Choose a destination before filing.')
+    expect(store.filingDrafts.value['tax-job']).toBeUndefined()
+    for (const button of wrapper.findAll('.selected-tags button')) await button.trigger('click')
+    await wrapper.get('#manual-tags').setValue('Synthetic')
+    await wrapper.get('#manual-tags').trigger('keydown', { key: 'Enter' })
+    expect(
+      wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Accept')!
+        .attributes('disabled')
+    ).toBeDefined()
+    expect(request.mock.calls.some((call) => call[0] === 'approve')).toBe(false)
+    await wrapper
+      .get('#manual-target')
+      .setValue('Archive/Taxes/United States/2025/reviewed-return.pdf')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Choose a destination before filing.')
+    expect(
+      wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Accept')!
+        .attributes('disabled')
+    ).toBeUndefined()
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'Accept')!
+      .trigger('click')
+    await flushPromises()
+    await vi.waitFor(() =>
+      expect(request.mock.calls.some((call) => call[0] === 'apply')).toBe(true)
+    )
+    expect(request.mock.calls.find((call) => call[0] === 'approve')).toMatchObject([
+      'approve',
+      {
+        manualActions: {
+          target: 'Archive/Taxes/United States/2025/reviewed-return.pdf',
+          addTags: ['Synthetic']
+        }
+      }
+    ])
+  } finally {
+    wrapper.unmount()
+  }
 })
 
-it.each(['Example/Branch','Example'.repeat(20)])('lets the reviewer choose a destination when a verified name cannot form a safe filename: %s',async name=>{
- const store=createWorkspace(),bundle=fixtureBundle();bundle.rules=defaultFilingRules();bundle.pages[0]+='\n'+name;bundle.proposal!.issuer={value:name,evidence:[{page:1,quote:name}]};store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'filename-job',bundle,source:bundle.source,state:'needs_review',decision:null,updated:'',error:null}];vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue();const request=vi.spyOn(store,'request').mockImplementation(async op=>op==='preview'?new Blob(['pdf']):{files:[]});const view=await mountReview(store);try{await flushPromises();expect(view.findAll('button').find(b=>b.text()==='Accept')!.attributes('disabled')).toBeDefined();await view.get('[aria-label="Edit filing"]').trigger('click');expect((view.get('#manual-target').element as HTMLInputElement).value).toBe('');expect(view.text()).toContain('Choose a destination before filing.');await view.get('#manual-tags').setValue('Synthetic');expect(view.findAll('button').find(b=>b.text()==='Accept')!.attributes('disabled')).toBeDefined();await view.get('#manual-target').setValue('Filed/Checked/original.pdf');await view.get('#manual-target').trigger('change');await flushPromises();expect(view.text()).not.toContain('Choose a destination before filing.');expect(request.mock.calls.some(c=>['approve','apply','reject'].includes(c[0]))).toBe(false)}finally{view.unmount()}
-})
+it.each(['Example/Branch', 'Example'.repeat(20)])(
+  'lets the reviewer choose a destination when a verified name cannot form a safe filename: %s',
+  async (name) => {
+    const store = createWorkspace(),
+      bundle = fixtureBundle()
+    bundle.rules = defaultFilingRules()
+    bundle.pages[0] += '\n' + name
+    bundle.proposal!.issuer = { value: name, evidence: [{ page: 1, quote: name }] }
+    store.connection.value = {
+      mode: 'demo',
+      server: 'test',
+      account: 'test',
+      space: 'test',
+      name: 'test'
+    }
+    store.reviews.value = [validateBundle(bundle)]
+    store.jobs.value = [
+      {
+        id: 'filename-job',
+        bundle,
+        source: bundle.source,
+        state: 'needs_review',
+        decision: null,
+        updated: '',
+        error: null
+      }
+    ]
+    vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+    vi.spyOn(store, 'refresh').mockResolvedValue()
+    const request = vi
+      .spyOn(store, 'request')
+      .mockImplementation(async (op) => (op === 'preview' ? new Blob(['pdf']) : { files: [] }))
+    const view = await mountReview(store)
+    try {
+      await flushPromises()
+      expect(
+        view
+          .findAll('button')
+          .find((b) => b.text() === 'Accept')!
+          .attributes('disabled')
+      ).toBeDefined()
+      await view.get('[aria-label="Edit filing"]').trigger('click')
+      expect((view.get('#manual-target').element as HTMLInputElement).value).toBe('')
+      expect(view.text()).toContain('Choose a destination before filing.')
+      await view.get('#manual-tags').setValue('Synthetic')
+      expect(
+        view
+          .findAll('button')
+          .find((b) => b.text() === 'Accept')!
+          .attributes('disabled')
+      ).toBeDefined()
+      await view.get('#manual-target').setValue('Filed/Checked/original.pdf')
+      await view.get('#manual-target').trigger('change')
+      await flushPromises()
+      expect(view.text()).not.toContain('Choose a destination before filing.')
+      expect(request.mock.calls.some((c) => ['approve', 'apply', 'reject'].includes(c[0]))).toBe(
+        false
+      )
+    } finally {
+      view.unmount()
+    }
+  }
+)
 
-it('places Fields and Tags alongside Filing, describes both destination parts, and keeps manual tag choices as drafts',async()=>{const store=createWorkspace(),bundle=fixtureBundle();store.connection.value={mode:'demo',server:'test',account:'test',space:'test',name:'test'};store.reviews.value=[validateBundle(bundle)];store.jobs.value=[{id:'layout',bundle,source:bundle.source,state:'needs_review',decision:null,updated:'',error:null}];vi.spyOn(store,'jobFor').mockImplementation(()=>store.jobs.value[0]);vi.spyOn(store,'refresh').mockResolvedValue();const request=vi.spyOn(store,'request').mockImplementation(async op=>op==='preview'?new Blob(['pdf']):{files:[]});const w=await mountReview(store);try{expect(w.findAll('.review-plan>.review-step').map(section=>section.find('h2').exists()?section.get('h2').text():'')).toEqual(['','Filing','Fields','Tags']);expect(w.get('.suggested-destination').text()).toContain('Suggested filename');expect(w.get('.target').text()).toBe('Filed/Utilities/Electricity');expect(w.get('.suggested-filename').text()).toBe('2026-10-29 Example Electricity Company Electricity invoice.pdf');expect(w.find('.review-fields-section .review-tags-section').exists()).toBe(false);await w.get('#manual-tags').setValue('Manual topic');await w.get('#manual-tags').trigger('keydown',{key:'Enter'});expect(store.filingDrafts.value.layout?.tags).toContain('Manual topic');expect(request.mock.calls.some(([op])=>['approve','apply','metadata-save'].includes(op))).toBe(false)}finally{w.unmount()}})
+it('places Fields and Tags alongside Filing, describes both destination parts, and keeps manual tag choices as drafts', async () => {
+  const store = createWorkspace(),
+    bundle = fixtureBundle()
+  store.connection.value = {
+    mode: 'demo',
+    server: 'test',
+    account: 'test',
+    space: 'test',
+    name: 'test'
+  }
+  store.reviews.value = [validateBundle(bundle)]
+  store.jobs.value = [
+    {
+      id: 'layout',
+      bundle,
+      source: bundle.source,
+      state: 'needs_review',
+      decision: null,
+      updated: '',
+      error: null
+    }
+  ]
+  vi.spyOn(store, 'jobFor').mockImplementation(() => store.jobs.value[0])
+  vi.spyOn(store, 'refresh').mockResolvedValue()
+  const request = vi
+    .spyOn(store, 'request')
+    .mockImplementation(async (op) => (op === 'preview' ? new Blob(['pdf']) : { files: [] }))
+  const w = await mountReview(store)
+  try {
+    expect(
+      w
+        .findAll('.review-plan>.review-step')
+        .map((section) => (section.find('h2').exists() ? section.get('h2').text() : ''))
+    ).toEqual(['', 'Filing', 'Fields', 'Tags'])
+    expect(w.get('.suggested-destination').text()).toContain('Suggested filename')
+    expect(w.get('.target').text()).toBe('Filed/Utilities/Electricity')
+    expect(w.get('.suggested-filename').text()).toBe(
+      '2026-10-29 Example Electricity Company Electricity invoice.pdf'
+    )
+    expect(w.find('.review-fields-section .review-tags-section').exists()).toBe(false)
+    await w.get('#manual-tags').setValue('Manual topic')
+    await w.get('#manual-tags').trigger('keydown', { key: 'Enter' })
+    expect(store.filingDrafts.value.layout?.tags).toContain('Manual topic')
+    expect(
+      request.mock.calls.some(([op]) => ['approve', 'apply', 'metadata-save'].includes(op))
+    ).toBe(false)
+  } finally {
+    w.unmount()
+  }
+})

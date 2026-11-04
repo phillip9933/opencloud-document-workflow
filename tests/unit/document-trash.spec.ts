@@ -1,11 +1,179 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import {mount,flushPromises} from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import DocumentTrashButton from '../../src/components/DocumentTrashButton.vue'
-import {createWorkspace,workspaceKey} from '../../src/state/workspace'
-const source={path:'Docs/synthetic.pdf',space:'library',resourceId:'fixture',etag:'v1',sha256:'a'.repeat(64)}
-function setup(outcome:any={state:'trashed'}){const store=createWorkspace();store.connection.value={mode:'live',server:'https://example.org',account:'fixture',space:'inbox',name:'Fixture'};const request=vi.spyOn(store,'request').mockImplementation(async op=>op==='document-trash-pending'?{operations:[]}:op==='metadata'?{source}:op==='document-trash-verify'?{state:'trashed'}:outcome);const w=mount(DocumentTrashButton,{props:{path:source.path,documentSpace:source.space,resourceId:source.resourceId,sha256:source.sha256},global:{provide:{[workspaceKey as symbol]:store}}});return{w,store,request}}
-it('requires confirmation and pins identity, bytes, version and Space; cancel never deletes',async()=>{const s=setup();try{await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click');await flushPromises();expect((s.w.get('dialog').element as HTMLDialogElement).open).toBe(true);expect(s.request.mock.calls.map(c=>c[0])).toEqual(['document-trash-pending','metadata']);await s.w.findAll('button').find(b=>b.text()==='Cancel')!.trigger('click');expect(s.w.emitted('trashed')).toBeUndefined();await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click');await flushPromises();await s.w.findAll('button').find(b=>b.text()==='Move to Trash')!.trigger('click');await flushPromises();expect(s.request).toHaveBeenCalledWith('document-trash',{id:expect.any(String),path:source.path,resourceId:source.resourceId,etag:source.etag,sha256:source.sha256,documentSpace:source.space});expect(s.w.emitted('trashed')).toHaveLength(1)}finally{s.w.unmount()}})
-it('automatically checks an uncertain result without replaying the Trash request',async()=>{vi.useFakeTimers();const s=setup({state:'intent',uncertain:true});try{await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click');await flushPromises();await s.w.findAll('button').find(b=>b.text()==='Move to Trash')!.trigger('click');await flushPromises();expect(s.w.text()).toContain('Checking Trash…');expect(s.w.text()).not.toContain('Verify Trash outcome');await vi.advanceTimersByTimeAsync(500);await flushPromises();expect(s.request.mock.calls.filter(c=>c[0]==='document-trash')).toHaveLength(1);expect(s.request.mock.calls.filter(c=>c[0]==='document-trash-verify')).toHaveLength(1);expect(s.w.emitted('trashed')).toHaveLength(1)}finally{s.w.unmount();vi.useRealTimers()}})
-it('keeps a confirmed pre-intent refusal out of recovery mode and never retries it automatically',async()=>{vi.useFakeTimers();const s=setup();s.request.mockImplementation(async op=>{if(op==='document-trash')throw Object.assign(Error('This document is busy'),{trashRecorded:false});return op==='document-trash-pending'?{operations:[]}:op==='metadata'?{source}:{state:'not_recorded'}});try{await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click');await flushPromises();await s.w.findAll('button').find(b=>b.text()==='Move to Trash')!.trigger('click');await flushPromises();expect(s.w.text()).toContain('This document is busy');expect(s.w.text()).not.toContain('Check Trash status');await vi.advanceTimersByTimeAsync(15000);expect(s.request.mock.calls.filter(c=>c[0]==='document-trash')).toHaveLength(1);expect(s.request.mock.calls.some(c=>c[0]==='document-trash-verify')).toBe(false)}finally{s.w.unmount();vi.useRealTimers()}})
-it('bounds automatic outcome checks and retains a read-only recovery action for an unresolved move',async()=>{vi.useFakeTimers();const s=setup({state:'intent',uncertain:true});s.request.mockImplementation(async op=>op==='document-trash-pending'?{operations:[]}:op==='metadata'?{source}:{state:'intent',uncertain:true});try{await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click');await flushPromises();await s.w.findAll('button').find(b=>b.text()==='Move to Trash')!.trigger('click');await flushPromises();await vi.advanceTimersByTimeAsync(15000);await flushPromises();expect(s.request.mock.calls.filter(c=>c[0]==='document-trash')).toHaveLength(1);expect(s.request.mock.calls.filter(c=>c[0]==='document-trash-verify')).toHaveLength(3);expect(s.w.text()).toContain('We could not confirm the move.');expect(s.w.text()).toContain('Check Trash status');expect(s.w.emitted('trashed')).toBeUndefined()}finally{s.w.unmount();vi.useRealTimers()}})
-it('refuses a replaced source and cannot open a confirmation over unsaved edits',async()=>{const s=setup();try{await s.w.setProps({disabled:true});await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click');expect(s.request).not.toHaveBeenCalled();await s.w.setProps({disabled:false,resourceId:'changed'});s.request.mockImplementation(async op=>op==='document-trash-pending'?{operations:[]}:op==='metadata'?{source}:{state:'trashed'});await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click');await flushPromises();expect(s.w.text()).toContain('The document changed');expect(s.request.mock.calls.some(c=>c[0]==='document-trash')).toBe(false)}finally{s.w.unmount()}})
+import { createWorkspace, workspaceKey } from '../../src/state/workspace'
+const source = {
+  path: 'Docs/synthetic.pdf',
+  space: 'library',
+  resourceId: 'fixture',
+  etag: 'v1',
+  sha256: 'a'.repeat(64)
+}
+function setup(outcome: any = { state: 'trashed' }) {
+  const store = createWorkspace()
+  store.connection.value = {
+    mode: 'live',
+    server: 'https://example.org',
+    account: 'fixture',
+    space: 'inbox',
+    name: 'Fixture'
+  }
+  const request = vi
+    .spyOn(store, 'request')
+    .mockImplementation(async (op) =>
+      op === 'document-trash-pending'
+        ? { operations: [] }
+        : op === 'metadata'
+          ? { source }
+          : op === 'document-trash-verify'
+            ? { state: 'trashed' }
+            : outcome
+    )
+  const w = mount(DocumentTrashButton, {
+    props: {
+      path: source.path,
+      documentSpace: source.space,
+      resourceId: source.resourceId,
+      sha256: source.sha256
+    },
+    global: { provide: { [workspaceKey as symbol]: store } }
+  })
+  return { w, store, request }
+}
+it('requires confirmation and pins identity, bytes, version and Space; cancel never deletes', async () => {
+  const s = setup()
+  try {
+    await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click')
+    await flushPromises()
+    expect((s.w.get('dialog').element as HTMLDialogElement).open).toBe(true)
+    expect(s.request.mock.calls.map((c) => c[0])).toEqual(['document-trash-pending', 'metadata'])
+    await s.w
+      .findAll('button')
+      .find((b) => b.text() === 'Cancel')!
+      .trigger('click')
+    expect(s.w.emitted('trashed')).toBeUndefined()
+    await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click')
+    await flushPromises()
+    await s.w
+      .findAll('button')
+      .find((b) => b.text() === 'Move to Trash')!
+      .trigger('click')
+    await flushPromises()
+    expect(s.request).toHaveBeenCalledWith('document-trash', {
+      id: expect.any(String),
+      path: source.path,
+      resourceId: source.resourceId,
+      etag: source.etag,
+      sha256: source.sha256,
+      documentSpace: source.space
+    })
+    expect(s.w.emitted('trashed')).toHaveLength(1)
+  } finally {
+    s.w.unmount()
+  }
+})
+it('automatically checks an uncertain result without replaying the Trash request', async () => {
+  vi.useFakeTimers()
+  const s = setup({ state: 'intent', uncertain: true })
+  try {
+    await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click')
+    await flushPromises()
+    await s.w
+      .findAll('button')
+      .find((b) => b.text() === 'Move to Trash')!
+      .trigger('click')
+    await flushPromises()
+    expect(s.w.text()).toContain('Checking Trash…')
+    expect(s.w.text()).not.toContain('Verify Trash outcome')
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+    expect(s.request.mock.calls.filter((c) => c[0] === 'document-trash')).toHaveLength(1)
+    expect(s.request.mock.calls.filter((c) => c[0] === 'document-trash-verify')).toHaveLength(1)
+    expect(s.w.emitted('trashed')).toHaveLength(1)
+  } finally {
+    s.w.unmount()
+    vi.useRealTimers()
+  }
+})
+it('keeps a confirmed pre-intent refusal out of recovery mode and never retries it automatically', async () => {
+  vi.useFakeTimers()
+  const s = setup()
+  s.request.mockImplementation(async (op) => {
+    if (op === 'document-trash')
+      throw Object.assign(Error('This document is busy'), { trashRecorded: false })
+    return op === 'document-trash-pending'
+      ? { operations: [] }
+      : op === 'metadata'
+        ? { source }
+        : { state: 'not_recorded' }
+  })
+  try {
+    await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click')
+    await flushPromises()
+    await s.w
+      .findAll('button')
+      .find((b) => b.text() === 'Move to Trash')!
+      .trigger('click')
+    await flushPromises()
+    expect(s.w.text()).toContain('This document is busy')
+    expect(s.w.text()).not.toContain('Check Trash status')
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(s.request.mock.calls.filter((c) => c[0] === 'document-trash')).toHaveLength(1)
+    expect(s.request.mock.calls.some((c) => c[0] === 'document-trash-verify')).toBe(false)
+  } finally {
+    s.w.unmount()
+    vi.useRealTimers()
+  }
+})
+it('bounds automatic outcome checks and retains a read-only recovery action for an unresolved move', async () => {
+  vi.useFakeTimers()
+  const s = setup({ state: 'intent', uncertain: true })
+  s.request.mockImplementation(async (op) =>
+    op === 'document-trash-pending'
+      ? { operations: [] }
+      : op === 'metadata'
+        ? { source }
+        : { state: 'intent', uncertain: true }
+  )
+  try {
+    await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click')
+    await flushPromises()
+    await s.w
+      .findAll('button')
+      .find((b) => b.text() === 'Move to Trash')!
+      .trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(15000)
+    await flushPromises()
+    expect(s.request.mock.calls.filter((c) => c[0] === 'document-trash')).toHaveLength(1)
+    expect(s.request.mock.calls.filter((c) => c[0] === 'document-trash-verify')).toHaveLength(3)
+    expect(s.w.text()).toContain('We could not confirm the move.')
+    expect(s.w.text()).toContain('Check Trash status')
+    expect(s.w.emitted('trashed')).toBeUndefined()
+  } finally {
+    s.w.unmount()
+    vi.useRealTimers()
+  }
+})
+it('refuses a replaced source and cannot open a confirmation over unsaved edits', async () => {
+  const s = setup()
+  try {
+    await s.w.setProps({ disabled: true })
+    await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click')
+    expect(s.request).not.toHaveBeenCalled()
+    await s.w.setProps({ disabled: false, resourceId: 'changed' })
+    s.request.mockImplementation(async (op) =>
+      op === 'document-trash-pending'
+        ? { operations: [] }
+        : op === 'metadata'
+          ? { source }
+          : { state: 'trashed' }
+    )
+    await s.w.get('[aria-label="Move to OpenCloud Trash"]').trigger('click')
+    await flushPromises()
+    expect(s.w.text()).toContain('The document changed')
+    expect(s.request.mock.calls.some((c) => c[0] === 'document-trash')).toBe(false)
+  } finally {
+    s.w.unmount()
+  }
+})
