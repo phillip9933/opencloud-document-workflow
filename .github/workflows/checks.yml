@@ -65,15 +65,15 @@ jobs:
           sudo cat "$RUNNER_TEMP/document-workflow-fresh/image-ids.txt" > "$workflow_beta_release/IMAGE-IDS.txt"
           cd "$workflow_beta_release"
           sha256sum INSTALL-ACCEPTANCE.txt IMAGE-IDS.txt >> SHA256SUMS
-      - name: Upgrade acceptance from published 0.20.1
+      - name: Upgrade acceptance from published 0.20.2
         run: |
           workflow_beta_version=$(node -p 'require("./package.json").version')
           workflow_beta_release="$PWD/artifacts/releases/$workflow_beta_version"
           workflow_beta_kit="$workflow_beta_release/document-workflow-$workflow_beta_version-install.tar.gz"
           workflow_beta_sha=$(sha256sum "$workflow_beta_kit" | cut -d ' ' -f 1)
-          workflow_previous_kit="$RUNNER_TEMP/document-workflow-0.20.1-install.tar.gz"
-          workflow_previous_sha=9bddc961a0e9114dd714db5fe2ef923ea4eee9ff2fe546fe10f050399c299c1b
-          curl --fail --location --retry 3 --output "$workflow_previous_kit" https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.1/document-workflow-0.20.1-install.tar.gz
+          workflow_previous_kit="$RUNNER_TEMP/document-workflow-0.20.2-install.tar.gz"
+          workflow_previous_sha=ac154a300cfd16c5ff72b182ac9b1f5f0f1e87a4d3f50d2a5d4e64faeca81eef
+          curl --fail --location --retry 3 --output "$workflow_previous_kit" https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.2/document-workflow-0.20.2-install.tar.gz
           sudo bash scripts/accept_fresh_install.sh "$workflow_previous_kit" "$workflow_previous_sha" "$RUNNER_TEMP/document-workflow-baseline" https://workflow-upgrade.test
           sudo bash scripts/accept_upgrade.sh "$RUNNER_TEMP/document-workflow-baseline" "$workflow_beta_kit" "$workflow_beta_sha" "$RUNNER_TEMP/document-workflow-upgrade" https://workflow-upgrade.test
           sudo cat "$RUNNER_TEMP/document-workflow-upgrade/RESULT.txt" > "$workflow_beta_release/UPGRADE-ACCEPTANCE.txt"

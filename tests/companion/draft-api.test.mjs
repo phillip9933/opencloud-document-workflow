@@ -313,8 +313,12 @@ test('cloud-only configuration requires per-preparation consent and never journa
         .status,
       200
     )
+    const beforeFiling = await call(api, 'metadata', { path: review.bundle.source.path })
+    assert.equal(beforeFiling.data.filedJob, null)
     const filed = await call(api, 'apply', { id })
     assert.equal(filed.data.state, 'done')
+    const reopened = await call(api, 'metadata', { path: filed.data.target })
+    assert.equal(reopened.data.filedJob, id)
     const library = await call(api, 'documents', { search: 'Example' })
     assert.equal(library.status, 200)
     assert.equal(library.data.documents[0].id, id)

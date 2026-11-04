@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.3 Beta
+
+- Show Filed when reopening a completed filing, including moves that change the file version. A fresh preparation can still open for review.
+
 ## 0.20.2 Beta
 
 - Recover backup ownership after unclean stops and remove unreferenced temporary snapshots while retaining uncertain upload recovery data.

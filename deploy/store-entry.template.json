@@ -6,11 +6,11 @@
   "license": "AGPL-3.0-only",
   "versions": [
     {
-      "version": "0.20.2",
+      "version": "0.20.3",
       "releaseDate": "2026-11-05",
       "minOpenCloud": "9.0.0",
-      "url": "RELEASE_BASE_URL/document-workflow-0.20.2.zip",
-      "filename": "document-workflow-0.20.2.zip"
+      "url": "RELEASE_BASE_URL/document-workflow-0.20.3.zip",
+      "filename": "document-workflow-0.20.3.zip"
     }
   ],
   "authors": [
@@ -26,7 +26,7 @@
     "productivity"
   ],
   "coverImage": {
-    "url": "SOURCE_URL/raw/v0.20.2/deploy/screenshots/3.jpg",
+    "url": "SOURCE_URL/raw/v0.20.3/deploy/screenshots/3.jpg",
     "caption": "Fictional document library (dark theme)"
   },
   "resources": [
@@ -42,7 +42,7 @@
     },
     {
       "label": "Coordinated installation kit",
-      "url": "RELEASE_BASE_URL/document-workflow-0.20.2-install.tar.gz"
+      "url": "RELEASE_BASE_URL/document-workflow-0.20.3-install.tar.gz"
     },
     {
       "label": "Checksums",
@@ -55,27 +55,27 @@
   },
   "screenshots": [
     {
-      "url": "SOURCE_URL/raw/v0.20.2/deploy/screenshots/1.jpg",
+      "url": "SOURCE_URL/raw/v0.20.3/deploy/screenshots/1.jpg",
       "caption": "Inbox with fictional documents"
     },
     {
-      "url": "SOURCE_URL/raw/v0.20.2/deploy/screenshots/2.jpg",
+      "url": "SOURCE_URL/raw/v0.20.3/deploy/screenshots/2.jpg",
       "caption": "Review beside the original PDF"
     },
     {
-      "url": "SOURCE_URL/raw/v0.20.2/deploy/screenshots/3.jpg",
+      "url": "SOURCE_URL/raw/v0.20.3/deploy/screenshots/3.jpg",
       "caption": "Searchable document library"
     },
     {
-      "url": "SOURCE_URL/raw/v0.20.2/deploy/screenshots/4.jpg",
+      "url": "SOURCE_URL/raw/v0.20.3/deploy/screenshots/4.jpg",
       "caption": "Independent OCR and AI controls"
     },
     {
-      "url": "SOURCE_URL/raw/v0.20.2/deploy/screenshots/5.jpg",
+      "url": "SOURCE_URL/raw/v0.20.3/deploy/screenshots/5.jpg",
       "caption": "Processing and attempt history"
     },
     {
-      "url": "SOURCE_URL/raw/v0.20.2/deploy/screenshots/6.jpg",
+      "url": "SOURCE_URL/raw/v0.20.3/deploy/screenshots/6.jpg",
       "caption": "Document library in light mode"
     }
   ]

@@ -3,6 +3,7 @@ import type { MetadataSchema } from './metadata'
 import type { ProcessingIssueInfo } from './processing'
 export type Suggestion = { value: string | number; evidence: { page: number; quote: string }[] }
 export interface DocumentDetail {
+  filedJob?: string | null
   trash?: { id: string } | null
   conversion?: {
     conversionId: string

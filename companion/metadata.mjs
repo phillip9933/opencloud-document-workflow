@@ -89,9 +89,13 @@ export class Metadata {
     const source = await this.inspect(actor, api, path)
     const job = this.db
       .prepare(
-        "select input from proposals where scope=? and json_extract(input,'$.source.resourceId')=? and json_extract(input,'$.source.sha256')=? order by updated desc limit 1"
+        `select p.input, d.job filedJob from proposals p
+         left join decisions d on d.job=p.id and d.actor=? and d.state='done'
+         where p.scope=? and json_extract(p.input,'$.source.resourceId')=?
+           and json_extract(p.input,'$.source.sha256')=?
+         order by p.updated desc, p.id desc limit 1`
       )
-      .get(this.w.scope(actor), this.key(actor, source.resourceId), source.sha256)
+      .get(actor.account, this.w.scope(actor), this.key(actor, source.resourceId), source.sha256)
     const pending = this.db
       .prepare(
         "select id,state from metadata_changes where scope=? and resource=? and state='intent' order by created desc"
@@ -99,6 +103,7 @@ export class Metadata {
       .all(this.w.scope(actor), this.key(actor, source.resourceId))
     return {
       source,
+      filedJob: job?.filedJob ?? null,
       trash: this.w.documentTrash.pending(actor, source.resourceId) ?? null,
       schema: this.schema(actor),
       record: this.read(actor, source.resourceId),

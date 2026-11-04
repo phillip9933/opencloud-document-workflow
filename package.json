@@ -1,6 +1,6 @@
 {
   "name": "opencloud-document-workflow",
-  "version": "0.20.2",
+  "version": "0.20.3",
   "description": "Evidence-backed document review for OpenCloud",
   "license": "AGPL-3.0-only",
   "author": "Phil Rogers",

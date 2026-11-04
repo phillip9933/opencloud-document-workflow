@@ -8,6 +8,7 @@ const props = defineProps<{
     status: DocumentProcessingState | null
     unavailable?: boolean
     preparing?: boolean
+    filedJob?: string | null
     currentJob?: string
   }>(),
   { t } = useLocale()
@@ -21,6 +22,12 @@ const item = computed(() => ({
       : props.status?.state,
   stage: props.status?.stage ?? 'reading'
 }))
+const filed = computed(
+  () =>
+    props.filedJob &&
+    (props.status?.state === 'idle' ||
+      (props.status?.state === 'prepared' && props.status.job === props.filedJob))
+)
 const ready = computed(
   () =>
     props.status?.state === 'prepared' &&
@@ -31,7 +38,7 @@ const ready = computed(
 </script>
 <template>
   <section
-    v-if="active || ready || unavailable"
+    v-if="active || filed || ready || unavailable"
     class="document-processing"
     role="status"
     aria-live="polite"
@@ -62,6 +69,8 @@ const ready = computed(
           )
         }}
       </p></template
+    ><template v-else-if="filed"
+      ><h2>{{ t('Filed') }}</h2></template
     ><template v-else-if="ready"
       ><h2>{{ t('Ready to review') }}</h2>
       <RouterLink

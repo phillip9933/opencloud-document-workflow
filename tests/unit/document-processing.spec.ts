@@ -116,6 +116,26 @@ it('shows a live stage, a paused queue and a ready review as different states', 
   expect(paused.text()).toContain('Processing paused')
   paused.unmount()
 })
+it('shows Filed on reopening a completed job, while a fresh preparation can still be reviewed', async () => {
+  const status = {
+    source: { resourceId: 'invoice', etag: 'v1' },
+    state: 'prepared',
+    job: 'original-attempt',
+    processingIssue: null as null
+  }
+  const w = mount(DocumentProcessingStatus, {
+    props: { status, filedJob: status.job },
+    global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } }
+  })
+  expect(w.get('h2').text()).toBe('Filed')
+  expect(w.find('a').exists()).toBe(false)
+  await w.setProps({ status: { ...status, state: 'idle', job: null } })
+  expect(w.get('h2').text()).toBe('Filed')
+  await w.setProps({ status: { ...status, job: 'fresh-attempt' } })
+  expect(w.get('h2').text()).toBe('Ready to review')
+  expect(w.get('a').text()).toBe('Open review')
+  w.unmount()
+})
 it('keeps a document field draft while external processing changes stage and stops', async () => {
   vi.useFakeTimers()
   const { createRouter, createMemoryHistory } = await import('vue-router'),

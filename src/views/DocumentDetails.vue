@@ -186,6 +186,7 @@ const {
     </div>
     <DocumentProcessingStatus
       :status="processing.status.value"
+      :filed-job="data?.filedJob"
       :unavailable="processing.unavailable.value"
       :preparing="preparing"
     />
