@@ -1,6 +1,6 @@
 {
-  "name": "opencloud-doc-manager",
-  "version": "0.20.0",
+  "name": "opencloud-document-workflow",
+  "version": "0.20.1",
   "description": "Evidence-backed document review for OpenCloud",
   "license": "AGPL-3.0-only",
   "author": "Phil Rogers",
@@ -23,7 +23,8 @@
     "format": "prettier --write \"{companion,src,preview,tests,deploy/installer}/**/*.{mjs,ts,vue,css}\" \"*.{mjs,ts}\"",
     "format:check": "prettier --check \"{companion,src,preview,tests,deploy/installer}/**/*.{mjs,ts,vue,css}\" \"*.{mjs,ts}\"",
     "lint": "eslint companion src preview tests deploy/installer *.mjs *.ts --max-warnings 0",
-    "check:companion": "tsc -p tsconfig.companion.json"
+    "check:companion": "tsc -p tsconfig.companion.json",
+    "test:coverage": "node --test --experimental-test-isolation=none --experimental-test-coverage --test-coverage-include=\"companion/**/*.mjs\" --test-coverage-include=\"src/domain/**/*.ts\" --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=coverage/companion.lcov tests/companion/*.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -55,5 +56,8 @@
     "fast-xml-parser": "5.11.2",
     "pdfjs-dist": "6.4.299"
   },
-  "releaseChannel": "beta"
+  "releaseChannel": "beta",
+  "engines": {
+    "node": ">=22.18.0"
+  }
 }

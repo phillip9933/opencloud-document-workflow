@@ -2,7 +2,7 @@
 
 Document Workflow brings lightweight document management directly into OpenCloud, inspired by apps like Paperless-ngx and Papra. Organize your documents with searchable text, tags and custom fields, with optional AI assistance to suggest filenames, folders, and document details. Review suggestions before filing or automate the process from your chosen inbox without leaving OpenCloud.
 
-**0.20.0 is a beta release.** Tested with OpenCloud 9 and Web SDK 8.2.1. It is an independent community app, not an official OpenCloud product.
+**0.20.1 is the next beta patch (not yet published).** Tested with OpenCloud 9 and Web SDK 8.2.1. It is an independent community app, not an official OpenCloud product.
 
 ## What it does
 

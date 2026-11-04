@@ -12,8 +12,10 @@ mkdir -p "$run/private" "$run/apps" "$run/config" "$run/data" "$run/tls"
 tar -xzf "$kit" -C "$run"
 cd "$run/document-workflow"
 version=$(cat VERSION)
-name=workflow-beta-fresh-${version//./-}
-origin=https://workflow-beta.test
+name=workflow-cleanup-fresh-${version//./-}
+origin=${4:-https://workflow-beta.test}
+[[ "$origin" =~ ^https://workflow-[a-z0-9-]+\.test$ ]]
+host=${origin#https://}
 network=$name-net
 opencloud=$name-opencloud
 proxy=$name-caddy
@@ -31,7 +33,7 @@ docker network create --internal --label document-workflow.acceptance=true "$net
 chown 1000:1000 "$run/config" "$run/data" "$run/apps"
 chmod 755 "$run" "$run/apps"
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
- -subj /CN=workflow-beta.test -addext subjectAltName=DNS:workflow-beta.test \
+ -subj "/CN=$host" -addext "subjectAltName=DNS:$host" \
  -keyout "$run/tls/private.key" -out "$run/tls/ca.crt" > "$run/certificate.log" 2>&1
 chmod 644 "$run/tls/ca.crt"
 {
@@ -41,13 +43,13 @@ chmod 644 "$run/tls/ca.crt"
   'IDM_CREATE_DEMO_USERS=false' 'FRONTEND_CHECK_FOR_UPDATES=false' 'OC_LOG_LEVEL=error'
 } > "$run/private/opencloud.env"
 project=$(docker run --rm --network none --read-only --entrypoint node "$image" \
- -e 'console.log("document-workflow-"+require("node:crypto").createHash("sha256").update("https://workflow-beta.test").digest("hex").slice(0,10))')
+ -e 'console.log("document-workflow-"+require("node:crypto").createHash("sha256").update(process.argv[1]).digest("hex").slice(0,10))' "$origin")
 cat > "$run/Caddyfile" <<EOF
 {
  admin off
  auto_https off
 }
-https://workflow-beta.test {
+$origin {
  tls /tls/ca.crt /tls/private.key
  @workflow path /_workflow/api/*
  handle @workflow {
@@ -65,7 +67,7 @@ docker run -d --name "$opencloud" --label document-workflow.acceptance=true \
  --entrypoint /bin/sh opencloudeu/opencloud-rolling:9.0.0 \
  -c 'opencloud init || true; opencloud server' > /dev/null
 docker run -d --name "$proxy" --label document-workflow.acceptance=true \
- --network "$network" --network-alias workflow-beta.test \
+ --network "$network" --network-alias "$host" \
  -v "$run/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$run/tls:/tls:ro" \
  caddy:2 > /dev/null
 probe(){ docker run --rm --network "$network" --read-only --cap-drop ALL \
@@ -73,7 +75,7 @@ probe(){ docker run --rm --network "$network" --read-only --cap-drop ALL \
  --entrypoint node "$image" -e "$1"; }
 ready=false
 for attempt in {1..100}; do
- if probe 'fetch("https://workflow-beta.test/status.php",{signal:AbortSignal.timeout(5000)}).then(async r=>{if(!r.ok)throw Error("not ready");const j=await r.json();if(!String(j.productversion??j.versionstring??j.version??"").startsWith("9."))throw Error("not OpenCloud 9")}).catch(()=>process.exit(1))' > /dev/null 2>&1; then ready=true;break;fi
+ if probe "fetch('$origin/status.php',{signal:AbortSignal.timeout(5000)}).then(async r=>{if(!r.ok)throw Error('not ready');const j=await r.json();if(!String(j.productversion??j.versionstring??j.version??'').startsWith('9.'))throw Error('not OpenCloud 9')}).catch(()=>process.exit(1))" > /dev/null 2>&1; then ready=true;break;fi
  sleep 2
 done
 [[ "$ready" = true ]] || { echo 'Isolated OpenCloud did not become ready' >&2;exit 1; }

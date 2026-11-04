@@ -5,8 +5,8 @@
   "metadata": {
     "component": {
       "type": "application",
-      "name": "opencloud-doc-manager",
-      "version": "0.20.0"
+      "name": "opencloud-document-workflow",
+      "version": "0.20.1"
     },
     "properties": [
       {

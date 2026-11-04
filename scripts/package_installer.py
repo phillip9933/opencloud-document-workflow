@@ -52,9 +52,9 @@ for name in ['container','installer']:
 shutil.copytree(root/'deploy/screenshots',source/'deploy/screenshots')
 for name in ['cover.svg','store-entry.template.json']:
     shutil.copy2(root/'deploy'/name,source/'deploy'/name)
-for name in ['package.py','package_draft.py','package_installer.py','store_entry.py','sbom.py','pdf_assets.py','notices.py','validate_release.py','accept_fresh_install.sh']:
+for name in ['package.py','package_draft.py','package_installer.py','store_entry.py','sbom.py','pdf_assets.py','notices.py','validate_release.py','accept_fresh_install.sh','accept_upgrade.sh']:
     target=source/'scripts'/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(root/'scripts'/name,target)
-for name in ['LOCAL_BUILD.md','INSTALLATION.md','QUICK_INSTALL.md','STORE_PACKAGING.md',f'RELEASE_NOTES_{version}.md',f'ACCEPTANCE_{version}.md','dependencies.cdx.json']:
+for name in ['ARCHITECTURE.md','PROCESSING_SAFETY.md','LOCAL_BUILD.md','INSTALLATION.md','QUICK_INSTALL.md','STORE_PACKAGING.md',f'RELEASE_NOTES_{version}.md',f'ACCEPTANCE_{version}.md','dependencies.cdx.json']:
     target=source/'docs'/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(root/'docs'/name,target)
 generic_readme='# Document Workflow\n\nSee docs/QUICK_INSTALL.md for installation, docs/LOCAL_BUILD.md for source builds, and docs/STORE_PACKAGING.md for distribution boundaries.\n'
 (source/'README.md').write_text(generic_readme)
