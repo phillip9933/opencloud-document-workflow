@@ -4,11 +4,14 @@ import { safePath } from '../src/domain/review.ts'
 // A read-only, complete metadata snapshot of the configured filing tree. Paths
 // are observations, never approval authority; copies cannot inherit identity.
 export class FiledLocations {
+  /** @param {import('./contracts.d.mts').LocationOwner} workflow */
   constructor(workflow) {
     this.w = workflow
+    /** @type {Map<string,Promise<import('./contracts.d.mts').LocationSnapshot>>} */
     this.pending = new Map()
     workflow.locations = this
   }
+  /** @param {import('./contracts.d.mts').Actor} actor */
   context(actor) {
     return {
       scope: this.w.scope(actor),
@@ -16,10 +19,12 @@ export class FiledLocations {
       root: safePath(this.w.configuration.settings(actor).rules.root)
     }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').FileReader} api */
   async refresh(actor, api) {
     const context = this.context(actor),
       key = JSON.stringify(context)
-    if (this.pending.has(key)) return this.pending.get(key)
+    const existing = this.pending.get(key)
+    if (existing) return existing
     const task = this.scan(actor, api, context)
     this.pending.set(key, task)
     try {
@@ -28,12 +33,14 @@ export class FiledLocations {
       if (this.pending.get(key) === task) this.pending.delete(key)
     }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').FileReader} api @param {import('./contracts.d.mts').LocationContext} context */
   async scan(actor, api, context) {
     const { scope, space, root } = context,
       physical = await this.w.transfers.adapter(actor, api, space),
       pending = [root],
-      folders = new Set(),
-      resources = new Map()
+      folders = new Set()
+    /** @type {Map<string,import('./contracts.d.mts').FileEntry & {space:string}>} */
+    const resources = new Map()
     while (pending.length) {
       const batch = pending.splice(0, 4)
       for (const path of batch) {
@@ -91,6 +98,7 @@ export class FiledLocations {
     }
     return { ...context, resources }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').FileReader} api @param {string} resource @param {string} space */
   async locate(actor, api, resource, space) {
     if (space !== this.context(actor).space) return null
     const snapshot = await this.refresh(actor, api),

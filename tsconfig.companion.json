@@ -24,7 +24,9 @@
     "companion/ocr.mjs",
     "companion/health.mjs",
     "companion/listen.mjs",
-    "companion/contracts.d.mts"
+    "companion/contracts.d.mts",
+    "companion/filing.mjs",
+    "companion/locations.mjs"
   ],
   "exclude": [
     "node_modules",

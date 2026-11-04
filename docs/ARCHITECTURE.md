@@ -36,13 +36,19 @@ Approvals bind to the exact source identity, hash, ETag, proposal or manual-revi
 
 Identical-byte duplicate handling is scoped to the authenticated workflow. Recoverable Trash is opt-in and verified. No similarity-based automatic deletion or purge is exposed.
 
+## Processing orchestration boundaries
+
+`Intake.tick` owns the process-wide intake lock and running/stopped lifecycle. `tickSession` verifies identity and scan timing, while `claimableQueue`, `prepareItem` and `handleItemFailure` separate queue recovery/selection, content preparation and retry decisions. Each item uses the current verified session. Pauses, configuration changes and shutdown stop the remaining cohort; busy locks and expired sessions do not consume document retries.
+
+`Workflow.apply` retains approval/evidence checks, job and resource locks, metadata interlocks, automatic authorization and external-location/cross-Space routing. Only after those checks does it call `companion/filing.mjs` for same-Space filing. The strictly checked stage handlers preserve durable intents before MOVE/tag writes and read-only reconciliation without replay. They are internal helpers, not independently authorized API routes. Location traversal is also strictly checked; incomplete or stale snapshots still cannot replace recorded locations. Other orchestration/provider modules remain outside the backend type-check target.
+
 ## Journal schema upgrades
 
 `companion/migrations.mjs` owns all persistent production tables, indexes and append-only activity triggers. `ProposalJournal` obtains process ownership before applying migrations and before recovering interrupted reads. Version 1 adopts the released unversioned schema, adds the known historical missing columns, checks the resulting shape and sets SQLite `user_version` in one transaction. Failed upgrades roll back schema changes; newer versions and altered stamped schemas stop startup. Existing records, approvals, fields, tags and uncertain write intents are retained. Demo-only file tables remain isolated in the demo adapter. Backups keep the schema version through SQLite backup/restore. Future changes must append a new numbered migration rather than editing the version-1 baseline.
 
 ## Backend contracts
 
-`companion/contracts.d.mts` defines the authenticated actor, processing limits, configuration dependency and logging contracts. The strict `check:companion` target checks ten backend modules against Node 22 types; the remaining orchestration, storage and provider modules are not yet claimed as type-checked. Configuration reads validate stored limits before use. Preparation always passes a validated finite byte limit to the source adapter, including when a standalone workflow has no settings service.
+`companion/contracts.d.mts` defines the authenticated actor, processing limits, configuration dependency, file reader, filing stages and logging contracts. The strict `check:companion` target checks twelve backend modules against Node 22 types; the remaining orchestration, storage and provider modules are not yet claimed as type-checked. Configuration reads validate stored limits before use. Preparation always passes a validated finite byte limit to the source adapter, including when a standalone workflow has no settings service.
 
 ## Operational logging
 

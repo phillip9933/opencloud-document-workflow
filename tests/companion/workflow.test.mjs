@@ -881,3 +881,60 @@ test('an explicitly unassigned tag updates current verification without altering
     s.close()
   }
 })
+
+test('every filing write observes its durable stage and both locks, and failed writes release locks', async () => {
+  const s = await setup()
+  try {
+    await approve(s)
+    const writes = []
+    for (const [method, stage] of [
+      ['mkdir', 'folders_pending'],
+      ['move', 'move_intent'],
+      ['addTags', 'tags_intent']
+    ]) {
+      const original = s.api[method].bind(s.api)
+      s.api[method] = async (...args) => {
+        assert.equal(s.w.decision(s.actor, s.result.id).state, stage)
+        assert.equal(s.j.db.prepare('select count(*) n from workflow_locks').get().n, 2)
+        writes.push(method)
+        if (method === 'addTags') throw new Error('synthetic uncertain tag write')
+        return original(...args)
+      }
+    }
+    await assert.rejects(s.w.apply(s.actor, s.api, s.result.id), /synthetic uncertain/)
+    assert.deepEqual([...new Set(writes)], ['mkdir', 'move', 'addTags'])
+    assert.equal(s.j.db.prepare('select count(*) n from workflow_locks').get().n, 0)
+    assert.equal(s.w.decision(s.actor, s.result.id).state, 'tags_intent')
+    const before = [...writes]
+    const outcome = await s.w.apply(s.actor, s.api, s.result.id, { reconcileOnly: true })
+    assert.equal(outcome.uncertain, true)
+    assert.deepEqual(writes, before)
+    assert.equal(s.j.db.prepare('select count(*) n from workflow_locks').get().n, 0)
+  } finally {
+    s.close()
+  }
+})
+
+test('read-only verification of approved and folder-pending filing never begins a write', async () => {
+  const s = await setup()
+  try {
+    await approve(s)
+    for (const method of ['mkdir', 'move', 'addTags'])
+      s.api[method] = async () => assert.fail('verification attempted ' + method)
+    assert.equal(
+      (await s.w.apply(s.actor, s.api, s.result.id, { reconcileOnly: true })).state,
+      'approved'
+    )
+    s.w.set(s.actor, s.result.id, 'folders_pending', {
+      originalTags: ['Keep existing'],
+      expectedTags: ['Keep existing', 'Electricity']
+    })
+    assert.equal(
+      (await s.w.apply(s.actor, s.api, s.result.id, { reconcileOnly: true })).state,
+      'folders_pending'
+    )
+    assert.equal(s.j.db.prepare('select count(*) n from workflow_locks').get().n, 0)
+  } finally {
+    s.close()
+  }
+})

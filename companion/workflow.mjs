@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { applyFiling } from './filing.mjs'
 import { defaultLimits, validateLimits } from './configuration.mjs'
 import { tagCatalog } from '../src/domain/tag-discovery.ts'
 import { createHash, randomUUID } from 'node:crypto'
@@ -640,8 +641,8 @@ export class Workflow {
           this.automaticGuard(actor, id, approval.automaticAuthorization)
         }
       }
-      let state = decision.state,
-        plan = decision.plan ? JSON.parse(decision.plan) : {}
+      const state = decision.state
+      let plan = decision.plan ? JSON.parse(decision.plan) : {}
       const metadataTable = this.db
         .prepare("select 1 from sqlite_master where type='table' and name='metadata_changes'")
         .get()
@@ -718,97 +719,19 @@ export class Workflow {
         }
         return await this.transfers.apply(actor, api, id, approval, plan, { reconcileOnly, guard })
       }
-      if (state === 'done') {
-        const final = await check(api, target, source)
-        if (!final || !plan.expectedTags.every((t) => final.tags.includes(t))) return conflict()
-        return {
-          state: 'done',
-          target,
-          tags: final.tags,
-          verification: {
-            checkedAt: new Date().toISOString(),
-            resourceId: final.resourceId,
-            sha256: source.sha256
-          }
-        }
-      }
-      if (state === 'approved') {
-        if (reconcileOnly) return { state: 'approved', target }
-        const current = await check(api, source.path, source, source.etag)
-        if (!current) return conflict()
-        if (target !== source.path && (await api.stat(target))) return conflict()
-        plan = {
-          originalTags: current.tags,
-          expectedTags: [...new Set([...current.tags, ...tags])].sort()
-        }
-        this.set(actor, id, 'folders_pending', plan)
-        state = 'folders_pending'
-      }
-      if (state === 'folders_pending') {
-        if (reconcileOnly) return { state, target }
-        if (!(await check(api, source.path, source, source.etag))) return conflict()
-        const folders = target.split('/').slice(0, -1)
-        for (let n = 1; n <= folders.length; n++) {
-          const folder = folders.slice(0, n).join('/')
-          guard()
-          this.event(actor, id, 'folder_intent', { folder })
-          await api.mkdir(folder)
-        }
-        if (target === source.path) {
-          this.set(actor, id, 'move_done', plan)
-          state = 'move_done'
-        } else {
-          if (await api.stat(target)) return conflict()
-          guard()
-          this.set(actor, id, 'move_intent', plan)
-          try {
-            await api.move(source.path, target, source.etag)
-          } catch (e) {
-            this.event(actor, id, 'move_response_uncertain')
-            throw e
-          }
-          state = 'move_intent'
-        }
-      }
-      if (state === 'move_intent') {
-        const destination = await check(api, target, source)
-        if (!destination) {
-          if (await api.stat(target)) return conflict()
-          const original = await check(api, source.path, source, source.etag)
-          if (original) return { state: 'move_intent', uncertain: true, target }
-          return conflict()
-        }
-        if (await api.stat(source.path)) return conflict()
-        this.set(actor, id, 'move_done', plan)
-        state = 'move_done'
-      }
-      if (state === 'move_done') {
-        const current = await check(api, target, source)
-        if (!current || !plan.originalTags.every((t) => current.tags.includes(t))) return conflict()
-        if (tags.every((t) => current.tags.includes(t))) {
-          this.set(actor, id, 'done', plan)
-          return { state: 'done', target, tags: current.tags }
-        }
-        if (reconcileOnly) return { state: 'move_done', target }
-        guard()
-        this.set(actor, id, 'tags_intent', plan)
-        try {
-          await api.addTags(source.resourceId, tags)
-        } catch (e) {
-          this.event(actor, id, 'tags_response_uncertain')
-          throw e
-        }
-        state = 'tags_intent'
-      }
-      if (state === 'tags_intent') {
-        const current = await check(api, target, source)
-        if (!current || !plan.originalTags.every((t) => current.tags.includes(t))) return conflict()
-        if (!plan.expectedTags.every((t) => current.tags.includes(t)))
-          return { state: 'tags_intent', uncertain: true, target }
-        this.set(actor, id, 'done', plan)
-        return { state: 'done', target, tags: current.tags }
-      }
-      throw new Error('Unexpected operation state')
+      return await applyFiling({
+        api,
+        source,
+        target,
+        tags,
+        state,
+        plan,
+        reconcileOnly,
+        check,
+        guard,
+        save: (next, nextPlan) => this.set(actor, id, next, nextPlan),
+        event: (kind, detail) => this.event(actor, id, kind, detail)
+      })
     } finally {
       releaseResource?.()
       release()
