@@ -326,3 +326,30 @@ test('unexpected intake worker failures update health and recover on the next ch
     f.close()
   }
 })
+
+test('preparation always supplies a finite download limit even without a settings service', async () => {
+  const f = fixture()
+  try {
+    const actor = await f.adapter.identity()
+    const get = f.adapter.get.bind(f.adapter)
+    const bounds = []
+    f.adapter.get = async (path, etag, limit) => {
+      bounds.push(limit)
+      return get(path, etag, limit)
+    }
+    const configuration = {
+      policy: { ...defaultPolicy(), aiInput: 'off', aiOutput: 'off', ocr: 'off' },
+      rulesOnly: true
+    }
+    await f.workflow.prepare(actor, f.adapter, 'Inbox/english.pdf', configuration)
+    assert.deepEqual(bounds, [100 * 1024 * 1024])
+    f.workflow.configuration = { settings: () => ({ limits: { maxMiB: NaN } }) }
+    await assert.rejects(
+      f.workflow.prepare(actor, f.adapter, 'Inbox/english.pdf', configuration),
+      /capacity/
+    )
+    assert.equal(bounds.length, 1)
+  } finally {
+    f.close()
+  }
+})

@@ -1,5 +1,6 @@
-import { tagCatalog } from '../src/domain/tag-discovery.ts'
 // SPDX-License-Identifier: AGPL-3.0-only
+import { defaultLimits, validateLimits } from './configuration.mjs'
+import { tagCatalog } from '../src/domain/tag-discovery.ts'
 import { createHash, randomUUID } from 'node:crypto'
 import { pageOptions, pageCursor } from './pagination.mjs'
 import { hostname } from 'node:os'
@@ -280,7 +281,8 @@ export class Workflow {
         )
       progress('reading')
       const settings = this.configuration?.settings(actor),
-        bytes = await api.get(path, before.etag, settings?.limits.maxMiB * 1024 * 1024),
+        limits = validateLimits(settings?.limits ?? defaultLimits()),
+        bytes = await api.get(path, before.etag, limits.maxMiB * 1024 * 1024),
         after = await api.stat(path)
       if (after?.resourceId !== before.resourceId || after?.etag !== before.etag)
         throw new Error('Source changed during reading')
@@ -293,20 +295,16 @@ export class Workflow {
         etag: before.etag,
         sha256: sha(bytes)
       }
-      const input = await extractPDFBytes(bytes, source, settings?.limits)
+      const input = await extractPDFBytes(bytes, source, limits)
       let ocrAttempted = false
       const ocrIndices =
         configuration.policy.ocr !== 'off' ? await ocrCandidatePages(bytes, input.pages) : []
       if (ocrIndices.length) {
         ocrAttempted = true
         progress('ocr')
-        input.pages = await ocrPages(
-          bytes,
-          input.pages,
-          configuration.ocrLanguages ?? [],
-          settings?.limits,
-          { indices: ocrIndices }
-        )
+        input.pages = await ocrPages(bytes, input.pages, configuration.ocrLanguages ?? [], limits, {
+          indices: ocrIndices
+        })
         this.event(actor, null, 'ocr_extracted', {
           resourceId: source.resourceId,
           languages: configuration.ocrLanguages
