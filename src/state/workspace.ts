@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { inject, ref, computed } from 'vue'
+import { inject, ref, computed, toRaw } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 import type { InjectionKey } from 'vue'
 import { defaultPolicy, validateBundle, validatePolicy } from '../domain/review'
@@ -168,7 +168,6 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     } | null>(null),
     jobs = ref<DraftJob[]>([]),
     files = ref<DraftFile[]>([]),
-    jobIds = ref<Record<string, string>>({}),
     folder = ref('Inbox'),
     inbox = ref('Inbox'),
     intakeEnabled = ref(false),
@@ -249,29 +248,38 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
       )
     return result
   }
-  function reviewKey(review: Review) {
-    return JSON.stringify(review.bundle)
-  }
+  let reviewJobs = new WeakMap<Review, string>()
+  const jobsById = computed(() => new Map(jobs.value.map((job) => [job.id, job])))
   function installJobs(rows: DraftJob[]) {
-    const previous = reviews.value[selected.value]?.bundle.source.resourceId
-    jobs.value = rows
-    jobIds.value = {}
-    const seen = new Set<string>()
+    const previous = reviews.value[selected.value]
+    const previousId = previous && jobFor(previous)?.id
+    jobs.value = [...new Map(rows.map((job) => [job.id, job])).values()]
+    reviewJobs = new WeakMap()
     reviews.value = []
-    for (const j of rows.filter((j) => j.bundle)) {
-      const review = validateBundle(j.bundle),
-        key = reviewKey(review)
-      if (seen.has(key)) continue
-      seen.add(key)
-      jobIds.value[key] = j.id
+    for (const job of jobs.value) {
+      if (!job.bundle) continue
+      const review = validateBundle(job.bundle)
+      reviewJobs.set(review, job.id)
       reviews.value.push(review)
     }
-    const retained = reviews.value.findIndex((r) => r.bundle.source.resourceId === previous),
-      waiting = reviews.value.findIndex((r) => {
-        const j = rows.find((j) => j.id === jobIds.value[reviewKey(r)])
-        return r.proposal && !j?.decision
-      })
-    selected.value = retained >= 0 ? retained : waiting >= 0 ? waiting : 0
+    const retained = reviews.value.findIndex((review) => jobFor(review)?.id === previousId)
+    const sameSource = previous
+      ? reviews.value.findIndex((review) => {
+          const a = review.bundle.source,
+            b = previous.bundle.source
+          return (
+            a.server === b.server &&
+            a.account === b.account &&
+            a.space === b.space &&
+            a.resourceId === b.resourceId
+          )
+        })
+      : -1
+    const waiting = reviews.value.findIndex(
+      (review) => review.proposal && !jobFor(review)?.decision
+    )
+    selected.value =
+      retained >= 0 ? retained : sameSource >= 0 ? sameSource : waiting >= 0 ? waiting : 0
   }
   async function loadSpaces() {
     try {
@@ -292,7 +300,7 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     connection.value = null
     jobs.value = []
     reviews.value = []
-    jobIds.value = {}
+    reviewJobs = new WeakMap()
     files.value = []
     inboxSearch.value = ''
     inboxNavigation.value = null
@@ -449,10 +457,8 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
   async function loadMoreReviews() {
     if (!reviewsCursor.value) return
     const result = await request('jobs', { activeOnly: true, cursor: reviewsCursor.value })
-    installJobs([
-      ...jobs.value,
-      ...result.jobs.filter((j: DraftJob) => !jobs.value.some((old) => old.id === j.id))
-    ])
+    const existing = new Set(jobsById.value.keys())
+    installJobs([...jobs.value, ...result.jobs.filter((job: DraftJob) => !existing.has(job.id))])
     reviewsCursor.value = result.nextCursor
     reviewsHaveMore.value = !!result.nextCursor
   }
@@ -517,8 +523,8 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     return result
   }
   function jobFor(review: Review) {
-    const id = jobIds.value[reviewKey(review)]
-    return jobs.value.find((j) => j.id === id)
+    const id = reviewJobs.get(toRaw(review))
+    return id ? jobsById.value.get(id) : undefined
   }
   async function openJob(id: string, expected?: DraftFile) {
     const scope =

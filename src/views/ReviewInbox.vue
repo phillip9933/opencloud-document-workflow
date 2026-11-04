@@ -368,19 +368,20 @@ const preview = ref<Blob | null>(null),
 const resolvedPath = ref<string | null>(null),
   resolvedSpace = ref<string | null>(null),
   resolvedTags = ref<string[] | null>(null)
+const usesFilingTarget = computed(() =>
+  ['done', 'move_done', 'tags_intent', 'transfer_ready'].includes(job.value?.decision || '')
+)
 const documentSpace = computed(
   () =>
     resolvedSpace.value ??
-    (['done', 'move_done', 'tags_intent', 'transfer_ready'].includes(job.value?.decision || '')
+    (usesFilingTarget.value
       ? (planned.value?.targetSpace ?? active.value?.bundle.source.space)
       : active.value?.bundle.source.space)
 )
 const documentPath = computed(
   () =>
     resolvedPath.value ??
-    (['done', 'move_done', 'tags_intent', 'transfer_ready'].includes(job.value?.decision || '')
-      ? planned.value?.target
-      : active.value?.bundle.source.path)
+    (usesFilingTarget.value ? planned.value?.target : active.value?.bundle.source.path)
 )
 let previewGeneration = 0
 const inInbox = computed(() => collectionPath().endsWith('/inbox'))

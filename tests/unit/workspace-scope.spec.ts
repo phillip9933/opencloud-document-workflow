@@ -335,3 +335,56 @@ it('retains only a server-confirmed pre-intent Trash refusal for the dialog reco
     expect(error).not.toHaveProperty('trashRecorded')
   }
 })
+
+it('indexes identical review bundles by distinct job IDs and retains the selected attempt', async () => {
+  const bundle = samples()[0]!
+  const actor = {
+    mode: 'demo',
+    name: 'Fixture',
+    server: bundle.source.server,
+    account: bundle.source.account,
+    space: bundle.source.space
+  }
+  const first = {
+    id: 'attempt-one',
+    source: bundle.source,
+    bundle,
+    state: 'needs_review',
+    decision: null as string | null
+  }
+  const second = { ...first, id: 'attempt-two' }
+  let rows = [first, second]
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      Response.json(
+        url.endsWith('/status')
+          ? { actor, jobs: rows }
+          : { configuration: { folder: 'Inbox', enabled: false } }
+      )
+    )
+  )
+  const store = createWorkspace()
+  await store.connect()
+  expect(store.reviews.value).toHaveLength(2)
+  expect(store.jobFor(store.reviews.value[0]!)?.id).toBe('attempt-one')
+  expect(store.jobFor(store.reviews.value[1]!)?.id).toBe('attempt-two')
+  store.selected.value = 1
+  // Lookup follows the installed review identity, without serializing its PDF text.
+  const review = store.reviews.value[1]!
+  Object.defineProperty(review.bundle, 'toJSON', {
+    value: () => {
+      throw Error('serialized review')
+    },
+    configurable: true
+  })
+  expect(store.jobFor(review)?.id).toBe('attempt-two')
+  delete (review.bundle as unknown as { toJSON?: unknown }).toJSON
+  rows = [second, first]
+  await store.connect()
+  expect(store.jobFor(store.reviews.value[store.selected.value]!)?.id).toBe('attempt-two')
+  const old = store.reviews.value[0]!
+  rows = []
+  await store.connect()
+  expect(store.jobFor(old)).toBeUndefined()
+})
