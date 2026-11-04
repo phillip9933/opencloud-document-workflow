@@ -1,3 +1,5 @@
+> Latest release: [0.20.1 Beta](../docs/ACCEPTANCE_0.20.1.md), with exact hosted-build and public-download verification. The original catalogue-submission baseline below remains historical.
+
 # Candidate validation — 0.20.0 Beta
 
 Release validation for 0.20.0 Beta, 2026-11-04. Hosted CI and public download verification are recorded with the GitHub prerelease. The catalogue contribution is prepared for maintainer review.

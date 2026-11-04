@@ -1,6 +1,6 @@
 # 0.20.1 beta acceptance
 
-Verified on 2026-11-04. This candidate remains unpublished; the production installation was not changed.
+Candidate verification completed on 2026-11-04 without changing the production installation. Publication was subsequently authorized; the exact published build is recorded below.
 
 ## Source checks
 
@@ -36,3 +36,12 @@ The new upgrade harness initially asserted that OpenCloud would not restart. Tha
 The tested kit contains the application/runtime changes described in the release notes. Acceptance documentation and test-harness refinements were completed afterward; a future rebuilt distribution has a different archive checksum and must not be presented as the identical tested archive.
 
 The larger workflow, intake, journal and provider orchestration remains incrementally typed; this release does not claim full backend type coverage. These checks do not constitute a security audit, a production rollout, an authenticated live-document filing test, or a new compatibility claim for other OpenCloud versions/proxy configurations.
+
+## Published build
+
+[0.20.1 Beta](https://github.com/phillip9933/opencloud-document-workflow/releases/tag/v0.20.1) was published on 2026-11-04 from commit `1dba7afb8d9eb29bb87588387205ff234cf57050`. Its assets are the unmodified output of [successful hosted run 41784105226](https://github.com/phillip9933/opencloud-document-workflow/actions/runs/41784105226), which repeated the source checks, offline image tests and fresh OpenCloud 9/Caddy installation against those exact packaged bytes.
+
+The published installation kit SHA256 is:
+`9bddc961a0e9114dd714db5fe2ef923ea4eee9ff2fe546fe10f050399c299c1b`.
+
+It supersedes the local candidate archive for distribution. Public downloads were independently compared with the CI artifact hashes; rendered catalogue resources and screenshot URLs were checked. [Public verification receipt](https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.1/PUBLICATION-RECEIPT.json), [fresh-install receipt](https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.1/INSTALL-ACCEPTANCE.txt).
