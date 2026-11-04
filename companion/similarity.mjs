@@ -8,12 +8,15 @@ import {
 import { safePath } from '../src/domain/review.ts'
 // Advisory only: no MOVE, DELETE, tag write, approval or duplicate-Trash intent.
 export class SimilarDocuments {
+  /** @param {import('./contracts.d.mts').SimilarityOwner} workflow */
   constructor(workflow) {
     this.w = workflow
     this.db = workflow.db
+    /** @type {Map<string,Set<string>>} */
     this.signals = new Map()
     workflow.similarities = this
   }
+  /** @param {string} id @param {import('../src/domain/review.ts').DocumentInput} input */
   signal(id, input) {
     const key = JSON.stringify([
       id,
@@ -23,12 +26,15 @@ export class SimilarDocuments {
       input.source.resourceId,
       input.source.sha256
     ])
-    if (this.signals.has(key)) return this.signals.get(key)
+    const cached = this.signals.get(key)
+    if (cached) return cached
     const signal = documentIdentifiers(input.pages)
-    if (this.signals.size >= 128) this.signals.delete(this.signals.keys().next().value)
+    const oldest = this.signals.keys().next().value
+    if (this.signals.size >= 128 && oldest !== undefined) this.signals.delete(oldest)
     this.signals.set(key, signal)
     return signal
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').SimilarityReader} api @param {string} id @param {import('../src/domain/review.ts').Source} source */
   async present(actor, api, id, source) {
     const direct = await api.stat(source.path)
     if (
@@ -53,9 +59,11 @@ export class SimilarDocuments {
       ? { path: location.path }
       : null
   }
+  /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').SimilarityReader} api @param {string} id */
   async forJob(actor, api, id) {
-    const current = this.w.job(actor, id),
-      input = JSON.parse(current.input)
+    const current = this.w.job(actor, id)
+    /** @type {import('../src/domain/review.ts').DocumentInput} */
+    const input = JSON.parse(current.input)
     if (input.source.space !== actor.space) return []
     const original = await api.stat(input.source.path)
     if (
@@ -66,6 +74,7 @@ export class SimilarDocuments {
       return []
     const fingerprint = documentFingerprint(input.pages, input.rules)
     if (!fingerprint?.dates.size || !fingerprint.identifiers.size) return []
+    /** @type {Array<{id:string,path:string,score:number}>} */
     const best = []
     const candidates = this.db.prepare(
       `select p.id,p.input from proposals p where p.scope=? and p.result is not null and json_extract(p.input,'$.source.resourceId')<>? and json_extract(p.input,'$.source.sha256')<>? and not exists(select 1 from proposals n where n.scope=p.scope and json_extract(n.input,'$.source.resourceId')=json_extract(p.input,'$.source.resourceId') and (n.updated>p.updated or (n.updated=p.updated and n.id>p.id)))`
@@ -75,21 +84,22 @@ export class SimilarDocuments {
       input.source.resourceId,
       input.source.sha256
     )) {
+      /** @type {import('../src/domain/review.ts').DocumentInput} */
       let other
       try {
-        other = JSON.parse(row.input)
+        other = JSON.parse(String(row.input))
         safePath(other.source.path)
         if (other.source.space !== actor.space) continue
-        const signal = this.signal(row.id, other)
+        const signal = this.signal(String(row.id), other)
         if (!signal || ![...signal].some((value) => fingerprint.identifiers.has(value))) continue
         const result = compareFingerprints(
           fingerprint,
           documentFingerprint(other.pages, other.rules)
         )
         if (!result.candidate || (best.length === 3 && result.overlap < best[2].score)) continue
-        const present = await this.present(actor, api, row.id, other.source)
+        const present = await this.present(actor, api, String(row.id), other.source)
         if (!present) continue
-        best.push({ id: row.id, path: present.path, score: result.overlap })
+        best.push({ id: String(row.id), path: present.path, score: result.overlap })
         best.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
         best.splice(3)
       } catch {

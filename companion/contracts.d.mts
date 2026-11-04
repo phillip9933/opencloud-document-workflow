@@ -101,3 +101,16 @@ export interface DocumentReadOptions {
   progress(stage: 'ocr'): void
   onOCR(source: import('../src/domain/review.ts').Source): void
 }
+
+export interface SimilarityReader extends DocumentReader {
+  forSpace(space: string): SimilarityReader
+}
+export interface SimilarityOwner extends ConfigurationOwner {
+  similarities?: import('./similarity.mjs').SimilarDocuments
+  job(actor: Actor, id: string): { input: string }
+  location(
+    actor: Actor,
+    api: SimilarityReader,
+    id: string
+  ): Promise<{ space: string; path: string; etag: string; resourceId: string }>
+}

@@ -27,9 +27,10 @@
     "companion/contracts.d.mts",
     "companion/filing.mjs",
     "companion/locations.mjs",
+    "companion/preparation.mjs",
     "companion/transactions.mjs",
-    "tests/types/companion.ts",
-    "companion/preparation.mjs"
+    "companion/similarity.mjs",
+    "tests/types/companion.ts"
   ],
   "exclude": [
     "node_modules",
