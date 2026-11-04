@@ -12,7 +12,10 @@
     "types": [
       "node"
     ],
-    "erasableSyntaxOnly": true
+    "erasableSyntaxOnly": true,
+    "lib": [
+      "ES2023"
+    ]
   },
   "include": [
     "companion/runtime-owner.mjs",
@@ -33,7 +36,10 @@
     "companion/similarity.mjs",
     "tests/types/companion.ts",
     "companion/http-body.mjs",
-    "companion/api-errors.mjs"
+    "companion/api-errors.mjs",
+    "companion/remote-transport.mjs",
+    "companion/inbox.mjs",
+    "companion/processing-history.mjs"
   ],
   "exclude": [
     "node_modules",

@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { safePath } from '../src/domain/review.ts'
 // Lists only the configured inbox. Folder-picker browsing uses the original API.
+/** @param {import('./contracts.d.mts').FileReader} api @param {{folder:string,recursive:boolean}} options */
 export async function inboxFiles(api, { folder, recursive }) {
   const pending = [folder],
     seen = new Set(),
-    files = []
+    files = /** @type {import('./contracts.d.mts').FileEntry[]} */ ([])
   safePath(folder)
   while (pending.length) {
     const path = pending.pop()
+    if (path === undefined) break
     if (seen.has(path)) throw new Error('Repeated inbox folder')
     seen.add(path)
     for (const file of await api.list(path)) {
@@ -23,6 +25,7 @@ export async function inboxFiles(api, { folder, recursive }) {
 }
 // Inbox totals describe files that are still there. Activity retains the full
 // queue history, including trashed duplicates and superseded uploads.
+/** @param {Array<{folder?:boolean,intakeState?:string,reviewState?:string,progress?:{attention?:boolean,cancelled?:boolean,step:number}}>} files */
 export function inboxSummary(files) {
   const summary = {
     total: 0,
@@ -40,8 +43,8 @@ export function inboxSummary(files) {
   for (const file of files) {
     if (file.folder) continue
     summary.total++
-    const state = file.intakeState,
-      review = file.reviewState,
+    const state = file.intakeState ?? '',
+      review = file.reviewState ?? '',
       progress = file.progress
     const bucket = ['duplicate', 'restored', 'trashed'].includes(state)
       ? 'duplicates'

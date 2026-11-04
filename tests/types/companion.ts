@@ -9,3 +9,17 @@ void result
 withTransaction(db, async () => 42)
 // @ts-expect-error a non-async callback returning a Promise is also unsupported
 withTransaction(db, () => Promise.resolve(42))
+
+import { Readable } from 'node:stream'
+import { remoteResponse } from '../../companion/remote-transport.mjs'
+import type { RemoteContext } from '../../companion/remote-transport.mjs'
+declare const remote: RemoteContext
+void remoteResponse(remote, 'PUT', remote.base, {
+  body: Readable.from([Buffer.from('synthetic')]),
+  duplex: 'half',
+  statuses: [201]
+})
+// @ts-expect-error accepted HTTP statuses must be numeric
+void remoteResponse(remote, 'PUT', remote.base, { statuses: ['201'] })
+// @ts-expect-error request bodies cannot be unencoded plain objects
+void remoteResponse(remote, 'PUT', remote.base, { body: { secret: 'not serialized' } })

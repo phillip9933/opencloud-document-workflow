@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { RemoteError, remoteResponse, responseBytes } from './remote-transport.mjs'
+export { RemoteError, responseBytes } from './remote-transport.mjs'
 import { XMLParser } from 'fast-xml-parser'
 import { createReadStream } from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -11,22 +13,6 @@ const parser = new XMLParser({
   processEntities: true,
   isArray: (n) => ['response', 'propstat', 'tag'].includes(n)
 })
-export class RemoteError extends Error {
-  constructor(status) {
-    super(`OpenCloud HTTP ${status}`)
-    this.status = status
-  }
-}
-export async function responseBytes(response, max = 25 * 1024 * 1024) {
-  const parts = []
-  let size = 0
-  for await (const chunk of response.body ?? []) {
-    size += chunk.length
-    if (size > max) throw new Error('Remote response exceeds limit')
-    parts.push(chunk)
-  }
-  return Buffer.concat(parts)
-}
 export function parseDAV(xml, base) {
   if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new Error('XML declarations are not allowed')
   const root = parser.parse(xml).multistatus
@@ -101,36 +87,7 @@ export class OpenCloudAdapter {
     return this.base + (path ? safePath(path).split('/').map(encodeURIComponent).join('/') : '')
   }
   async request(method, url, { body, headers = {}, max } = {}) {
-    const parsed = new URL(url),
-      directory =
-        parsed.origin === this.origin &&
-        ['/graph/v1.0/me/drives', '/graph/v1.0/me/drives/'].includes(parsed.pathname)
-    const ownRoles =
-      method === 'GET' &&
-      this.account &&
-      url ===
-        `${this.origin}/graph/v1.0/users/${encodeURIComponent(this.account)}/appRoleAssignments`
-    const trashRead = method === 'PROPFIND' && url === this.trashBase
-    if (
-      !ownRoles &&
-      !trashRead &&
-      !directory &&
-      url !== `${this.origin}/graph/v1.0/me` &&
-      url !== `${this.origin}/graph/v1.0/extensions/org.libregraph/tags` &&
-      !url.startsWith(this.base)
-    )
-      throw new Error('URL outside configured endpoints')
-    const res = await this.fetcher(url, {
-      method,
-      body,
-      redirect: 'error',
-      signal: AbortSignal.timeout(60_000),
-      headers: { ...headers, Authorization: this.auth }
-    })
-    if (!res.ok) {
-      await res.body?.cancel()
-      throw new RemoteError(res.status)
-    }
+    const res = await remoteResponse(this, method, url, { body, headers })
     return responseBytes(res, max)
   }
   forSpace(space) {
@@ -232,17 +189,12 @@ export class OpenCloudAdapter {
   async put(path, bytes, { contentType = 'application/pdf' } = {}) {
     if (!['application/pdf', 'application/vnd.sqlite3', 'application/json'].includes(contentType))
       throw new Error('Unsupported upload type')
-    const response = await this.fetcher(this.url(path), {
-      method: 'PUT',
+    const response = await remoteResponse(this, 'PUT', this.url(path), {
       body: bytes,
-      redirect: 'error',
-      signal: AbortSignal.timeout(120000),
-      headers: { Authorization: this.auth, 'If-None-Match': '*', 'Content-Type': contentType }
+      timeout: 120000,
+      statuses: [201],
+      headers: { 'If-None-Match': '*', 'Content-Type': contentType }
     })
-    if (response.status !== 201) {
-      await response.body?.cancel()
-      throw new RemoteError(response.status)
-    }
     await response.body?.cancel()
     const resourceId = response.headers.get('OC-FileId')
     if (!resourceId) throw new Error('Transfer response needs verification')
@@ -251,15 +203,13 @@ export class OpenCloudAdapter {
   async replacePDF(path, bytes, etag) {
     if (typeof etag !== 'string' || !etag || /[\r\n]/.test(etag))
       throw new Error('A current PDF version is required')
-    const response = await this.fetcher(this.url(path), {
-      method: 'PUT',
+    const response = await remoteResponse(this, 'PUT', this.url(path), {
       body: bytes,
-      redirect: 'error',
-      signal: AbortSignal.timeout(120000),
-      headers: { Authorization: this.auth, 'If-Match': etag, 'Content-Type': 'application/pdf' }
+      timeout: 120000,
+      statuses: [200, 204],
+      headers: { 'If-Match': etag, 'Content-Type': 'application/pdf' }
     })
     await response.body?.cancel()
-    if (![200, 204].includes(response.status)) throw new RemoteError(response.status)
   }
   async putFile(path, file, { contentType } = {}) {
     if (!['application/vnd.sqlite3', 'application/json'].includes(contentType))
@@ -267,36 +217,27 @@ export class OpenCloudAdapter {
     const size = (await stat(file)).size,
       stream = createReadStream(file)
     try {
-      const response = await this.fetcher(this.url(path), {
-        method: 'PUT',
+      const response = await remoteResponse(this, 'PUT', this.url(path), {
         body: stream,
         duplex: 'half',
-        redirect: 'error',
-        signal: AbortSignal.timeout(300000),
+        timeout: 300000,
+        statuses: [201],
         headers: {
-          Authorization: this.auth,
           'If-None-Match': '*',
           'Content-Type': contentType,
           'Content-Length': String(size)
         }
       })
       await response.body?.cancel()
-      if (response.status !== 201) throw new RemoteError(response.status)
     } finally {
       stream.destroy()
     }
   }
   async digest(path, etag, max) {
-    const response = await this.fetcher(this.url(path), {
-      method: 'GET',
-      redirect: 'error',
-      signal: AbortSignal.timeout(300000),
-      headers: { Authorization: this.auth, 'If-Match': etag }
+    const response = await remoteResponse(this, 'GET', this.url(path), {
+      timeout: 300000,
+      headers: { 'If-Match': etag }
     })
-    if (!response.ok) {
-      await response.body?.cancel()
-      throw new RemoteError(response.status)
-    }
     const hash = createHash('sha256')
     let bytes = 0
     for await (const chunk of response.body ?? []) {

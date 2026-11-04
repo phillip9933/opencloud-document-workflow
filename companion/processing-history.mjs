@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+/** @param {Pick<import('./contracts.d.mts').ConfigurationOwner,'db'|'scope'>} workflow @param {import('./contracts.d.mts').Actor} actor @param {string} id */
 export function processingHistory(workflow, actor, id) {
   const db = workflow.db,
     scope = workflow.scope(actor),
@@ -31,12 +32,16 @@ export function processingHistory(workflow, actor, id) {
         id: job.id,
         kind: 'prepare',
         state: job.state,
-        created: job.updated,
+        created: String(job.updated),
         attempts: job.attempts,
-        result: job.result ? JSON.parse(job.result) : { error: job.error }
+        result: job.result ? JSON.parse(String(job.result)) : { error: job.error }
       })),
-      ...batches.map((item) => ({ ...item, result: item.result ? JSON.parse(item.result) : null }))
+      ...batches.map((item) => ({
+        ...item,
+        created: String(item.created),
+        result: item.result ? JSON.parse(String(item.result)) : null
+      }))
     ].sort((a, b) => b.created.localeCompare(a.created)),
-    events: events.map((event) => ({ ...event, detail: JSON.parse(event.detail) }))
+    events: events.map((event) => ({ ...event, detail: JSON.parse(String(event.detail)) }))
   }
 }
