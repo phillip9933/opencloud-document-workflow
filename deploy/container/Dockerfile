@@ -5,8 +5,9 @@ FROM ${NODE_IMAGE}
 LABEL org.opencontainers.image.title="OpenCloud Document Workflow companion" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 RUN apt-get update && apt-get install --no-install-recommends -y \
-      python3-uno python3-img2pdf libreoffice-writer libreoffice-calc libreoffice-impress libreoffice-draw mupdf-tools poppler-utils poppler-data fonts-noto-core fonts-noto-cjk tesseract-ocr tesseract-ocr-eng tesseract-ocr-jpn \
-    && rm -rf /var/lib/apt/lists/* \
+      apt libapt-pkg6.0 python3-uno python3-img2pdf libreoffice-writer libreoffice-calc libreoffice-impress libreoffice-draw mupdf-tools poppler-utils poppler-data fonts-noto-core fonts-noto-cjk tesseract-ocr tesseract-ocr-eng tesseract-ocr-jpn \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge 2.6.2 \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /var/lib/apt/lists/* \
     && install -d -m 0700 -o 65534 -g 65534 /state /credentials /backups \
     && install -d -m 0755 -o 65534 -g 65534 /workflow-tessdata \
     && cp /usr/share/tesseract-ocr/5/tessdata/*.traineddata /workflow-tessdata/ \
