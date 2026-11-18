@@ -46,7 +46,7 @@ jobs:
       - run: pnpm run package:installer
       - run: python3 scripts/validate_release.py
       - name: Build matching companion image
-        run: docker build --build-arg "WORKFLOW_VERSION=$(node -p 'require("./package.json").version')" -f deploy/container/Dockerfile -t document-workflow-ci:latest .
+        run: docker build --build-arg "WORKFLOW_VERSION=$(node -p 'require("./package.json").version')" -t document-workflow-ci:latest artifacts/installer-stage/image
       - name: Scan shipped runtime image for fixed high-severity vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

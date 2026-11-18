@@ -691,10 +691,19 @@ export class Workflow {
     const job = this.job(actor, id)
     if (this.decision(actor, id))
       throw new WorkflowError('OPERATION_HELD', 'A decision is already recorded')
-    this.db
-      .prepare("insert into decisions(job,actor,record,state,updated) values(?,?,?,'rejected',?)")
-      .run(id, actor.account, '{}', new Date().toISOString())
-    this.event(actor, job.id, 'rejected')
+    withTransaction(this.db, () => {
+      const now = new Date().toISOString()
+      this.db
+        .prepare("insert into decisions(job,actor,record,state,updated) values(?,?,?,'rejected',?)")
+        .run(id, actor.account, '{}', now)
+      const changed = this.db
+        .prepare(
+          "update automatic_runs set state='cancelled',detail=?,updated=? where job=? and scope=? and state in ('running','pending')"
+        )
+        .run('Document rejected during review', now, id, this.scope(actor))
+      if (changed.changes) this.event(actor, id, 'automatic_cancelled', { reason: 'rejected' })
+      this.event(actor, job.id, 'rejected')
+    })
     return { state: 'rejected' }
   }
   /** @param {string} id */

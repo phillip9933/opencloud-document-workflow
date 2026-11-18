@@ -985,6 +985,9 @@ test('a rejection recorded during source verification survives automatic approva
   const id = s.result.id,
     policy = defaultPolicy(),
     digest = await reviewDigest(s.result.review, policy)
+  s.j.db
+    .prepare("insert into automatic_runs values(?,?,?,'running',null,?,?)")
+    .run(id, s.w.scope(s.actor), '{}', new Date().toISOString(), new Date().toISOString())
   const check = s.w.check.bind(s.w)
   t.mock.method(s.w, 'check', async (...args) => {
     s.w.reject(s.actor, id)
@@ -1002,4 +1005,8 @@ test('a rejection recorded during source verification survives automatic approva
     /already recorded/
   )
   assert.equal(s.w.decision(s.actor, id).state, 'rejected')
+  assert.equal(
+    s.j.db.prepare('select state from automatic_runs where job=?').get(id).state,
+    'cancelled'
+  )
 })

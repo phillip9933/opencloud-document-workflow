@@ -79,7 +79,6 @@ export function operationInput(body) {
         id,
         kind: 'prepare',
         items: items.map((item) => ({
-          ...item,
           path: requestText(item.path),
           resourceId: optionalText(item.resourceId),
           etag: optionalText(item.etag),
@@ -93,26 +92,33 @@ export function operationInput(body) {
       return {
         id,
         kind: 'convert',
-        items: items.map((item) => ({ ...item, ...sourceInput(item) }))
+        items: items.map((item) => ({
+          ...sourceInput(item),
+          documentSpace: optionalText(item.documentSpace)
+        }))
       }
     case 'metadata':
       return {
         id,
         kind: 'metadata',
-        items: items.map((item) => ({ ...item, ...metadataInput(item) }))
+        items: items.map((item) => ({
+          ...metadataInput(item),
+          documentSpace: optionalText(item.documentSpace),
+          fields: item.fields,
+          addTags: item.addTags
+        }))
       }
     case 'automatic':
       return {
         id,
         kind: 'automatic',
-        items: items.map((item) => ({ ...item, id: requestText(item.id) }))
+        items: items.map((item) => ({ id: requestID(item.id) }))
       }
     case 'file':
       return {
         id,
         kind: 'file',
         items: items.map((item) => ({
-          ...item,
           id: requestText(item.id),
           reviewDigest: requestText(item.reviewDigest),
           policy: validatePolicy(item.policy),

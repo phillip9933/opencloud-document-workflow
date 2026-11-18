@@ -42,7 +42,9 @@ def include_package(package):
         raise ValueError('Runtime package outside dependency directory')
     for file in package.rglob('*'):
         rel=file.relative_to(package)
-        if 'node_modules' not in rel.parts and file.is_file():
+        if 'node_modules' in rel.parts: continue
+        if file.is_symlink(): raise ValueError(f'Linked runtime dependency file: {rel}')
+        if file.is_file():
             copy(regular(package,rel),stage/'node_modules'/name/rel)
     for dep in meta.get('dependencies',{}):
         candidates=[parent/dep for parent in package.parents if parent.name=='node_modules']+[root/'node_modules'/dep]

@@ -9,6 +9,8 @@ MANIFEST = 'source-files.json'
 GENERATED = {'docs/dependencies.cdx.json', 'THIRD_PARTY_NOTICES.md', 'LICENSES/DEPENDENCIES.txt'}
 
 def regular(root, name):
+    if root.is_symlink():
+        raise ValueError(f'Linked package root: {root.name}')
     rel = Path(name)
     if rel.is_absolute() or '..' in rel.parts or not rel.parts:
         raise ValueError('Invalid package path')

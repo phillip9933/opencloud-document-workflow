@@ -21,6 +21,11 @@ pnpm package:installer
 python3 scripts/validate_release.py
 ```
 
+Release packaging reads committed files from Git. Commit candidate source changes
+on a local branch before packaging. Extracted source ZIPs use their included
+checksum inventory. The web archive includes the files emitted by Vite and the
+PDF assets supplied by the locked PDF.js package.
+
 The native ZIP is an OpenCloud Web extension using SDK8.2.1. The kit includes the corresponding source, exact dependency lock, notices and inventory. The Dockerfile bundles the runtime tools and initial OCR languages. See INSTALLATION.md and STORE_PACKAGING.md for installation, acceptance and publishing boundaries. No package contains a journal, app token, real document or host environment file. The SVG cover is generic artwork, not a screenshot of a user instance.
 
 For isolated local development, use WORKFLOW_MODE=demo and a private synthetic journal; live mode needs the existing HTTPS OpenCloud origin, supported same-origin API route and the user's own authentication. There is no implicit hosted AI fallback or production intake cutover.

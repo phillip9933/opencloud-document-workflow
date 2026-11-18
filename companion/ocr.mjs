@@ -15,7 +15,19 @@ export function ocrTimeout(deadline, limit) {
 /** @param {string} command @param {string[]} args @param {{limit?:number,timeout?:number}} [options] @returns {Promise<string>} */
 export function runOCRTool(command, args, { limit = 240000, timeout = 30000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const grouped = process.platform !== 'win32'
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: grouped })
+    const stop = () => {
+      if (!grouped || !child.pid) {
+        child.kill('SIGKILL')
+        return
+      }
+      try {
+        process.kill(-child.pid, 'SIGKILL')
+      } catch {
+        child.kill('SIGKILL')
+      }
+    }
     /** @type {Buffer[]} */
     const chunks = []
     let total = 0,
@@ -30,7 +42,7 @@ export function runOCRTool(command, args, { limit = 240000, timeout = 30000 } = 
       else reject(new WorkflowError('UPSTREAM_FAILURE', 'OCR returned no result'))
     }
     const timer = setTimeout(() => {
-      child.kill('SIGKILL')
+      stop()
       finish(new WorkflowError('UPSTREAM_FAILURE', 'OCR command timed out'))
     }, timeout)
     child.on('error', () =>
@@ -40,7 +52,7 @@ export function runOCRTool(command, args, { limit = 240000, timeout = 30000 } = 
     child.stdout.on('data', (c) => {
       total += c.length
       if (total > limit) {
-        child.kill('SIGKILL')
+        stop()
         finish(new WorkflowError('VALIDATION_INVALID', 'OCR output exceeds limit'))
       } else chunks.push(c)
     })

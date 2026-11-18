@@ -121,8 +121,8 @@ recognition or the four-minute recognition budget expires. Text-only pages
 do not count toward the raster limit.
 
 Batch admission reserves journal space for pending results and keeps 64 MiB
-of disk space free. At most eight batches per Space and 64 system-wide can
+of disk space free. At most eight batches per Space, 16 per account and 64 system-wide can
 be active. Batch history is limited to 25,000 items per workflow, 50,000 per
-account and 100,000 per installation. Reaching a limit holds new requests.
+account and 100,000 per installation. Their respective storage budgets are 256 MiB, 512 MiB and 1 GiB, including space reserved for pending results. Reaching a limit holds new requests.
 Existing decisions, history, and requests with a matching operation ID are
 preserved.

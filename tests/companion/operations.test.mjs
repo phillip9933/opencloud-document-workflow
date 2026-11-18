@@ -662,3 +662,35 @@ test('batch admission reserves capacity before inserting rows and still accepts 
   assert.equal(new Set([...page.operations, ...next.operations].map((r) => r.id)).size, 8)
   assert.equal(next.nextCursor, null)
 })
+
+test('large preparation results reference the scoped journal and load only after authorization', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-result-'))
+  const j = new ProposalJournal(join(dir, 'journal')),
+    w = new Workflow(j)
+  t.after(() => {
+    j.close()
+    rmSync(dir, { recursive: true })
+  })
+  const id = randomUUID(),
+    job = randomUUID(),
+    api = { identity: async () => actor }
+  const bundle = { pages: ['Synthetic invoice '.repeat(2000)], manualReview: { reason: 'date' } }
+  j.db
+    .prepare(
+      "insert into proposals(id,scope,input,configuration,state,result,updated) values(?,?,'{}','{}','needs_details',?,?)"
+    )
+    .run(job, w.scope(actor), JSON.stringify(bundle), new Date().toISOString())
+  const ops = new Operations(w, { prepare: async () => ({ id: job, bundle }) })
+  ops.start(actor, api, { id, kind: 'prepare', items: [{ path: 'Inbox/invoice.pdf' }] })
+  await ops.active.get(id)
+  assert.ok(
+    j.db.prepare('select length(result) n from bulk_items where operation=?').get(id).n < 500
+  )
+  assert.equal(ops.status(actor, id).items[0].result.manualReview, 'object')
+  t.mock.method(w, 'requireReadableJob', async () => {
+    throw Error('Read denied')
+  })
+  await assert.rejects(ops.result(actor, api, id, 0), /Read denied/)
+  t.mock.method(w, 'requireReadableJob', async () => {})
+  assert.deepEqual((await ops.result(actor, api, id, 0)).result.bundle, bundle)
+})
