@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkflowError } from '../src/domain/errors.ts'
 import { requestText, optionalText } from './api-input.mjs'
 import { validateManualActions, validatePolicy } from '../src/domain/review.ts'
 /** @param {Pick<import('./api-contracts.d.mts').RouteServices,'workflow'|'automation'|'send'|'prepare'>} services
@@ -59,7 +60,33 @@ export function createReviewRoutes({ workflow, automation, send, prepare }) {
       return true
     },
     async activity({ actor, body, res }) {
-      send(res, 200, workflow.activityPage(actor, body))
+      const page = workflow.activityPage(actor, body)
+      // Account events retain operational identifiers and counts. Document metadata is
+      // available through the individual, permission-checked history.
+      send(res, 200, {
+        ...page,
+        events: page.events.map((event) => ({
+          ...event,
+          detail: event.job
+            ? null
+            : Object.fromEntries(
+                Object.entries(event.detail ?? {}).filter(([key]) =>
+                  ['id', 'kind', 'count', 'state', 'attempts', 'stage'].includes(key)
+                )
+              )
+        }))
+      })
+      return true
+    },
+    async 'activity-detail'({ actor, api, body, res }) {
+      if (typeof body.seq !== 'number' || !Number.isSafeInteger(body.seq))
+        throw new WorkflowError('VALIDATION_INVALID', 'Invalid event')
+      const event = workflow.db
+        .prepare('select job,detail from activity where seq=? and scope=?')
+        .get(body.seq, workflow.scope(actor))
+      if (!event?.job) throw new WorkflowError('RESOURCE_NOT_FOUND', 'Document event not found')
+      await workflow.requireReadableJob(actor, api, String(event.job))
+      send(res, 200, { detail: JSON.parse(String(event.detail)) })
       return true
     }
   }

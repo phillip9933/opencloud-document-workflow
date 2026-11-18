@@ -8,21 +8,7 @@ function scalar(value, label) {
     throw Error('Invalid ' + label)
   return value
 }
-export function installationPlan({
-  origin,
-  image,
-  mounts,
-  networks,
-  proxyNetworks,
-  apps,
-  network,
-  entrypoint,
-  version,
-  ollama,
-  trustedCA,
-  proxyMode,
-  previous
-}) {
+function deploymentOrigin(origin, image, version) {
   const url = new URL(scalar(origin, 'OpenCloud origin'))
   if (
     url.protocol !== 'https:' ||
@@ -41,14 +27,28 @@ export function installationPlan({
   )
     throw Error('Invalid image reference')
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw Error('Invalid release version')
-  const project =
-    'document-workflow-' + createHash('sha256').update(url.origin).digest('hex').slice(0, 10)
+  return url
+}
+function deploymentOptions(project, previous, options) {
+  let {
+    entrypoint,
+    ollama,
+    trustedCA,
+    proxyMode,
+    allowedAccounts,
+    textRetentionDays,
+    ollamaHostname
+  } = options
   if (previous) {
     if (previous.name !== project)
       throw Error('Previous deployment belongs to another OpenCloud origin')
     const old = previous.services?.companion
     if (!old) throw Error('Previous deployment has no companion')
     if (ollama === undefined) ollama = old.environment?.WORKFLOW_OLLAMA_URL
+    if (allowedAccounts === undefined) allowedAccounts = old.environment?.WORKFLOW_ALLOWED_ACCOUNTS
+    if (textRetentionDays === undefined)
+      textRetentionDays = old.environment?.WORKFLOW_TEXT_RETENTION_DAYS
+    if (ollamaHostname === undefined) ollamaHostname = old.environment?.WORKFLOW_OLLAMA_HOSTNAME
     if (trustedCA === undefined) {
       const mount = old.volumes?.find(
         (v) => typeof v === 'object' && v.target === '/etc/workflow-extra-ca.pem'
@@ -60,12 +60,17 @@ export function installationPlan({
     if (entrypoint === undefined)
       entrypoint = old.labels?.[`traefik.http.routers.${project}.entrypoints`]
   }
-  entrypoint ??= 'https'
-  proxyMode ??= 'traefik'
-  if (!/^[a-zA-Z0-9_.-]+$/.test(entrypoint))
-    throw Error('Choose one existing HTTPS proxy entrypoint')
-  if (!['traefik', 'external'].includes(proxyMode))
-    throw Error('Choose traefik or external proxy mode')
+  return {
+    entrypoint,
+    ollama,
+    trustedCA,
+    proxyMode,
+    allowedAccounts,
+    textRetentionDays,
+    ollamaHostname
+  }
+}
+function webAppsPath(mounts, apps) {
   const webPath = '/var/lib/opencloud/web/assets/apps'
   if (!apps) {
     const candidates = mounts
@@ -83,6 +88,95 @@ export function installationPlan({
   scalar(apps, 'apps directory')
   if (!apps.startsWith('/') || apps.includes('/../') || apps === '/')
     throw Error('Use an absolute apps directory')
+  return apps
+}
+function configureCompanion(
+  companion,
+  { ollama, trustedCA, allowedAccounts, textRetentionDays, ollamaHostname }
+) {
+  if (allowedAccounts !== undefined && allowedAccounts !== null)
+    companion.environment.WORKFLOW_ALLOWED_ACCOUNTS = scalar(allowedAccounts, 'account allowlist')
+  if (textRetentionDays !== undefined) {
+    if (
+      !/^\d{1,4}$/.test(textRetentionDays) ||
+      Number(textRetentionDays) < 1 ||
+      Number(textRetentionDays) > 3650
+    )
+      throw Error('Text retention must be between 1 and 3650 days')
+    companion.environment.WORKFLOW_TEXT_RETENTION_DAYS = String(textRetentionDays)
+  }
+  if (ollamaHostname)
+    companion.environment.WORKFLOW_OLLAMA_HOSTNAME = scalar(ollamaHostname, 'Ollama hostname')
+  if (ollama) {
+    const endpoint = new URL(ollama)
+    if (
+      !['http:', 'https:'].includes(endpoint.protocol) ||
+      endpoint.username ||
+      endpoint.password ||
+      endpoint.origin !== ollama
+    )
+      throw Error('Use an Ollama origin without credentials or a path')
+    companion.environment.WORKFLOW_OLLAMA_URL = ollama
+  }
+  if (trustedCA) {
+    scalar(trustedCA, 'trusted CA file')
+    if (!trustedCA.startsWith('/') || trustedCA === '/')
+      throw Error('Use an absolute existing CA file')
+    companion.volumes.push({
+      type: 'bind',
+      source: trustedCA,
+      target: '/etc/workflow-extra-ca.pem',
+      read_only: true,
+      bind: { create_host_path: false }
+    })
+    companion.environment.NODE_EXTRA_CA_CERTS = '/etc/workflow-extra-ca.pem'
+  }
+}
+export function installationPlan({
+  origin,
+  image,
+  mounts,
+  networks,
+  proxyNetworks,
+  apps,
+  network,
+  entrypoint,
+  version,
+  ollama,
+  trustedCA,
+  allowedAccounts,
+  textRetentionDays,
+  ollamaHostname,
+  proxyMode,
+  previous
+}) {
+  const url = deploymentOrigin(origin, image, version)
+  const project =
+    'document-workflow-' + createHash('sha256').update(url.origin).digest('hex').slice(0, 10)
+  ;({
+    entrypoint,
+    ollama,
+    trustedCA,
+    proxyMode,
+    allowedAccounts,
+    textRetentionDays,
+    ollamaHostname
+  } = deploymentOptions(project, previous, {
+    entrypoint,
+    ollama,
+    trustedCA,
+    proxyMode,
+    allowedAccounts,
+    textRetentionDays,
+    ollamaHostname
+  }))
+  entrypoint ??= 'https'
+  proxyMode ??= 'traefik'
+  if (!/^[a-zA-Z0-9_.-]+$/.test(entrypoint))
+    throw Error('Choose one existing HTTPS proxy entrypoint')
+  if (!['traefik', 'external'].includes(proxyMode))
+    throw Error('Choose traefik or external proxy mode')
+  apps = webAppsPath(mounts, apps)
   const shared = networks.filter((n) => proxyNetworks.includes(n))
   if (!network) {
     if (shared.length !== 1) throw Error('Choose the proxy network with --network')
@@ -151,6 +245,7 @@ export function installationPlan({
         cpus: 2,
         tmpfs: ['/tmp:rw,noexec,nosuid,size=768m'],
         networks: ['conversion'],
+        volumes: ['ocr:/workflow-tessdata:ro'],
         command: ['companion/conversion-server.mjs'],
         environment: { WORKFLOW_MODE: 'converter' },
         labels: { 'traefik.enable': 'false' },
@@ -194,30 +289,13 @@ export function installationPlan({
     volumes
   }
   if (proxyMode === 'external') plan.services.companion.labels = { 'traefik.enable': 'false' }
-  if (ollama) {
-    const endpoint = new URL(ollama)
-    if (
-      !['http:', 'https:'].includes(endpoint.protocol) ||
-      endpoint.username ||
-      endpoint.password ||
-      endpoint.origin !== ollama
-    )
-      throw Error('Use an Ollama origin without credentials or a path')
-    plan.services.companion.environment.WORKFLOW_OLLAMA_URL = ollama
-  }
-  if (trustedCA) {
-    scalar(trustedCA, 'trusted CA file')
-    if (!trustedCA.startsWith('/') || trustedCA === '/')
-      throw Error('Use an absolute existing CA file')
-    plan.services.companion.volumes.push({
-      type: 'bind',
-      source: trustedCA,
-      target: '/etc/workflow-extra-ca.pem',
-      read_only: true,
-      bind: { create_host_path: false }
-    })
-    plan.services.companion.environment.NODE_EXTRA_CA_CERTS = '/etc/workflow-extra-ca.pem'
-  }
+  configureCompanion(plan.services.companion, {
+    ollama,
+    trustedCA,
+    allowedAccounts,
+    textRetentionDays,
+    ollamaHostname
+  })
   // Compose interpolates dollar signs even inside JSON string values.
   return JSON.parse(JSON.stringify(plan).replaceAll('$', () => '$$'))
 }
@@ -241,13 +319,19 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       entrypoint: e.INSTALL_ENTRYPOINT || undefined,
       version: release.version,
       ollama: e.INSTALL_OLLAMA === 'off' ? null : e.INSTALL_OLLAMA || undefined,
+      allowedAccounts:
+        e.INSTALL_ALLOWED_ACCOUNTS === 'off' ? null : e.INSTALL_ALLOWED_ACCOUNTS || undefined,
+      textRetentionDays: e.INSTALL_TEXT_RETENTION_DAYS || undefined,
+      ollamaHostname:
+        e.INSTALL_OLLAMA_HOSTNAME === 'off' ? null : e.INSTALL_OLLAMA_HOSTNAME || undefined,
       trustedCA: e.INSTALL_CA === 'off' ? null : e.INSTALL_CA || undefined,
       proxyMode: e.INSTALL_PROXY_MODE || undefined,
       previous: prior.trim() ? JSON.parse(prior) : undefined
     })
     if (plan.services.companion.environment.WORKFLOW_OLLAMA_URL)
       (await import('/app/companion/ollama.mjs')).localEndpoint(
-        plan.services.companion.environment.WORKFLOW_OLLAMA_URL
+        plan.services.companion.environment.WORKFLOW_OLLAMA_URL,
+        plan.services.companion.environment.WORKFLOW_OLLAMA_HOSTNAME
       )
     console.log(JSON.stringify(plan, null, 2))
   } catch (e) {

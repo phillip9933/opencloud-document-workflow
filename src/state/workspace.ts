@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { WorkflowError } from '../domain/errors'
 import { createReviewCollection, retainPinnedReview } from './review-collection'
+import { workspacePreferenceSaver } from './workspace-preferences'
 import { createCompanionRequest } from './companion-request'
 import { inject, ref, computed } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 import type { InjectionKey } from 'vue'
-import { defaultPolicy, validateBundle, validatePolicy } from '../domain/review'
+import { defaultPolicy, validateBundle } from '../domain/review'
 import type { Review, Policy } from '../domain/review'
-import { defaultAIConfig, preparationProblem, validateAIConfig } from '../domain/ai'
+import { defaultAIConfig, preparationProblem } from '../domain/ai'
 import type { ProcessingProgress, ProcessingIssueInfo } from '../domain/processing'
 export * from '../domain/ai'
 export interface WorkspaceHost {
@@ -180,6 +181,15 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     generation: () => workspaceGeneration,
     connection: () => connection.value
   })
+  const savePreferences = workspacePreferenceSaver({
+    policy,
+    ai,
+    storedPreferences,
+    intakeEnabled,
+    capabilities,
+    request,
+    connected: () => !!connection.value
+  })
   async function loadSpaces() {
     try {
       const result = await request('spaces')
@@ -254,6 +264,40 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
       switchingSpace.value = false
     }
   }
+  async function refreshPinnedReview(
+    status: {
+      actor: { server: string; account: string; space: string }
+      jobs: DraftJob[]
+      jobSummaries?: boolean
+    },
+    generation: number
+  ) {
+    // The active-only status page may omit an opened hold or an older saved review.
+    // Keep that document mounted during list refreshes within the same workspace.
+    const sameScope =
+      connection.value &&
+      JSON.stringify([
+        connection.value.server,
+        connection.value.account,
+        connection.value.space
+      ]) === JSON.stringify([status.actor.server, status.actor.account, status.actor.space])
+    const pinned = sameScope ? jobs.value.find((job) => job.id === pinnedJobId) : undefined
+    if (status.jobSummaries && pinned) {
+      let fresh: DraftJob | undefined
+      try {
+        fresh = (await request('job', { id: pinned.id })).job
+      } catch {
+        // A removed document or revoked grant only invalidates this review.
+      } finally {
+        if (generation === connectGeneration && pinnedJobId === pinned.id)
+          installJobs(
+            fresh
+              ? [fresh, ...status.jobs.filter((row: DraftJob) => row.id !== fresh?.id)]
+              : status.jobs
+          )
+      }
+    } else installJobs(retainPinnedReview(status.jobs, pinned))
+  }
   async function connect() {
     const generation = ++connectGeneration
     try {
@@ -269,17 +313,8 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
         cloudEnabled: status.cloudEnabled === true,
         atomicPreferencePause: status.atomicPreferencePause === true
       }
-      // The active-only status page may omit an opened hold or an older saved review.
-      // Keep that document mounted during list refreshes within the same workspace.
-      const sameScope =
-        connection.value &&
-        JSON.stringify([
-          connection.value.server,
-          connection.value.account,
-          connection.value.space
-        ]) === JSON.stringify([status.actor.server, status.actor.account, status.actor.space])
-      const pinned = sameScope ? jobs.value.find((job) => job.id === pinnedJobId) : undefined
-      installJobs(retainPinnedReview(status.jobs, pinned))
+      await refreshPinnedReview(status, generation)
+      if (generation !== connectGeneration) return status
       intakeQueue.value = intake.queue || []
       intakeSummary.value = intake.summary ?? null
       intakePaused.value = intake.paused === true
@@ -340,47 +375,6 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
     reviewsCursor.value = result.nextCursor
     reviewsHaveMore.value = !!result.nextCursor
   }
-  async function savePreferences(configuration = { policy: policy.value, ai: ai.value }) {
-    const snapshot = {
-      policy: validatePolicy(JSON.parse(JSON.stringify(configuration.policy))),
-      ai: validateAIConfig(JSON.parse(JSON.stringify(configuration.ai)))
-    }
-    let paused = false
-    if (connection.value) {
-      if (
-        !capabilities.value.atomicPreferencePause &&
-        intakeEnabled.value &&
-        preparationProblem(snapshot, capabilities.value.cloudEnabled)
-      ) {
-        const current = await request('intake')
-        await request('intake-settings', {
-          configuration: { ...current.configuration, enabled: false }
-        })
-        intakeEnabled.value = false
-        paused = true
-      }
-      try {
-        const result = await request('preferences', { configuration: snapshot })
-        if (result.paused) {
-          intakeEnabled.value = false
-          paused = true
-        }
-      } catch (e) {
-        if (paused)
-          throw new WorkflowError(
-            'OPERATION_HELD',
-            'Automatic preparation is paused. Could not confirm the settings save; reload saved settings before retrying.',
-            { cause: e }
-          )
-        throw e
-      }
-    }
-    policy.value = snapshot.policy
-    ai.value = snapshot.ai
-    storedPreferences.value = JSON.parse(JSON.stringify(snapshot))
-    return { paused }
-  }
-
   async function prepareDocument(
     path: string,
     options: {
@@ -406,8 +400,14 @@ export function createWorkspace(token: () => string = () => '', host?: Workspace
       connection.value &&
       JSON.stringify([connection.value.server, connection.value.account, connection.value.space])
     if (!scope) throw new WorkflowError('OPERATION_HELD', 'Connect the document workspace first')
-    const result = await request('job', { id }),
-      job: DraftJob = result.job
+    const result = await request('job', { id }).catch((error) => {
+      if (pinnedJobId === id) {
+        pinnedJobId = null
+        installJobs(jobs.value.filter((value) => value.id !== id))
+      }
+      throw error
+    })
+    const job: DraftJob = result.job
     if (
       !connection.value ||
       scope !==

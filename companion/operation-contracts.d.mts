@@ -60,6 +60,7 @@ export interface OperationAdapter extends MutationAdapter {
   identity(): Promise<Actor>
 }
 export interface OperationOwner extends ConfigurationOwner {
+  requireReadableJob(actor: Actor, api: OperationAdapter, id: string): Promise<void>
   lock(id: string): () => void
   intake: { paused(actor: Actor): boolean }
   transfers: {

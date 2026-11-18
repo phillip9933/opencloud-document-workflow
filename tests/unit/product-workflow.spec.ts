@@ -240,7 +240,11 @@ it('prepares a fresh review from the located canonical resource after a filing c
     )
   const { wrapper: w } = await mounted(ReviewInbox, store, '/document-workflow/review')
   await flushPromises()
-  expect(request).toHaveBeenCalledWith('preview', { path: 'Filed/checked.pdf' })
+  expect(request).toHaveBeenCalledWith(
+    'preview',
+    { path: 'Filed/checked.pdf' },
+    expect.any(AbortSignal)
+  )
   await w
     .findAll('button')
     .find((b) => b.text() === 'Reprocess')!

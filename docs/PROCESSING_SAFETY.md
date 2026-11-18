@@ -115,3 +115,14 @@ Turning AI processing off keeps Poppler extraction, Tesseract OCR, custom-field 
 ### Unified processing history
 
 Activity combines current preparation, selectable past imports, expandable source-scoped attempt records and batch history in Processing. Filing history remains a separate tab. Attempt reads omit raw model output and enforce the authenticated workflow scope. Reprocessing pins current identity and ETag and creates a fresh review without filing authority. Direct reprocessing updates only the matching current intake row; earlier proposals and decisions remain immutable.
+
+OCR holds the whole document for manual review if more than 64 pages need
+recognition or the four-minute recognition budget expires. Text-only pages
+do not count toward the raster limit.
+
+Batch admission reserves journal space for pending results and keeps 64 MiB
+of disk space free. At most eight batches per Space and 64 system-wide can
+be active. Batch history is limited to 25,000 items per workflow, 50,000 per
+account and 100,000 per installation. Reaching a limit holds new requests.
+Existing decisions, history, and requests with a matching operation ID are
+preserved.

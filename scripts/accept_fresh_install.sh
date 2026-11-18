@@ -13,6 +13,10 @@ tar -xzf "$kit" -C "$run"
 cd "$run/document-workflow"
 version=$(cat VERSION)
 name=workflow-cleanup-fresh-${version//./-}
+if [[ -n "${WORKFLOW_ACCEPTANCE_NAME:-}" ]]; then
+ [[ "$WORKFLOW_ACCEPTANCE_NAME" =~ ^dw-test-[a-z0-9-]{1,40}$ ]]
+ name=$WORKFLOW_ACCEPTANCE_NAME
+fi
 origin=${4:-https://workflow-beta.test}
 [[ "$origin" =~ ^https://workflow-[a-z0-9-]+\.test$ ]]
 host=${origin#https://}
@@ -86,6 +90,26 @@ grep -Eq '"current"[[:space:]]*:[[:space:]]*null' "$run/doctor.log"
 ./install.sh install "${args[@]}" > "$run/install.log" 2>&1
 grep -q "Installed Document Workflow $version" "$run/install.log"
 docker exec "$project-companion-1" node /distribution/health-check.mjs "$origin"
+# 0.20.x is also used as the upgrade baseline and does not ship this worker API.
+if docker exec "$project-companion-1" test -f /app/companion/pdf-worker-client.mjs; then
+ docker exec -i "$project-companion-1" node --input-type=module > "$run/document-worker.json" <<'JS'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { createPDFWorkerClient } from '/app/companion/pdf-worker-client.mjs'
+import { defaultLimits } from '/app/companion/configuration.mjs'
+const parse = createPDFWorkerClient(process.env.WORKFLOW_CONVERSION_URL)
+const options = { limits: defaultLimits(), languages: ['eng'], ocr: true }
+let progress = 0
+for (const [file, ocrAttempted] of [['english.pdf', false], ['scanned-english.pdf', true]]) {
+  const bytes = await readFile('/app/tests/fixtures/' + file)
+  const parsed = await parse(bytes, options, () => progress++)
+  assert.equal(parsed.ocrAttempted, ocrAttempted)
+  assert.match(parsed.pages.join(' '), /invoice|synthetic/i)
+}
+assert.equal(progress, 1)
+console.log(JSON.stringify({ embeddedText: true, scannedText: true, ocrProgress: true }))
+JS
+fi
 docker exec -i "$project-companion-1" node --input-type=module > "$run/empty-state.json" <<'JS'
 import assert from 'node:assert/strict';import{DatabaseSync}from'node:sqlite';
 const d=new DatabaseSync('/state/workflow.sqlite3',{readOnly:true});
@@ -125,4 +149,7 @@ docker run --rm --network none --read-only --cap-drop ALL \
  ' > "$run/image-checks.log" 2>&1
 docker image inspect --format '{{.Id}}' "$image" opencloudeu/opencloud-rolling:9.0.0 caddy:2 > "$run/image-ids.txt"
 printf 'FRESH_INSTALL_PASS %s\nEMPTY_JOURNAL_PASS\nSYNTHETIC_RESTORE_PASS\nHTTPS_AUTH_REQUIRED_PASS\nREPEAT_WITHOUT_RESTART_PASS\nISOLATED_IMAGE_CHECKS_PASS\n' "$version" | tee "$run/RESULT.txt"
+if [[ -s "$run/document-worker.json" ]]; then
+ printf 'ISOLATED_PDF_AND_OCR_PASS\n' | tee -a "$run/RESULT.txt"
+fi
 echo "Isolated acceptance retained at $run; stop its named containers after inspection. No production containers or volumes were used."

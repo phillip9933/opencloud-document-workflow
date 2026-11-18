@@ -223,6 +223,32 @@ test('modified or unknown installed files cannot be overwritten, and post-instal
     await f.close()
   }
 })
+test('a same-version image cannot start with an older extension inventory', async () => {
+  const f = await fixture()
+  try {
+    await webAssets(f, 'install')
+    f.known = [f.release]
+    await writeFile(join(f.source, 'js/app.mjs'), 'different same-version build')
+    f.release = { ...f.release, files: await inventory(f.source) }
+    await assert.rejects(webAssets(f, 'check'), /differ from a known release/)
+    await assert.rejects(webAssets(f, 'install'), /differ from a known release/)
+    assert.equal(
+      await readFile(join(f.apps, 'document-workflow', 'js/app.mjs'), 'utf8'),
+      'new public source'
+    )
+    f.known[0] = { ...f.known[0], candidatePredecessor: true }
+    assert.equal((await webAssets(f, 'check')).matchesRelease, false)
+    assert.equal((await webAssets(f, 'install')).changed, true)
+    assert.equal((await webAssets(f, 'check')).matchesRelease, true)
+    await webAssets(f, 'rollback')
+    assert.equal(
+      await readFile(join(f.apps, 'document-workflow', 'js/app.mjs'), 'utf8'),
+      'new public source'
+    )
+  } finally {
+    await f.close()
+  }
+})
 test('symlink targets, operator config links, stale intents and concurrent installer locks hold without replacement', async () => {
   const f = await fixture()
   try {
@@ -243,18 +269,36 @@ test('symlink targets, operator config links, stale intents and concurrent insta
     await f.close()
   }
 })
-test('converter has an internal-only network, no secrets, mounts, public ports or proxy exposure', () => {
+test('converter has an internal-only network, only a read-only OCR mount, no secrets or public ports or proxy exposure', () => {
   const p = installationPlan(settings()),
     c = p.services.converter
   assert.equal(p.networks.conversion.internal, true)
   assert.deepEqual(c.networks, ['conversion'])
   assert.deepEqual(p.services.companion.networks, ['opencloud', 'conversion'])
   assert.equal(p.services.companion.environment.WORKFLOW_CONVERSION_URL, 'http://converter:5180')
-  assert.equal(c.volumes, undefined)
+  assert.deepEqual(c.volumes, ['ocr:/workflow-tessdata:ro'])
   assert.equal(c.ports, undefined)
   assert.deepEqual(c.environment, { WORKFLOW_MODE: 'converter' })
   assert.equal(c.read_only, true)
   assert.equal(c.labels['traefik.enable'], 'false')
   assert.deepEqual(c.cap_drop, ['ALL'])
   assert.equal(c.user, '65534:65534')
+})
+
+test('installer preserves shared-server access and retention settings on upgrade', () => {
+  const previous = installationPlan({
+    ...settings(),
+    allowedAccounts: 'fixture-admin,fixture-reader',
+    textRetentionDays: '30',
+    ollama: 'http://ollama:11434',
+    ollamaHostname: 'ollama'
+  })
+  const env = installationPlan({ ...settings(), version: '1.0.0', previous }).services.companion
+    .environment
+  assert.equal(env.WORKFLOW_ALLOWED_ACCOUNTS, 'fixture-admin,fixture-reader')
+  assert.equal(env.WORKFLOW_TEXT_RETENTION_DAYS, '30')
+  assert.equal(env.WORKFLOW_OLLAMA_HOSTNAME, 'ollama')
+  const cleared = installationPlan({ ...settings(), previous, allowedAccounts: null })
+  assert.equal(cleared.services.companion.environment.WORKFLOW_ALLOWED_ACCOUNTS, undefined)
+  assert.throws(() => installationPlan({ ...settings(), textRetentionDays: '0' }), /retention/)
 })

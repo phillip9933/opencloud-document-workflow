@@ -80,6 +80,40 @@ async function verify() {
   checks = 0
   await submit(true)
 }
+async function inspectTarget(pin: ReturnType<typeof scope>) {
+  const location = props.job
+    ? await store.request('document-location', { id: props.job })
+    : {
+        path: props.path,
+        space: props.documentSpace ?? store.connection.value?.space,
+        resourceId: props.resourceId,
+        etag: props.etag
+      }
+  const detail = await store.request('metadata', {
+      path: location.path,
+      ...(location.space ? { documentSpace: location.space } : {})
+    }),
+    source = detail.source
+  if (!alive || scope() !== pin) return null
+  if (detail.pending?.length)
+    throw new WorkflowError(
+      'OPERATION_HELD',
+      'Verify the pending metadata change before moving this document to Trash'
+    )
+  if (
+    (location.resourceId && location.resourceId !== source.resourceId) ||
+    (location.etag && location.etag !== source.etag) ||
+    (props.sha256 && props.sha256 !== source.sha256)
+  )
+    throw new WorkflowError(
+      'SOURCE_CHANGED',
+      'The document changed. Reopen it before moving it to Trash'
+    )
+  return {
+    ...source,
+    space: location.space ?? source.space ?? store.connection.value?.space
+  }
+}
 async function open() {
   if (props.disabled || busy.value || checking.value) return
   if (uncertain.value || props.pendingId) {
@@ -110,38 +144,9 @@ async function open() {
       await verify()
       return
     }
-    const location = props.job
-      ? await store.request('document-location', { id: props.job })
-      : {
-          path: props.path,
-          space: props.documentSpace ?? store.connection.value?.space,
-          resourceId: props.resourceId,
-          etag: props.etag
-        }
-    const detail = await store.request('metadata', {
-        path: location.path,
-        ...(location.space ? { documentSpace: location.space } : {})
-      }),
-      source = detail.source
-    if (!alive || scope() !== pin) return
-    if (detail.pending?.length)
-      throw new WorkflowError(
-        'OPERATION_HELD',
-        'Verify the pending metadata change before moving this document to Trash'
-      )
-    if (
-      (location.resourceId && location.resourceId !== source.resourceId) ||
-      (location.etag && location.etag !== source.etag) ||
-      (props.sha256 && props.sha256 !== source.sha256)
-    )
-      throw new WorkflowError(
-        'SOURCE_CHANGED',
-        'The document changed. Reopen it before moving it to Trash'
-      )
-    target.value = {
-      ...source,
-      space: location.space ?? source.space ?? store.connection.value?.space
-    }
+    const source = await inspectTarget(pin)
+    if (!source || !alive || scope() !== pin) return
+    target.value = source
     id.value = crypto.randomUUID()
     await nextTick()
     dialog.value?.showModal()
@@ -155,6 +160,22 @@ async function open() {
       state()
     }
   }
+}
+function handleTrashResult(result: { state: string; detail?: string }) {
+  uncertain.value = result.state === 'intent'
+  if (result.state === 'trashed') {
+    stopChecks()
+    dialog.value?.close()
+    dialogOpen.value = false
+    emit('trashed')
+  } else if (result.state === 'not_recorded') {
+    stopChecks()
+    dialog.value?.close()
+    dialogOpen.value = false
+    error.value = 'Nothing was moved. Open the Trash confirmation to try again.'
+  } else if (!uncertain.value)
+    error.value =
+      result.detail ?? 'We could not confirm the move. Check OpenCloud Trash before trying again.'
 }
 async function submit(verifyOnly = false) {
   if (busy.value || !id.value || (!verifyOnly && (!target.value || props.disabled))) return
@@ -178,20 +199,7 @@ async function submit(verifyOnly = false) {
           }
     )
     if (!alive || scope() !== pin) return
-    uncertain.value = result.state === 'intent'
-    if (result.state === 'trashed') {
-      stopChecks()
-      dialog.value?.close()
-      dialogOpen.value = false
-      emit('trashed')
-    } else if (result.state === 'not_recorded') {
-      stopChecks()
-      dialog.value?.close()
-      dialogOpen.value = false
-      error.value = 'Nothing was moved. Open the Trash confirmation to try again.'
-    } else if (!uncertain.value)
-      error.value =
-        result.detail ?? 'We could not confirm the move. Check OpenCloud Trash before trying again.'
+    handleTrashResult(result)
   } catch (e) {
     if (alive && scope() === pin) {
       uncertain.value = (e as Error & { trashRecorded?: boolean })?.trashRecorded !== false

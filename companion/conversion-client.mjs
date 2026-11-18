@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { responseBytes } from './remote-transport.mjs'
 import { WorkflowError } from '../src/domain/errors.ts'
-/** @param {string|undefined} endpoint @param {Buffer} bytes @param {string} extension */
-export async function renderRemotePDF(endpoint, bytes, extension) {
+/** @param {string|undefined} endpoint */
+export function workerOrigin(endpoint) {
   if (!endpoint)
     throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'The conversion service is not configured')
   const url = new URL(endpoint)
@@ -17,12 +17,20 @@ export async function renderRemotePDF(endpoint, bytes, extension) {
     url.hash
   )
     throw new WorkflowError('OPERATION_HELD', 'Invalid private conversion service')
-  const response = await fetch(endpoint + '/convert/' + extension, {
+  return url.origin
+}
+/** @param {string|undefined} endpoint @param {Buffer} bytes @param {string} extension */
+export async function renderRemotePDF(endpoint, bytes, extension) {
+  const response = await fetch(workerOrigin(endpoint) + '/convert/' + extension, {
     method: 'POST',
     body: bytes,
     redirect: 'error',
     signal: AbortSignal.timeout(300000)
   })
+  if (response.status === 503) {
+    await response.body?.cancel()
+    throw new WorkflowError('WORKFLOW_BUSY', 'The document worker is busy')
+  }
   if (!response.ok) {
     const message = (await responseBytes(response, 1024)).toString('utf8')
     const allowed = [

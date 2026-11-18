@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { jobAssociations } from './job-associations.mjs'
+import { workflowJobPage } from './job-list.mjs'
 import { unboundService } from './services.mjs'
 import {
   resourceIdentities,
@@ -30,6 +30,15 @@ import {
 /** @typedef {import('./workflow-contracts.d.mts').RecordedApproval} RecordedApproval */
 /** @param {Buffer|string} b */
 const sha = (b) => createHash('sha256').update(b).digest('hex')
+/** Check actual download permission with the same principal and resource revision.
+ * @param {Adapter} api @param {string} path @param {string} etag */
+export async function verifyDocumentRead(api, path, etag) {
+  if (!etag) throw new WorkflowError('ACCESS_DENIED', 'Cannot verify document read access')
+  if (api.openDownload) {
+    const response = await api.openDownload(path, etag, AbortSignal.timeout(10000))
+    await response.body?.cancel()
+  } else await api.get(path, etag)
+}
 export class Workflow {
   /** @returns {import('./similarity.mjs').SimilarDocuments} */
   get similarities() {
@@ -69,8 +78,10 @@ export class Workflow {
     return unboundService('conversions')
   }
 
-  /** @param {import('./journal.mjs').ProposalJournal} journal */
-  constructor(journal) {
+  /** @param {import('./journal.mjs').ProposalJournal} journal
+   * @param {import('./contracts.d.mts').DocumentReadOptions['parse']} [parsePDF] */
+  constructor(journal, parsePDF) {
+    this.parsePDF = parsePDF
     this.preparationOwners = journal.runtime.preparations
     this.journal = journal
     this.db = journal.db
@@ -125,55 +136,7 @@ export class Workflow {
   }
   /** @param {Actor} actor @param {import('./workflow-contracts.d.mts').JobOptions} options */
   jobPage(actor, { id = null, activeOnly = false, ...options } = {}) {
-    const { limit, after } = pageOptions({ limit: 200, ...options })
-    const rows = /** @type {import('./workflow-contracts.d.mts').JobListRow[]} */ (
-      this.db
-        .prepare(
-          `select p.id,p.state,p.attempts,p.result,p.input sourceInput,p.error,p.updated,d.state decision,d.record approval from proposals p left join decisions d on d.job=p.id where p.scope=? and (? is null or p.id=?) and (?=0 or (d.state is null or d.state<>'done') and not exists(select 1 from automatic_runs a where a.job=p.id and a.state='done')) and (? is null or p.updated<? or (p.updated=? and p.id<?)) order by p.updated desc,p.id desc limit ?`
-        )
-        .all(
-          this.scope(actor),
-          id,
-          id,
-          activeOnly ? 1 : 0,
-          after?.time ?? null,
-          after?.time ?? null,
-          after?.time ?? null,
-          after?.id ?? null,
-          limit + 1
-        )
-    )
-    const page = rows.slice(0, limit).map((j) => ({
-      ...j,
-      source: /** @type {import('../src/domain/review.ts').Source} */ (
-        JSON.parse(j.sourceInput).source
-      )
-    }))
-    const associations = jobAssociations(this.db, this.scope(actor), actor.space, page)
-    const jobs = page.map((j) => {
-        const source = j.source
-        return {
-          ...j,
-          source,
-          sourceInput: undefined,
-          conversion: associations.conversions.get(source.resourceId) ?? null,
-          approval: /** @type {RecordedApproval|null} */ (
-            j.approval ? JSON.parse(j.approval) : null
-          ),
-          workflowSpace: actor.space,
-          automation: associations.automatic.get(j.id) ?? null,
-          bundle: /** @type {import('../src/domain/review.ts').Bundle|null} */ (
-            j.result ? JSON.parse(j.result) : null
-          ),
-          result: undefined
-        }
-      }),
-      last = jobs.at(-1)
-    return {
-      jobs,
-      nextCursor: rows.length > limit && last ? pageCursor(last.updated, last.id) : null,
-      hasMore: rows.length > limit
-    }
+    return workflowJobPage(this.db, this.scope(actor), actor, { id, activeOnly, ...options })
   }
   /** @param {Actor} actor @param {import('./workflow-contracts.d.mts').JobOptions} options */
   jobs(actor, options = {}) {
@@ -237,6 +200,12 @@ export class Workflow {
     return /** @type {import('./workflow-contracts.d.mts').DecisionRow|undefined} */ (
       this.db.prepare('select * from decisions where job=? and actor=?').get(id, actor.account)
     )
+  }
+  /** @param {Actor} actor @param {Adapter} api @param {string} id */
+  async requireReadableJob(actor, api, id) {
+    const location = await this.location(actor, api, id)
+    const physical = location.space === actor.space ? api : this.spaceAdapter(api, location.space)
+    await verifyDocumentRead(physical, location.path, location.etag)
   }
   /** @param {Actor} actor @param {Adapter} api @param {string} id */
   async location(actor, api, id) {
@@ -428,6 +397,7 @@ export class Workflow {
       before,
       configuration,
       limits: settings.limits,
+      parse: this.parsePDF,
       progress,
       onOCR: (source) =>
         this.event(actor, null, 'ocr_extracted', {
@@ -630,7 +600,7 @@ export class Workflow {
       release()
     }
   }
-  /** @param {Pick<import('./contracts.d.mts').DocumentReader,'stat'|'get'>} api @param {string} path @param {Pick<import('../src/domain/review.ts').Source,'resourceId'|'sha256'> & Partial<Actor>} source @param {string} [etag] @param {Actor} [limitActor] */
+  /** @param {Pick<import('./contracts.d.mts').DocumentReader,'stat'|'get'|'digest'>} api @param {string} path @param {Pick<import('../src/domain/review.ts').Source,'resourceId'|'sha256'> & Partial<Actor>} source @param {string} [etag] @param {Actor} [limitActor] */
   async check(api, path, source, etag, limitActor) {
     const current = await api.stat(path)
     if (
@@ -640,26 +610,26 @@ export class Workflow {
       (etag && current.etag !== etag)
     )
       return null
-    const bytes = await api.get(
-      path,
-      current.etag,
+    const max =
       (this.configuration.settings(limitActor ?? this.sourceActor(source)).limits.maxMiB ?? 100) *
-        1024 *
-        1024
-    )
-    if (sha(bytes) !== source.sha256) return null
+      1024 *
+      1024
+    const digest = api.digest
+      ? (await api.digest(path, current.etag, max)).sha256
+      : sha(await api.get(path, current.etag, max))
+    if (digest !== source.sha256) return null
     const after = await api.stat(path)
     if (after?.etag !== current.etag || after?.resourceId !== source.resourceId) return null
     return current
   }
   /** @param {Actor} actor @param {Adapter} api @param {string} id @param {import('../src/domain/review.ts').Policy} policy @param {string} digest @param {import('../src/domain/review.ts').ManualActions} [manualActions] @param {{automaticAuthorization?:import('./workflow-contracts.d.mts').AutomaticAuthorization}} options */
   async approve(actor, api, id, policy, digest, manualActions, options = {}) {
-    /** @type {(api:Pick<import('./contracts.d.mts').DocumentReader,'stat'|'get'>,path:string,source:import('../src/domain/review.ts').Source,etag?:string)=>ReturnType<Workflow['check']>} */
+    /** @type {(api:Pick<import('./contracts.d.mts').DocumentReader,'stat'|'get'|'digest'>,path:string,source:import('../src/domain/review.ts').Source,etag?:string)=>ReturnType<Workflow['check']>} */
     const check = (api, path, source, etag) => this.check(api, path, source, etag, actor)
     const job = this.job(actor, id)
     if (!job.result) throw new WorkflowError('OPERATION_HELD', 'A validated proposal is required')
     const old = this.decision(actor, id)
-    if (old && old.state !== 'rejected')
+    if (old && (old.state !== 'rejected' || options.automaticAuthorization))
       throw new WorkflowError(
         'OPERATION_HELD',
         'Decision already recorded; inspect its current status'
@@ -693,9 +663,16 @@ export class Workflow {
     this.documentTrash.assertAvailable(actor, review.bundle.source.resourceId)
     const saved = this.db
       .prepare(
-        "insert into decisions(job,actor,record,state,updated) values(?,?,?,'approved',?) on conflict(job) do update set record=excluded.record,state='approved',plan=NULL,updated=excluded.updated WHERE decisions.state='rejected'"
+        "insert into decisions(job,actor,record,state,updated) values(?,?,?,'approved',?) on conflict(job) do update set record=excluded.record,state='approved',plan=NULL,updated=excluded.updated WHERE decisions.state='rejected' AND decisions.updated=? AND decisions.record=?"
       )
-      .run(id, actor.account, JSON.stringify(record), new Date().toISOString())
+      .run(
+        id,
+        actor.account,
+        JSON.stringify(record),
+        new Date().toISOString(),
+        old?.updated ?? null,
+        old?.record ?? null
+      )
     if (!saved.changes)
       throw new WorkflowError(
         'OPERATION_HELD',
@@ -767,7 +744,7 @@ export class Workflow {
   /** @param {Actor} actor @param {Adapter} api @param {string} id @param {{reconcileOnly?:boolean}} options */
   async apply(actor, api, id, { reconcileOnly = false } = {}) {
     this.job(actor, id)
-    /** @type {(api:Pick<import('./contracts.d.mts').DocumentReader,'stat'|'get'>,path:string,source:import('../src/domain/review.ts').Source,etag?:string)=>ReturnType<Workflow['check']>} */
+    /** @type {(api:Pick<import('./contracts.d.mts').DocumentReader,'stat'|'get'|'digest'>,path:string,source:import('../src/domain/review.ts').Source,etag?:string)=>ReturnType<Workflow['check']>} */
     const check = (api, path, source, etag) => this.check(api, path, source, etag, actor)
     const release = this.lock(id)
     let releaseResource
@@ -786,6 +763,9 @@ export class Workflow {
       this.documentTrash.assertAvailable(actor, source.resourceId)
       if (api.space && source.space !== api.space)
         api = await this.requiredTransfers().adapter(actor, api, source.space)
+      let plan = readFilingPlan(decision.plan ? JSON.parse(decision.plan) : {})
+      if (decision.state === 'done')
+        return await this.verifyFiled(actor, api, id, source, decision, plan)
       const result = this.job(actor, id).result
       if (!result) throw new WorkflowError('OPERATION_HELD', 'A validated proposal is required')
       const review = validateBundle(JSON.parse(result))
@@ -797,10 +777,8 @@ export class Workflow {
         }
       }
       const state = decision.state
-      let plan = readFilingPlan(decision.plan ? JSON.parse(decision.plan) : {})
       if (
         !reconcileOnly &&
-        state !== 'done' &&
         this.db
           .prepare(
             "select id from metadata_changes where scope=? and resource=? and state='intent' limit 1"
@@ -820,7 +798,6 @@ export class Workflow {
       }
       if (state === 'conflict')
         throw new WorkflowError('OPERATION_HELD', 'Conflict requires a new reviewed proposal')
-      if (state === 'done') return await this.verifyFiled(actor, api, id, source, decision, plan)
 
       if (approval.actions.targetSpace) {
         if (!plan.originalTags) {

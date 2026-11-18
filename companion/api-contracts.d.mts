@@ -70,6 +70,9 @@ export interface APIOptions {
     api: ServiceAdapter
   ) => Promise<Record<string, unknown>>
   observeSession?: (actor: Actor, api: ServiceAdapter) => void
+  textRetentionDays?: number
+  allowedAccounts?: string[]
+  parsePDF?: import('./contracts.d.mts').DocumentReadOptions['parse']
   ocrDirectory?: string
   ocrPackOptions?: import('./ocr-packs.mjs').PackOptions
   adapterFactory?: (options: { origin: string; space: string; token: string }) => ServiceAdapter

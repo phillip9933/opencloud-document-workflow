@@ -7,11 +7,12 @@ Document Workflow has a standard OpenCloud Web extension and one companion servi
 | Component | Location | Purpose |
 | --- | --- | --- |
 | Web ZIP | OpenCloud `WEB_ASSET_APPS_PATH/document-workflow` | UI, manifest, host router/session integration and local PDF assets |
-| One companion container | Same private network as the existing reverse proxy | Watches Inbox; manages reviews, inference, fields, OCR and backups |
+| Companion | Same private network as the existing reverse proxy | Watches Inbox; manages reviews, inference, fields and backups |
+| Document worker | Internal network shared only with the companion | Reads PDF text, runs OCR, and converts supported formats to PDF |
 | Node, Poppler, Tesseract | Inside the dedicated companion image | Runtime, PDF text and local OCR; no host installation or Paperless service required |
 | Active journal | Private `/state` volume | SQLite metadata, configuration, approvals, mutation intents and audit history |
 | App tokens | Separate private `/credentials` volume | User-entered OpenCloud credential; excluded from journal/backups |
-| OCR packs | Writable `/workflow-tessdata` volume | Initial English/Japanese data plus explicit admin-installed official packs |
+| OCR packs | Companion writes `/workflow-tessdata`; worker reads it | Initial English/Japanese data plus explicit admin-installed official packs |
 | Backup staging/config | Private `/backups` volume | Temporary upload/verification, backup settings, earlier local recovery material |
 | Saved backup files | Administrator-selected OpenCloud Space/folder | Verified SQLite snapshot and matching JSON manifest; includes this companion's users' workflow records |
 | API route | Existing HTTPS host `/_workflow/api/` | Same-origin authenticated requests; no extra public hostname or host port |
@@ -21,7 +22,7 @@ OpenCloud remains the owner of original documents, native tags, permissions, Tra
 
 ## Coordinated installation kit
 
-Source0.13 adds a self-contained kit with `./install.sh install` for the existing Docker/Traefik baseline. It detects the apps directory/origin/network, builds the runtime automatically, installs matching web assets, preserves private state across managed upgrades, checkpoints the journal and verifies the HTTPS route/sign-in boundary. `doctor` checks the proposal first. See [QUICK_INSTALL.md](QUICK_INSTALL.md) and [STORE_PACKAGING.md](STORE_PACKAGING.md) for exact scope and acceptance. This is a local release kit; it has not been published or submitted to the catalogue. The existing manually managed0.12 NAS trial is unchanged.
+The coordinated kit detects the apps directory, origin and network, installs matching Web assets, and preserves private state across upgrades. It checkpoints the journal and verifies that the HTTPS route reaches the expected companion. Use `doctor` to inspect the proposed deployment first. See [Quick install](QUICK_INSTALL.md) and [Release packaging](STORE_PACKAGING.md).
 
 ## Container installation
 

@@ -28,6 +28,15 @@ export async function extractPDF(path, source, limits = defaultLimits()) {
  * @param {import('./contracts.d.mts').ProcessingLimits} [limits]
  */
 export async function extractPDFBytes(data, source, limits = defaultLimits()) {
+  const pages = await extractPDFText(data, limits)
+  return validateDocumentInput({
+    schemaVersion: 1,
+    source: { ...source, sha256: createHash('sha256').update(data).digest('hex') },
+    pages
+  })
+}
+/** @param {Buffer} data @param {import('./contracts.d.mts').ProcessingLimits} limits */
+export async function extractPDFText(data, limits) {
   limits = validateLimits(limits)
   if (
     data.length > limits.maxMiB * 1024 * 1024 ||
@@ -89,9 +98,5 @@ export async function extractPDFBytes(data, source, limits = defaultLimits()) {
       'VALIDATION_INVALID',
       'PDF exceeds configured page or text capacity; adjust Processing settings'
     )
-  return validateDocumentInput({
-    schemaVersion: 1,
-    source: { ...source, sha256: createHash('sha256').update(data).digest('hex') },
-    pages
-  })
+  return pages
 }

@@ -66,8 +66,9 @@ async function match(root, known) {
   if (!st.isDirectory() || st.isSymbolicLink())
     throw Error('App directory must be a real directory')
   const manifest = await json(join(root, 'manifest.json')),
-    release = known.find((r) => r.version === manifest.version)
-  if (!release || !same(await inventory(root), release.files))
+    files = await inventory(root),
+    release = known.find((r) => r.version === manifest.version && same(files, r.files))
+  if (!release)
     throw Error('Existing app assets differ from a known release; no files were replaced')
   for (const name of [marker, 'config.json']) {
     const file = await exists(join(root, name))
@@ -75,6 +76,39 @@ async function match(root, known) {
       throw Error('Unsafe app configuration or marker')
   }
   return release
+}
+async function rollbackAssets({ apps, history, target, release, all }) {
+  const pointer = await json(join(history, 'last-install.json')),
+    receipt = await json(join(history, pointer.receipt))
+  if (!/^[a-f0-9-]+$/.test(receipt.id) || receipt.version !== release.version)
+    throw Error('Rollback does not match this package')
+  const installed = await match(target, all)
+  if (!installed || installed !== release || (await json(join(target, marker))).id !== receipt.id)
+    throw Error('App changed after install; rollback refused')
+  const retained = join(history, 'retained-' + receipt.id)
+  if (receipt.before) await match(retained, all)
+  // Retain the new build too; never overwrite an unknown app or user configuration.
+  const stage = join(apps, '.workflow-rollback-' + receipt.id)
+  if (await exists(stage)) throw Error('Rollback stage already exists')
+  if (receipt.before) {
+    await cp(retained, stage, { recursive: true, errorOnExist: true, force: false })
+    await copyConfiguration(target, stage)
+  }
+  const retired = join(apps, '.workflow-new-' + receipt.id)
+  await rename(target, retired)
+  try {
+    if (receipt.before) await rename(stage, target)
+  } catch (e) {
+    await rename(retired, target)
+    throw e
+  }
+  await cp(retired, join(history, 'rolled-back-' + receipt.id), {
+    recursive: true,
+    errorOnExist: true,
+    force: false
+  })
+  await rm(retired, { recursive: true })
+  return { state: 'rolled_back', version: receipt.before ?? null }
 }
 export async function webAssets({ apps, history, source, release, known = [] }, action = 'check') {
   apps = await realpath(apps)
@@ -95,7 +129,12 @@ export async function webAssets({ apps, history, source, release, known = [] }, 
   if ((await json(join(source, 'manifest.json'))).version !== release.version)
     throw Error('Native version mismatch')
   const target = join(apps, release.appId),
-    all = [release, ...known],
+    all = [
+      release,
+      ...known.filter(
+        (prior) => prior.version !== release.version || prior.candidatePredecessor === true
+      )
+    ],
     lock = join(history, 'asset-lock')
   await mkdir(lock, { mode: 0o700 })
   try {
@@ -106,49 +145,17 @@ export async function webAssets({ apps, history, source, release, known = [] }, 
       )
     if (action === 'check') {
       const current = await match(target, all)
-      return { state: 'checked', current: current?.version ?? null, version: release.version }
-    }
-    if (action === 'rollback') {
-      const pointer = await json(join(history, 'last-install.json')),
-        receipt = await json(join(history, pointer.receipt))
-      if (!/^[a-f0-9-]+$/.test(receipt.id) || receipt.version !== release.version)
-        throw Error('Rollback does not match this package')
-      const installed = await match(target, all)
-      if (
-        !installed ||
-        installed.version !== release.version ||
-        (await json(join(target, marker))).id !== receipt.id
-      )
-        throw Error('App changed after install; rollback refused')
-      const retained = join(history, 'retained-' + receipt.id)
-      if (receipt.before) await match(retained, all)
-      // Retain the new build too; never overwrite an unknown app or user configuration.
-      const stage = join(apps, '.workflow-rollback-' + receipt.id)
-      if (await exists(stage)) throw Error('Rollback stage already exists')
-      if (receipt.before) {
-        await cp(retained, stage, { recursive: true, errorOnExist: true, force: false })
-        await copyConfiguration(target, stage)
+      return {
+        state: 'checked',
+        current: current?.version ?? null,
+        matchesRelease: current === release,
+        version: release.version
       }
-      const retired = join(apps, '.workflow-new-' + receipt.id)
-      await rename(target, retired)
-      try {
-        if (receipt.before) await rename(stage, target)
-      } catch (e) {
-        await rename(retired, target)
-        throw e
-      }
-      await cp(retired, join(history, 'rolled-back-' + receipt.id), {
-        recursive: true,
-        errorOnExist: true,
-        force: false
-      })
-      await rm(retired, { recursive: true })
-      return { state: 'rolled_back', version: receipt.before ?? null }
     }
+    if (action === 'rollback') return await rollbackAssets({ apps, history, target, release, all })
     if (action !== 'install') throw Error('Unknown asset installer action')
     const before = await match(target, all)
-    if (before?.version === release.version)
-      return { state: 'unchanged', version: release.version, changed: false }
+    if (before === release) return { state: 'unchanged', version: release.version, changed: false }
     const id = randomUUID(),
       stage = join(apps, '.workflow-stage-' + id),
       retired = join(apps, '.workflow-retired-' + id),

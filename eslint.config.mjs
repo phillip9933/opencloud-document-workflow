@@ -63,7 +63,14 @@ export default [
   },
   // Bound orchestration growth while allowing explicit boundary validation branches.
   {
-    files: ['companion/**/*.mjs', 'src/state/**/*.ts', 'src/views/**/*.vue'],
+    files: [
+      'companion/**/*.mjs',
+      'src/state/**/*.ts',
+      'src/views/**/*.vue',
+      'src/domain/**/*.ts',
+      'src/components/**/*.vue',
+      'deploy/installer/**/*.mjs'
+    ],
     rules: { complexity: ['error', 25] }
   },
   // Keep the newly separated recovery and operation paths small as they evolve.

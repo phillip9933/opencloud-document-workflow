@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0 candidate
+
+- Run PDF extraction and OCR in the isolated document worker.
+- Stream previews, cap file sizes and limit simultaneous downloads.
+- Preserve filing history while expiring full extracted text after completed processing.
+- Restrict companion use by account when configured, and verify release provenance.
+
 ## 0.20.3 Beta
 
 - Show Filed when reopening a completed filing, including moves that change the file version. A fresh preparation can still open for review.

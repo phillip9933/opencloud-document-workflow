@@ -345,7 +345,7 @@ function chooseFilingFolder() {
         <template v-if="props.mode === 'capacity'">
           <label
             >{{ t('Maximum PDF size (MiB)')
-            }}<input v-model.number="limits.maxMiB" type="number" min="1" max="1024"
+            }}<input v-model.number="limits.maxMiB" type="number" min="1" max="100"
           /></label>
           <label
             >{{ t('Maximum pages per PDF')

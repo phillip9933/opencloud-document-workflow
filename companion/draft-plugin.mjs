@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { localPort, runtimeMode } from './development-server.mjs'
 import { resolve } from 'node:path'
+import { createPDFWorkerClient } from './pdf-worker-client.mjs'
 import { createWorkflowAPI } from './draft-api.mjs'
 /** @returns {import('vite').Plugin} */
 export function draftPlugin() {
   return {
     name: 'workflow-draft',
     configureServer(server) {
+      const mode = runtimeMode(process.env.WORKFLOW_MODE)
       const api = createWorkflowAPI({
         database:
           process.env.WORKFLOW_DB ||
           process.env.WORKFLOW_DRAFT_DB ||
           resolve('companion/state/draft.sqlite3'),
-        mode: runtimeMode(process.env.WORKFLOW_MODE),
+        mode,
+        parsePDF:
+          mode === 'live' ? createPDFWorkerClient(process.env.WORKFLOW_CONVERSION_URL) : undefined,
         origin: process.env.WORKFLOW_OPENCLOUD_ORIGIN,
         space: process.env.WORKFLOW_SPACE_ID,
         ollama: process.env.WORKFLOW_OLLAMA_URL,

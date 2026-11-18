@@ -15,15 +15,15 @@ export function processingHistory(workflow, actor, id) {
     })
   const jobs = db
       .prepare(
-        "select id,state,attempts,updated,result,error from proposals where scope=? and json_extract(input,'$.source.resourceId')=? order by updated desc,id desc"
+        "select id,state,attempts,updated,result,error from proposals where scope=? and coalesce(json_extract(input,'$.source.space'),?)=? and json_extract(input,'$.source.resourceId')=? order by updated desc,id desc"
       )
-      .all(scope, row.resource),
+      .all(scope, actor.space, actor.space, row.resource),
     ids = JSON.stringify(jobs.map((job) => job.id))
   const batches = db
     .prepare(
-      "select o.id,o.kind,o.created,o.updated,i.position,i.state,i.result from bulk_operations o join bulk_items i on i.operation=o.id where o.scope=? and (json_extract(i.input,'$.resourceId')=? or json_extract(i.result,'$.bundle.source.resourceId')=? or json_extract(i.input,'$.id') in (select value from json_each(?))) order by o.created desc,i.position"
+      "select o.id,o.kind,o.created,o.updated,i.position,i.state,i.result from bulk_operations o join bulk_items i on i.operation=o.id where o.scope=? and ((o.kind in ('prepare','convert','metadata') and coalesce(json_extract(i.input,'$.documentSpace'),?)=? and json_extract(i.input,'$.resourceId')=?) or (o.kind='prepare' and json_extract(i.result,'$.id') in (select value from json_each(?))) or (o.kind in ('automatic','file') and json_extract(i.input,'$.id') in (select value from json_each(?)))) order by o.created desc,i.position"
     )
-    .all(scope, row.resource, row.resource, ids)
+    .all(scope, actor.space, actor.space, row.resource, ids, ids)
   const events = db
     .prepare(
       'select seq,job,kind,detail,created from activity where scope=? and job in (select value from json_each(?)) order by seq desc'

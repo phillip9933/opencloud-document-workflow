@@ -12,6 +12,10 @@ origin=${5:?isolated baseline origin required}
 grep -q '^FRESH_INSTALL_PASS ' "$baseline/RESULT.txt"
 old=$(cat "$baseline/document-workflow/VERSION")
 name=workflow-cleanup-fresh-${old//./-}
+if [[ -n "${WORKFLOW_ACCEPTANCE_NAME:-}" ]]; then
+ [[ "$WORKFLOW_ACCEPTANCE_NAME" =~ ^dw-test-[a-z0-9-]{1,40}$ ]]
+ name=$WORKFLOW_ACCEPTANCE_NAME
+fi
 opencloud=$name-opencloud
 proxy=$name-caddy
 network=$name-net
@@ -23,8 +27,8 @@ mkdir -p "$run"
 tar -xzf "$kit" -C "$run"
 cd "$run/document-workflow"
 version=$(cat VERSION)
-[[ "$version" != "$old" ]]
-image=workflow-beta-upgrade-${version//./-}-runtime
+[[ "$version" != "$old" || $(sha256sum image/artifacts/release.json) != "$(cd "$baseline/document-workflow" && sha256sum image/artifacts/release.json)" ]]
+image=$name-upgrade-runtime
 docker build --build-arg "WORKFLOW_VERSION=$version" --tag "$image" image > "$run/build.log" 2>&1
 project=$(docker run --rm --network none --read-only --entrypoint node "$image" \
  -e 'console.log("document-workflow-"+require("node:crypto").createHash("sha256").update(process.argv[1]).digest("hex").slice(0,10))' "$origin")
@@ -48,6 +52,12 @@ before=$(docker inspect --format '{{.Id}}' "$opencloud")
 proxy_before=$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' "$proxy")
 args=(--opencloud-container "$opencloud" --proxy-container "$proxy" --network "$network" \
  --proxy-mode external --trusted-ca "$baseline/tls/ca.crt" --image "$image")
+if [[ "$version" == "$old" ]]; then
+ if ./install.sh doctor "${args[@]}" --image "$name-runtime" > "$run/reject-old-image.log" 2>&1; then
+  echo 'Earlier same-version runtime was accepted' >&2; exit 1
+ fi
+ grep -q 'Selected runtime files differ' "$run/reject-old-image.log"
+fi
 ./install.sh install "${args[@]}" > "$run/install.log" 2>&1
 grep -q "Installed Document Workflow $version" "$run/install.log"
 docker exec "$companion" node /distribution/health-check.mjs "$origin"

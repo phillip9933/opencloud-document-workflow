@@ -6,7 +6,7 @@
     "component": {
       "type": "application",
       "name": "opencloud-document-workflow",
-      "version": "0.20.3"
+      "version": "1.0.0"
     },
     "properties": [
       {
@@ -1130,6 +1130,32 @@
         {
           "license": {
             "name": "Apache-2.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/@isaacs/nonrecursive-glob-match@1.1.0",
+      "name": "@isaacs/nonrecursive-glob-match",
+      "version": "1.1.0",
+      "purl": "pkg:npm/@isaacs/nonrecursive-glob-match@1.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8c5a050303b8ac93b506cbd1e67cc8e1a77b331b8fb16309581f4e4c97b20f60"
+        }
+      ],
+      "properties": [
+        {
+          "name": "document-workflow:inventory-role",
+          "value": "development-or-host-shared-runtime"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "name": "BlueOak-1.0.0"
           }
         }
       ]
@@ -4880,14 +4906,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/adm-zip@0.5.18",
+      "bom-ref": "pkg:npm/adm-zip@0.6.1",
       "name": "adm-zip",
-      "version": "0.5.18",
-      "purl": "pkg:npm/adm-zip@0.5.18",
+      "version": "0.6.1",
+      "purl": "pkg:npm/adm-zip@0.6.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "6fd3269ff43d7d95244725c6e80e00478a0022b87a2cf22a97441a3c8164af25"
+          "content": "09a8559bb31d5063ec033af457a253fbfefc485965ca4e5110343bc5771dfe95"
         }
       ],
       "properties": [
@@ -5218,66 +5244,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/axios@1.13.5",
+      "bom-ref": "pkg:npm/axios@1.20.0",
       "name": "axios",
-      "version": "1.13.5",
-      "purl": "pkg:npm/axios@1.13.5",
+      "version": "1.20.0",
+      "purl": "pkg:npm/axios@1.20.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "58f1b09fdc068978921e544c788a25b56eacd8962956c490f55be5e17c774096"
-        }
-      ],
-      "properties": [
-        {
-          "name": "document-workflow:inventory-role",
-          "value": "development-or-host-shared-runtime"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "name": "MIT"
-          }
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:npm/axios@1.21.0",
-      "name": "axios",
-      "version": "1.21.0",
-      "purl": "pkg:npm/axios@1.21.0",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "b4ffd2888e63ccfcabc0e1f0deb316ac156138872f801145934d4a85897d0b80"
-        }
-      ],
-      "properties": [
-        {
-          "name": "document-workflow:inventory-role",
-          "value": "development-or-host-shared-runtime"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "name": "MIT"
-          }
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:npm/balanced-match@1.0.2",
-      "name": "balanced-match",
-      "version": "1.0.2",
-      "purl": "pkg:npm/balanced-match@1.0.2",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "b30c328501dead1870b894ad604405b2284b571c1f12664cdc61d92a2e3397c2"
+          "content": "cc221510be6315b0ebf648d7e4346680e47a828fafcbb9cc141922d2d219761e"
         }
       ],
       "properties": [
@@ -5394,32 +5368,6 @@
         {
           "license": {
             "name": "ISC"
-          }
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:npm/brace-expansion@2.1.7",
-      "name": "brace-expansion",
-      "version": "2.1.7",
-      "purl": "pkg:npm/brace-expansion@2.1.7",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "d217a00ed39214d81f5d9999c0c639f147bab438f94589f9a5b96debf57d6e61"
-        }
-      ],
-      "properties": [
-        {
-          "name": "document-workflow:inventory-role",
-          "value": "development-or-host-shared-runtime"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "name": "MIT"
           }
         }
       ]
@@ -7161,14 +7109,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/fast-xml-builder@1.3.1",
+      "bom-ref": "pkg:npm/fast-xml-builder@1.3.2",
       "name": "fast-xml-builder",
-      "version": "1.3.1",
-      "purl": "pkg:npm/fast-xml-builder@1.3.1",
+      "version": "1.3.2",
+      "purl": "pkg:npm/fast-xml-builder@1.3.2",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "304416f412412cd967ee1139f0eadfebaa263e92bfbfa264bedbb37055d5c27e"
+          "content": "ca9cceea8b8570e6d650233b52c42c9e181425474c50a458efc7628bbf05e235"
         }
       ],
       "properties": [
@@ -7187,14 +7135,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/fast-xml-parser@5.11.2",
+      "bom-ref": "pkg:npm/fast-xml-parser@5.12.1",
       "name": "fast-xml-parser",
-      "version": "5.11.2",
-      "purl": "pkg:npm/fast-xml-parser@5.11.2",
+      "version": "5.12.1",
+      "purl": "pkg:npm/fast-xml-parser@5.12.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "6e37d7f4edb7ead1c89dbd645f336e3dab813e0a4bf6164411ada9c693b40052"
+          "content": "4482b7380243b2164b1d50c4f44a02531c5b6131909cab30420b397b9d3be5e3"
         }
       ],
       "properties": [
@@ -7759,14 +7707,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/glob@13.0.6",
+      "bom-ref": "pkg:npm/glob@14.0.6",
       "name": "glob",
-      "version": "13.0.6",
-      "purl": "pkg:npm/glob@13.0.6",
+      "version": "14.0.6",
+      "purl": "pkg:npm/glob@14.0.6",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "5a28ef9a1f5252feb47ffe288a6350fe99b18311462e6a9cdacbdd0bb4be6be9"
+          "content": "46065b223266140254eb17d347469ab824681beaa843516bc1e0008eec612157"
         }
       ],
       "properties": [
@@ -8513,14 +8461,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/is-unsafe@2.0.2",
+      "bom-ref": "pkg:npm/is-unsafe@2.0.3",
       "name": "is-unsafe",
-      "version": "2.0.2",
-      "purl": "pkg:npm/is-unsafe@2.0.2",
+      "version": "2.0.3",
+      "purl": "pkg:npm/is-unsafe@2.0.3",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "0fb03fbe6e0df6090d778679929c7c34c9fca298bc72190468217171e8154943"
+          "content": "17c1f4761ea72a5e9c7c5f4312d65ec2e026822fcbca41d4416e63313e6e22e5"
         }
       ],
       "properties": [
@@ -9787,14 +9735,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/minimatch@10.2.6",
+      "bom-ref": "pkg:npm/minimatch@11.0.9",
       "name": "minimatch",
-      "version": "10.2.6",
-      "purl": "pkg:npm/minimatch@10.2.6",
+      "version": "11.0.9",
+      "purl": "pkg:npm/minimatch@11.0.9",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "bb847ba240909c9a36d4eaeb4e0efdc3e31182aeef208c1611259a48f282ea75"
+          "content": "816bae79f271706afbdb71262fb48a583429f98d68a516b7ad7f5b5e01406e04"
         }
       ],
       "properties": [
@@ -9807,32 +9755,6 @@
         {
           "license": {
             "name": "BlueOak-1.0.0"
-          }
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:npm/minimatch@9.0.9",
-      "name": "minimatch",
-      "version": "9.0.9",
-      "purl": "pkg:npm/minimatch@9.0.9",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "07347ae64d38f4cc1be3ffcc83322ec40d4609f5f3e9dc027ae91a4617239ac2"
-        }
-      ],
-      "properties": [
-        {
-          "name": "document-workflow:inventory-role",
-          "value": "development-or-host-shared-runtime"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "name": "ISC"
           }
         }
       ]
@@ -10697,14 +10619,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/path-scurry@2.0.2",
+      "bom-ref": "pkg:npm/path-scurry@3.0.0",
       "name": "path-scurry",
-      "version": "2.0.2",
-      "purl": "pkg:npm/path-scurry@2.0.2",
+      "version": "3.0.0",
+      "purl": "pkg:npm/path-scurry@3.0.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "fb54fe908dbe5f288bd1c5d7429f033c4f527f435c3d3a583ee0ce9e78992087"
+          "content": "74862badb890fd4ce50af0048f17ffd5ce23f28e998a68134917cb1dce20f3cc"
         }
       ],
       "properties": [
@@ -11471,32 +11393,6 @@
         {
           "license": {
             "name": "ISC"
-          }
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:npm/proxy-from-env@1.1.0",
-      "name": "proxy-from-env",
-      "version": "1.1.0",
-      "purl": "pkg:npm/proxy-from-env@1.1.0",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "a99da95a16d2dcc5e8006883f53721cc6224a8706863b20bf0a334170a1fe0ca"
-        }
-      ],
-      "properties": [
-        {
-          "name": "document-workflow:inventory-role",
-          "value": "development-or-host-shared-runtime"
-        }
-      ],
-      "licenses": [
-        {
-          "license": {
-            "name": "MIT"
           }
         }
       ]
@@ -13401,14 +13297,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/ws@8.18.0",
+      "bom-ref": "pkg:npm/ws@8.21.0",
       "name": "ws",
-      "version": "8.18.0",
-      "purl": "pkg:npm/ws@8.18.0",
+      "version": "8.21.0",
+      "purl": "pkg:npm/ws@8.21.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "2325e3ac70900fbbd08f858f6ecb2a7f8a66ead76ad225ac3fd24b992b36e9e4"
+          "content": "584ce6e7516587ba249dc910b0c04e2753f6b3f451fc3a5bc324f7735bdacc71"
         }
       ],
       "properties": [

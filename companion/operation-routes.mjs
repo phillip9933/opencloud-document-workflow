@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { requestText, operationInput } from './api-input.mjs'
+import { requestText, requestPage, operationInput } from './api-input.mjs'
 /** @param {Pick<import('./api-contracts.d.mts').RouteServices,'automation'|'conversions'|'operations'|'duplicates'|'send'>} services
  * @returns {Record<string,import('./api-contracts.d.mts').FullAPIRoute>} */
 export function createOperationRoutes({ automation, conversions, operations, duplicates, send }) {
   return {
-    async operations({ actor, res }) {
-      send(res, 200, { operations: operations.list(actor) })
+    async operations({ actor, body, res }) {
+      send(res, 200, operations.list(actor, requestPage(body)))
       return true
     },
     async operation({ actor, body, res }) {
-      send(res, 200, operations.status(actor, requestText(body.id)))
+      send(res, 200, operations.status(actor, requestText(body.id), requestPage(body)))
+      return true
+    },
+    async 'operation-result'({ actor, api, body, res }) {
+      send(res, 200, await operations.result(actor, api, requestText(body.id), body.position))
       return true
     },
     async 'conversion-settings'({ actor, res }) {

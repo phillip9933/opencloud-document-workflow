@@ -3,6 +3,8 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  release:
+    types: [published]
 permissions:
   contents: read
 jobs:
@@ -16,6 +18,12 @@ jobs:
       - name: Install locked tooling
         run: npm install --global pnpm@11.25.0
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Check installer shell syntax and portability
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y shellcheck
+          bash -n deploy/installer/install.sh
+          shellcheck deploy/installer/install.sh
       - run: pnpm run format:check
       - run: pnpm run lint
       - run: pnpm run check:types
@@ -39,6 +47,15 @@ jobs:
       - run: python3 scripts/validate_release.py
       - name: Build matching companion image
         run: docker build --build-arg "WORKFLOW_VERSION=$(node -p 'require("./package.json").version')" -f deploy/container/Dockerfile -t document-workflow-ci:latest .
+      - name: Scan shipped runtime image for fixed high-severity vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: document-workflow-ci:latest
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
       - name: Check bundled runtime without network access
         run: |
           docker run --rm --network none --read-only --cap-drop ALL \
@@ -65,22 +82,118 @@ jobs:
           sudo cat "$RUNNER_TEMP/document-workflow-fresh/image-ids.txt" > "$workflow_beta_release/IMAGE-IDS.txt"
           cd "$workflow_beta_release"
           sha256sum INSTALL-ACCEPTANCE.txt IMAGE-IDS.txt >> SHA256SUMS
-      - name: Upgrade acceptance from published 0.20.2
+      - name: Upgrade acceptance from published 0.20.3
         run: |
           workflow_beta_version=$(node -p 'require("./package.json").version')
           workflow_beta_release="$PWD/artifacts/releases/$workflow_beta_version"
           workflow_beta_kit="$workflow_beta_release/document-workflow-$workflow_beta_version-install.tar.gz"
           workflow_beta_sha=$(sha256sum "$workflow_beta_kit" | cut -d ' ' -f 1)
-          workflow_previous_kit="$RUNNER_TEMP/document-workflow-0.20.2-install.tar.gz"
-          workflow_previous_sha=ac154a300cfd16c5ff72b182ac9b1f5f0f1e87a4d3f50d2a5d4e64faeca81eef
-          curl --fail --location --retry 3 --output "$workflow_previous_kit" https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.2/document-workflow-0.20.2-install.tar.gz
+          workflow_previous_kit="$RUNNER_TEMP/document-workflow-0.20.3-install.tar.gz"
+          workflow_previous_sha=7ddd433e896fe9138b297561532dd03aae9feaedd4a58b11d2e392d89bbfa77f
+          curl --fail --location --retry 3 --output "$workflow_previous_kit" https://github.com/phillip9933/opencloud-document-workflow/releases/download/v0.20.3/document-workflow-0.20.3-install.tar.gz
           sudo bash scripts/accept_fresh_install.sh "$workflow_previous_kit" "$workflow_previous_sha" "$RUNNER_TEMP/document-workflow-baseline" https://workflow-upgrade.test
           sudo bash scripts/accept_upgrade.sh "$RUNNER_TEMP/document-workflow-baseline" "$workflow_beta_kit" "$workflow_beta_sha" "$RUNNER_TEMP/document-workflow-upgrade" https://workflow-upgrade.test
           sudo cat "$RUNNER_TEMP/document-workflow-upgrade/RESULT.txt" > "$workflow_beta_release/UPGRADE-ACCEPTANCE.txt"
           cd "$workflow_beta_release"
           sha256sum UPGRADE-ACCEPTANCE.txt >> SHA256SUMS
       - run: python3 scripts/validate_release.py
+      - id: release-dir
+        run: echo "path=artifacts/releases/$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: document-workflow-release
-          path: artifacts/releases/*/
+          path: ${{ steps.release-dir.outputs.path }}
+          if-no-files-found: error
+      - name: Save the tested runtime for a stable GitHub release
+        if: github.repository == 'phillip9933/opencloud-document-workflow' && github.event_name == 'release' && !github.event.release.prerelease
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(node -p 'require("./package.json").version')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$RELEASE_TAG" == "v$version" ]]
+          [[ $(node -p 'require("./package.json").releaseChannel') == stable ]]
+          mkdir -p "$RUNNER_TEMP/runtime-release"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "document-workflow-$version.zip" --dir "$RUNNER_TEMP/runtime-release"
+          python3 - "$RUNNER_TEMP/runtime-release/document-workflow-$version.zip" <<'PY'
+          import hashlib, json, sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              names = [i.filename for i in archive.infolist() if not i.is_dir()]
+              release = json.load(open('artifacts/release.json'))
+              assert len(set(names)) == len(names)
+              assert {n: hashlib.sha256(archive.read(n)).hexdigest() for n in names} == release['files']
+          PY
+          docker image save document-workflow-ci:latest -o "$RUNNER_TEMP/runtime-release/runtime.tar"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.repository == 'phillip9933/opencloud-document-workflow' && github.event_name == 'release' && !github.event.release.prerelease
+        with:
+          name: tested-stable-runtime
+          path: ${{ runner.temp }}/runtime-release/runtime.tar
+          if-no-files-found: error
+          retention-days: 3
+  provenance:
+    if: github.repository == 'phillip9933/opencloud-document-workflow' && startsWith(github.ref, 'refs/tags/v')
+    needs: checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: document-workflow-release
+          path: release
+      - uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: 'release/document-workflow-*'
+  publish-runtime:
+    if: github.repository == 'phillip9933/opencloud-document-workflow' && github.event_name == 'release' && !github.event.release.prerelease
+    needs: [checks, provenance]
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: document-workflow-stable-registry
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ghcr.io/phillip9933/opencloud-document-workflow
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: tested-stable-runtime
+      - name: Publish the tested version image
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          docker image load -i runtime.tar
+          [[ $(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' document-workflow-ci:latest) == "${RELEASE_TAG#v}" ]]
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag document-workflow-ci:latest "$IMAGE:$RELEASE_TAG"
+          docker push "$IMAGE:$RELEASE_TAG"
+          digest=$(docker buildx imagetools inspect "$IMAGE:$RELEASE_TAG" --format '{{.Manifest.Digest}}')
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Advance the automatic update channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ $(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name) == "$RELEASE_TAG" ]]; then
+            docker buildx imagetools create --prefer-index=false --tag "$IMAGE:latest" "$IMAGE@$DIGEST"
+          fi

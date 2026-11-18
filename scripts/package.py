@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import zipfile
+from package_inputs import build_files,regular,source_files
 
 root = Path(__file__).resolve().parents[1]
 manifest_path = root / 'dist/manifest.json'
@@ -19,12 +20,14 @@ if manifest['version'] != app['version']:
 out = root / 'artifacts'
 out.mkdir(exist_ok=True)
 archive = out / f'{app_id}-{app["version"]}-local.zip'
+tracked = set(source_files(root))
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
-    for path in sorted((root / 'dist').rglob('*')):
+    for path in build_files(root, 'dist'):
         if path.is_file():
             z.write(path, f'{app_id}/{path.relative_to(root / "dist")}')
     for name in ('LICENSE', 'LICENSES/Apache-2.0-skeleton.txt', 'LICENSES/DEPENDENCIES.txt', 'THIRD_PARTY_NOTICES.md', 'docs/dependencies.cdx.json', 'docs/LOCAL_BUILD.md'):
-        z.write(root / name, f'{app_id}/{name}')
+        if name not in tracked: raise ValueError('Missing source '+name)
+        z.write(regular(root,name), f'{app_id}/{name}')
 with zipfile.ZipFile(archive) as z:
     if any(not n.startswith(app_id + '/') for n in z.namelist()):
         raise SystemExit('Invalid app package layout')

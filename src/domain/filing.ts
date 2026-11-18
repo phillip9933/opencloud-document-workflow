@@ -53,6 +53,67 @@ function validateTemplate(template: string, allowed: readonly string[]) {
     throw new WorkflowError('VALIDATION_INVALID', 'Invalid filing template token')
   safePath(remaining)
 }
+function validateFolderClassification(folder: FolderClassificationRule) {
+  safePath(folder.value)
+  if ('folderTemplate' in folder)
+    validateTemplate(folder.folderTemplate!, ['category', 'year', 'month', 'day', 'taxYear'])
+  const usesTaxYear = folder.folderTemplate?.includes('{taxYear}') ?? false
+  if (usesTaxYear || 'taxYearLabels' in folder) {
+    if (
+      !usesTaxYear ||
+      !Array.isArray(folder.taxYearLabels) ||
+      !folder.taxYearLabels.length ||
+      folder.taxYearLabels.length > 20 ||
+      new Set(
+        folder.taxYearLabels.map((label) =>
+          typeof label === 'string' ? label.normalize('NFKC').toLowerCase() : label
+        )
+      ).size !== folder.taxYearLabels.length ||
+      folder.taxYearLabels.some(
+        (label) =>
+          typeof label !== 'string' ||
+          label !== label.trim() ||
+          !label.length ||
+          label.length > 150 ||
+          !/[\p{L}]/u.test(label) ||
+          /[\x00-\x1f\x7f]/.test(label)
+      )
+    )
+      throw new WorkflowError(
+        'VALIDATION_INVALID',
+        'Tax-year folders need explicit, unique tax-year labels'
+      )
+  }
+}
+function validateClassification(row: FolderClassificationRule, key: 'folders' | 'tags') {
+  if (!row || typeof row !== 'object' || Array.isArray(row))
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid classification rule')
+  const allowed =
+    key === 'folders'
+      ? [
+          'match',
+          'terms',
+          'value',
+          ...('folderTemplate' in row ? ['folderTemplate'] : []),
+          ...('taxYearLabels' in row ? ['taxYearLabels'] : [])
+        ]
+          .sort()
+          .join(',')
+      : 'match,terms,value'
+  if (
+    Object.keys(row).sort().join(',') !== allowed ||
+    typeof row.value !== 'string' ||
+    !row.value.trim() ||
+    row.value.length > (key === 'tags' ? 80 : 150) ||
+    row.value !== row.value.normalize('NFC') ||
+    /[\x00-\x1f\x7f]/.test(row.value) ||
+    !['word', 'substring'].includes(row.match) ||
+    !Array.isArray(row.terms) ||
+    row.terms.length > 100 ||
+    row.terms.some((t: unknown) => typeof t !== 'string' || !t.trim() || t.length > 150)
+  )
+    throw new WorkflowError('VALIDATION_INVALID', 'Invalid classification rule')
+}
 export function validateFilingRules(input: unknown): FilingRules {
   // Treat this as an untrusted candidate; every field is validated below.
   const value = input as FilingRules
@@ -84,66 +145,8 @@ export function validateFilingRules(input: unknown): FilingRules {
     )
       throw new WorkflowError('VALIDATION_INVALID', 'Invalid or duplicate classification rules')
     for (const row of rows) {
-      if (!row || typeof row !== 'object' || Array.isArray(row))
-        throw new WorkflowError('VALIDATION_INVALID', 'Invalid classification rule')
-      const allowed =
-        key === 'folders'
-          ? [
-              'match',
-              'terms',
-              'value',
-              ...('folderTemplate' in row ? ['folderTemplate'] : []),
-              ...('taxYearLabels' in row ? ['taxYearLabels'] : [])
-            ]
-              .sort()
-              .join(',')
-          : 'match,terms,value'
-      if (
-        Object.keys(row).sort().join(',') !== allowed ||
-        typeof row.value !== 'string' ||
-        !row.value.trim() ||
-        row.value.length > (key === 'tags' ? 80 : 150) ||
-        row.value !== row.value.normalize('NFC') ||
-        /[\x00-\x1f\x7f]/.test(row.value) ||
-        !['word', 'substring'].includes(row.match) ||
-        !Array.isArray(row.terms) ||
-        row.terms.length > 100 ||
-        row.terms.some((t: unknown) => typeof t !== 'string' || !t.trim() || t.length > 150)
-      )
-        throw new WorkflowError('VALIDATION_INVALID', 'Invalid classification rule')
-      if (key === 'folders') {
-        safePath(row.value)
-        const folder = row as FolderClassificationRule
-        if ('folderTemplate' in folder)
-          validateTemplate(folder.folderTemplate!, ['category', 'year', 'month', 'day', 'taxYear'])
-        const usesTaxYear = folder.folderTemplate?.includes('{taxYear}') ?? false
-        if (usesTaxYear || 'taxYearLabels' in folder) {
-          if (
-            !usesTaxYear ||
-            !Array.isArray(folder.taxYearLabels) ||
-            !folder.taxYearLabels.length ||
-            folder.taxYearLabels.length > 20 ||
-            new Set(
-              folder.taxYearLabels.map((label) =>
-                typeof label === 'string' ? label.normalize('NFKC').toLowerCase() : label
-              )
-            ).size !== folder.taxYearLabels.length ||
-            folder.taxYearLabels.some(
-              (label) =>
-                typeof label !== 'string' ||
-                label !== label.trim() ||
-                !label.length ||
-                label.length > 150 ||
-                !/[\p{L}]/u.test(label) ||
-                /[\x00-\x1f\x7f]/.test(label)
-            )
-          )
-            throw new WorkflowError(
-              'VALIDATION_INVALID',
-              'Tax-year folders need explicit, unique tax-year labels'
-            )
-        }
-      }
+      validateClassification(row, key)
+      if (key === 'folders') validateFolderClassification(row as FolderClassificationRule)
     }
   }
   if (!value.folders.some((r) => r.value === 'Other'))

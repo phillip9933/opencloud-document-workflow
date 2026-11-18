@@ -5,6 +5,13 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, writeFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+export const OCR_BUDGET_MS = 240000
+/** @param {number} deadline @param {number} limit */
+export function ocrTimeout(deadline, limit) {
+  const remaining = deadline - performance.now()
+  if (remaining < 1) throw new WorkflowError('OPERATION_HELD', 'OCR document time limit reached')
+  return Math.min(limit, Math.floor(remaining))
+}
 /** @param {string} command @param {string[]} args @param {{limit?:number,timeout?:number}} [options] @returns {Promise<string>} */
 export function runOCRTool(command, args, { limit = 240000, timeout = 30000 } = {}) {
   return new Promise((resolve, reject) => {
@@ -44,8 +51,8 @@ export function runOCRTool(command, args, { limit = 240000, timeout = 30000 } = 
     )
   })
 }
-export async function ocrLanguages() {
-  const text = await runOCRTool('tesseract', ['--list-langs'])
+export async function ocrLanguages(timeout = 30000) {
+  const text = await runOCRTool('tesseract', ['--list-langs'], { timeout })
   return text
     .split(/\r?\n/)
     .slice(1)
@@ -125,40 +132,47 @@ export async function ocrPages(
     languages.some((v) => typeof v !== 'string' || !/^[A-Za-z0-9_/-]+$/.test(v) || v.includes('..'))
   )
     throw new WorkflowError('VALIDATION_INVALID', 'Choose OCR languages')
-  const installed = await ocrLanguages()
+  if (indices.length > 64)
+    throw new WorkflowError(
+      'OPERATION_HELD',
+      'More than 64 pages require OCR; split the document or review it manually'
+    )
+  const deadline = performance.now() + OCR_BUDGET_MS
+  const installed = await ocrLanguages(ocrTimeout(deadline, 30000))
   if (languages.some((l) => !installed.includes(l)))
     throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'Selected OCR language data is not installed')
   const dir = await mkdtemp(join(tmpdir(), 'workflow-ocr-'))
   try {
     await writeFile(join(dir, 'input.pdf'), bytes, { mode: 0o600 })
-    const result = [...pages],
-      start = Date.now()
+    const result = [...pages]
     for (let i = 0; i < pages.length; i++) {
       if (!indices.includes(i)) continue
-      if (Date.now() - start > Math.max(240000, pages.length * 90000))
-        throw new WorkflowError('OPERATION_HELD', 'OCR document time limit reached')
       const prefix = join(dir, 'page')
-      await runOCRTool('pdftoppm', [
-        '-f',
-        String(i + 1),
-        '-l',
-        String(i + 1),
-        '-r',
-        '300',
-        '-scale-to',
-        '3500',
-        '-singlefile',
-        '-gray',
-        '-png',
-        join(dir, 'input.pdf'),
-        prefix
-      ])
+      await runOCRTool(
+        'pdftoppm',
+        [
+          '-f',
+          String(i + 1),
+          '-l',
+          String(i + 1),
+          '-r',
+          '300',
+          '-scale-to',
+          '3500',
+          '-singlefile',
+          '-gray',
+          '-png',
+          join(dir, 'input.pdf'),
+          prefix
+        ],
+        { timeout: ocrTimeout(deadline, 30000) }
+      )
       if ((await stat(prefix + '.png')).size > 16 * 1024 * 1024)
         throw new WorkflowError('VALIDATION_INVALID', 'OCR raster exceeds limit')
       let recognized = await runOCRTool(
         'tesseract',
         [prefix + '.png', 'stdout', '-l', languages.join('+'), '--psm', '3'],
-        { timeout: 45000 }
+        { timeout: ocrTimeout(deadline, 45000) }
       )
       // Dark receipt photos on a white sheet can become solid blocks under global
       // thresholding. Retry empty output once with Tesseract's local threshold.
@@ -175,7 +189,7 @@ export async function ocrPages(
             '-c',
             'thresholding_method=2'
           ],
-          { timeout: 45000 }
+          { timeout: ocrTimeout(deadline, 45000) }
         )
       result[i] = pages[i].trim() ? pages[i] + '\n' + recognized : recognized
       await rm(prefix + '.png')

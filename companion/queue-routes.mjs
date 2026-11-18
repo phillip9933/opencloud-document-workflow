@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { WorkflowError } from '../src/domain/errors.ts'
+import { verifyDocumentRead } from './workflow.mjs'
 import { withTransaction } from './transactions.mjs'
 import { processingHistory } from './processing-history.mjs'
 import { processingIssue } from './processing-issues.mjs'
@@ -26,8 +27,20 @@ export function createQueueRoutes({
 }) {
   const journal = workflow.journal
   return {
-    async 'intake-history'({ actor, body, res }) {
-      send(res, 200, processingHistory(workflow, actor, requestID(body.id)))
+    async 'intake-history'({ actor, api, body, res }) {
+      const id = requestID(body.id)
+      const row = journal.db
+        .prepare('select job,path,resource from intake_queue where scope=? and id=?')
+        .get(workflow.scope(actor), id)
+      if (!row) throw new WorkflowError('RESOURCE_NOT_FOUND', 'Processing record not found')
+      if (row.job) await workflow.requireReadableJob(actor, api, String(row.job))
+      else {
+        const current = await api.stat(String(row.path))
+        if (!current || current.folder || current.resourceId !== row.resource)
+          throw new WorkflowError('ACCESS_DENIED', 'Cannot verify document read access')
+        await verifyDocumentRead(api, current.path, current.etag)
+      }
+      send(res, 200, processingHistory(workflow, actor, id))
       return true
     },
     async intake({ actor, api, body, res }) {

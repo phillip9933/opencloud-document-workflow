@@ -24,17 +24,33 @@ export interface ProcessingItem {
   automatic?: { state: string } | null
   progress?: ProcessingProgress
 }
+function progress(
+  step: number,
+  label: string,
+  extra: Partial<ProcessingProgress> = {}
+): ProcessingProgress {
+  return {
+    step,
+    total: 5,
+    label,
+    ...extra
+  }
+}
 // Five workflow milestones, not a percentage or an estimate of elapsed time.
 export function processingProgress(item: ProcessingItem): ProcessingProgress {
   const state = item.intakeState ?? item.state ?? 'unprocessed',
     decision = item.decision ?? item.reviewState,
     automatic = item.automatic?.state
-  const progress = (step: number, label: string, extra: Partial<ProcessingProgress> = {}) => ({
-    step,
-    total: 5,
-    label,
-    ...extra
-  })
+  const terminal = filingProgress(item, state, decision, automatic)
+  if (terminal) return terminal
+  return intakeProgress(item, state, decision, automatic)
+}
+function filingProgress(
+  item: ProcessingItem,
+  state: string,
+  decision?: string | null,
+  automatic?: string
+) {
   if (['duplicate', 'restored'].includes(state)) return progress(2, 'Duplicate held')
   if (state === 'trashed' || state === 'removed') return progress(5, 'In OpenCloud Trash')
   if (decision === 'done') return progress(5, 'Filed')
@@ -47,14 +63,23 @@ export function processingProgress(item: ProcessingItem): ProcessingProgress {
     )
   if (needsFilingVerification(decision) || decision === 'conflict')
     return progress(4, 'Verify filing outcome', { attention: true })
-  const stage =
-    item.stage === 'review'
-      ? 4
-      : ['analysing', 'tagging'].includes(item.stage ?? '')
-        ? 3
-        : item.stage === 'reading' || item.stage === 'ocr'
-          ? 2
-          : 1
+}
+function progressStep(stage?: string | null) {
+  return stage === 'review'
+    ? 4
+    : ['analysing', 'tagging'].includes(stage ?? '')
+      ? 3
+      : stage === 'reading' || stage === 'ocr'
+        ? 2
+        : 1
+}
+function intakeProgress(
+  item: ProcessingItem,
+  state: string,
+  decision?: string | null,
+  automatic?: string
+) {
+  const stage = progressStep(item.stage)
   if (state === 'cancelled' || automatic === 'cancelled')
     return progress(stage, 'Cancelled', { cancelled: true })
   if (state === 'superseded') return progress(1, 'Replaced by a newer upload')

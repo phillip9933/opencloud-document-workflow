@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createHash } from 'node:crypto'
 import { defaultLimits, validateLimits } from './configuration.mjs'
-import { extractPDFBytes } from './extract.mjs'
-import { ocrPages, ocrCandidatePages } from './ocr.mjs'
+import { parsePDFText } from './pdf-worker.mjs'
 import { WorkflowError, manualReviewReason } from '../src/domain/errors.ts'
-import { validateBundle } from '../src/domain/review.ts'
+import { validateBundle, validateDocumentInput } from '../src/domain/review.ts'
 
 /** Read exactly the pinned bytes; keep source checks ahead of OCR and inference.
  * @param {import('./contracts.d.mts').DocumentReadOptions} options
@@ -17,7 +16,8 @@ export async function readDocument({
   configuration,
   limits: configuredLimits,
   progress,
-  onOCR
+  onOCR,
+  parse = parsePDFText
 }) {
   const limits = validateLimits(configuredLimits ?? defaultLimits()),
     bytes = await api.get(path, before.etag, limits.maxMiB * 1024 * 1024),
@@ -33,17 +33,17 @@ export async function readDocument({
     etag: before.etag,
     sha256: createHash('sha256').update(bytes).digest('hex')
   }
-  const input = await extractPDFBytes(bytes, source, limits)
-  const indices =
-    configuration.policy.ocr !== 'off' ? await ocrCandidatePages(bytes, input.pages) : []
-  const ocrAttempted = indices.length > 0
-  if (ocrAttempted) {
-    progress('ocr')
-    input.pages = await ocrPages(bytes, input.pages, configuration.ocrLanguages ?? [], limits, {
-      indices
-    })
-    onOCR(source)
-  }
+  const { pages, ocrAttempted } = await parse(
+    bytes,
+    {
+      limits,
+      ocr: configuration.policy.ocr !== 'off',
+      languages: configuration.ocrLanguages ?? []
+    },
+    () => progress('ocr')
+  )
+  const input = validateDocumentInput({ schemaVersion: 1, source, pages })
+  if (ocrAttempted) onOCR(source)
   return { source, input, ocrAttempted }
 }
 

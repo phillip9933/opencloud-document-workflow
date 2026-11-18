@@ -5,18 +5,20 @@ import { RemoteError, remoteResponse, responseBytes } from './remote-transport.m
 export { RemoteError, responseBytes } from './remote-transport.mjs'
 import { parseDAV, parseTrash } from './dav-response.mjs'
 export { parseDAV, parseTrash } from './dav-response.mjs'
-const SPACE_MANAGER_ROLE = '71881883-1768-46bd-a24d-a356a2afdf7f'
+const maximumDownload = 100 * 1024 * 1024
+let bufferedDownloads = 0
+const ADMINISTRATOR_ROLE = '71881883-1768-46bd-a24d-a356a2afdf7f'
 import { createReadStream } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { stat } from 'node:fs/promises'
-import { safePath } from '../src/domain/review.ts'
+import { isSpaceId, safePath } from '../src/domain/review.ts'
 export class OpenCloudAdapter {
   /** @param {{origin:string,space:string,token?:string,username?:string,appToken?:string,fetcher?:typeof fetch}} options */
   constructor({ origin, space, token, username, appToken, fetcher = fetch }) {
     const u = new URL(origin)
     if (u.protocol !== 'https:' || u.origin !== origin || u.username || u.password)
       throw new WorkflowError('OPERATION_HELD', 'OpenCloud requires an HTTPS origin')
-    if (typeof space !== 'string' || !space || /[/\\?#%\x00-\x20]/.test(space))
+    if (!isSpaceId(space))
       throw new WorkflowError('VALIDATION_INVALID', 'Invalid configured Space ID')
     if (appToken !== undefined) {
       if (
@@ -148,7 +150,7 @@ export class OpenCloudAdapter {
         data.value.some(
           /** @param {unknown} role */ (role) =>
             responseRecord(role)?.principalId === this.account &&
-            responseRecord(role)?.appRoleId === SPACE_MANAGER_ROLE
+            responseRecord(role)?.appRoleId === ADMINISTRATOR_ROLE
         )
       )
     } catch (e) {
@@ -265,7 +267,21 @@ export class OpenCloudAdapter {
   }
   /** @param {string} path @param {string} [etag] @param {number} max */
   async get(path, etag, max = 100 * 1024 * 1024) {
-    return this.request('GET', this.url(path), { headers: etag ? { 'If-Match': etag } : {}, max })
+    if (bufferedDownloads >= 3)
+      throw new WorkflowError('WORKFLOW_BUSY', 'Document downloads are busy; try again shortly')
+    bufferedDownloads++
+    try {
+      return await this.request('GET', this.url(path), {
+        headers: etag ? { 'If-Match': etag } : {},
+        max: Math.min(max, maximumDownload)
+      })
+    } finally {
+      bufferedDownloads--
+    }
+  }
+  /** @param {string} path @param {string} etag @param {AbortSignal} signal */
+  async openDownload(path, etag, signal) {
+    return remoteResponse(this, 'GET', this.url(path), { headers: { 'If-Match': etag }, signal })
   }
   /** @param {string} path */
   async mkdir(path) {

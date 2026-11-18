@@ -3,6 +3,7 @@
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useLocale } from '../state/locale'
 import { processingKind, processingRecordStatus } from '../domain/processing'
+import RecordedDetails from './RecordedDetails.vue'
 import ProcessingProgress from './ProcessingProgress.vue'
 defineProps<{ embedded?: boolean }>()
 const { t, formatDate } = useLocale()
@@ -12,25 +13,40 @@ const store = useWorkspace(),
   router = useRouter(),
   route = useRoute(),
   operations = ref<any[]>([]),
+  listPages = ref<(string | null)[]>([null]),
+  nextListPage = ref<string | null>(null),
   active = ref<any>(null),
+  cursors = ref<(string | null)[]>([null]),
   error = ref('')
 let alive = true,
   generation = 0,
   refreshing = false,
   timer: ReturnType<typeof setInterval> | undefined
-async function load() {
+let listGeneration = 0
+async function load(pages = listPages.value) {
+  const version = ++listGeneration
   try {
-    const value = await store.request('operations')
-    if (alive) operations.value = value.operations ?? []
+    const value = await store.request('operations', pages.at(-1) ? { cursor: pages.at(-1) } : {})
+    if (alive && version === listGeneration) {
+      operations.value = value.operations ?? []
+      nextListPage.value = value.nextCursor ?? null
+      listPages.value = pages
+    }
   } catch (e) {
     if (alive) error.value = e instanceof Error ? e.message : 'Could not load operations'
   }
 }
-async function open(id: string) {
+async function open(id: string, pages: (string | null)[] = [null]) {
   const version = ++generation
   try {
-    const value = await store.request('operation', { id })
-    if (alive && version === generation) active.value = value
+    const value = await store.request('operation', {
+      id,
+      ...(pages.at(-1) ? { cursor: pages.at(-1) } : {})
+    })
+    if (alive && version === generation) {
+      active.value = value
+      cursors.value = pages
+    }
   } catch (e) {
     if (alive && version === generation)
       error.value = e instanceof Error ? e.message : 'Could not load results'
@@ -42,9 +58,9 @@ function progress(item: any) {
     stage: item.result?.stage,
     reviewState:
       item.state === 'done'
-        ? item.result?.bundle?.manualReview
+        ? item.result?.manualReview === 'object'
           ? 'needs_details'
-          : item.result?.bundle?.proposal
+          : item.result?.proposal === 'object'
             ? 'needs_review'
             : 'needs_ocr'
         : null
@@ -94,9 +110,14 @@ async function poll() {
     await Promise.all([
       load(),
       id
-        ? store.request('operation', { id }).then((value) => {
-            if (alive && version === generation && active.value?.id === id) active.value = value
-          })
+        ? store
+            .request('operation', {
+              id,
+              ...(cursors.value.at(-1) ? { cursor: cursors.value.at(-1) } : {})
+            })
+            .then((value) => {
+              if (alive && version === generation && active.value?.id === id) active.value = value
+            })
         : Promise.resolve()
     ])
   } catch (e) {
@@ -144,7 +165,7 @@ async function finishArchive(item: any) {
   <section class="panel operation-history">
     <div v-if="!embedded" class="list-heading">
       <h2>{{ t('Batch history') }}</h2>
-      <button class="button" @click="load">{{ t('Refresh') }}</button>
+      <button class="button" @click="load()">{{ t('Refresh') }}</button>
     </div>
     <ul>
       <li v-for="operation in operations" :key="operation.id">
@@ -154,6 +175,18 @@ async function finishArchive(item: any) {
         </button>
       </li>
     </ul>
+    <div v-if="listPages.length > 1 || nextListPage" class="actions">
+      <button
+        class="button"
+        :disabled="listPages.length === 1"
+        @click="load(listPages.slice(0, -1))"
+      >
+        {{ t('Previous page') }}
+      </button>
+      <button class="button" :disabled="!nextListPage" @click="load([...listPages, nextListPage])">
+        {{ t('Next page') }}
+      </button>
+    </div>
     <p v-if="!operations.length" class="empty-state">{{ t('No batch history') }}</p>
     <section v-if="active">
       <div class="list-heading">
@@ -166,20 +199,35 @@ async function finishArchive(item: any) {
         v-if="
           active.kind === 'prepare' &&
           ['completed', 'held', 'paused'].includes(active.state) &&
-          active.items.some((i: any) => i.state === 'held')
+          (active.counts?.held ?? active.items.some((i: any) => i.state === 'held'))
         "
         class="button"
         @click="retryHeld"
       >
         {{ t('Retry held documents') }}</button
       ><button
-        v-if="active.items.some((i: any) => i.state === 'queued')"
+        v-if="active.counts?.queued ?? active.items.some((i: any) => i.state === 'queued')"
         class="button"
         @click="resume"
       >
         {{ t('Resume queued documents') }}
       </button>
-      <article v-for="item in active.items" :key="item.position">
+      <nav v-if="cursors.length > 1 || active.nextCursor" class="actions">
+        <button
+          class="button"
+          :disabled="cursors.length < 2"
+          @click="open(active.id, cursors.slice(0, -1))"
+        >
+          {{ t('Previous page') }}</button
+        ><button
+          class="button"
+          :disabled="!active.nextCursor"
+          @click="open(active.id, [...cursors, active.nextCursor])"
+        >
+          {{ t('Next page') }}
+        </button>
+      </nav>
+      <article v-for="item in active.items" :key="active.id + ':' + item.position">
         <button class="document-link" @click="inspect(item)">
           {{
             item.input.path?.split('/').pop() || item.input.id?.slice(0, 12) || t('Document')
@@ -208,10 +256,14 @@ async function finishArchive(item: any) {
         >
           {{ t('Finish archiving original') }}
         </button>
-        <details>
-          <summary>{{ t('Recorded result') }}</summary>
-          <pre>{{ JSON.stringify(item.result, null, 2) }}</pre>
-        </details>
+        <RecordedDetails
+          label="Recorded result"
+          :load="
+            async () =>
+              (await store.request('operation-result', { id: active.id, position: item.position }))
+                .result
+          "
+        />
       </article>
     </section>
     <p v-if="error" role="alert" class="error">{{ t(error) }}</p>

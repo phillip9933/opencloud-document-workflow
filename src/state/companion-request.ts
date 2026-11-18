@@ -9,7 +9,7 @@ interface RequestContext {
 }
 /** Session renewal may continue a read only after the same identity is verified. */
 export function createCompanionRequest(context: RequestContext) {
-  return async function request(operation: string, body: unknown = {}) {
+  return async function request(operation: string, body: unknown = {}, signal?: AbortSignal) {
     const bearer = context.token(),
       generation = context.generation(),
       actor = context.connection(),
@@ -55,6 +55,7 @@ export function createCompanionRequest(context: RequestContext) {
         )
       verifiedBearer = renewed
     }
+    const timeout = AbortSignal.timeout(480_000)
     const response = await fetch(`/_workflow/api/${operation}`, {
       method: 'POST',
       headers: {
@@ -63,7 +64,7 @@ export function createCompanionRequest(context: RequestContext) {
         ...(context.space() ? { 'X-Workflow-Space': context.space() } : {})
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(480_000)
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout
     })
     await checkSession()
     if (operation === 'preview' && response.ok) {

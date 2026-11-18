@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { WorkflowError, errorCode } from '../src/domain/errors.ts'
+import { checkOperationCapacity, maxResultBytes } from './operation-capacity.mjs'
 import { logEvent } from './logging.mjs'
 import { withTransaction } from './transactions.mjs'
+import { pageOptions, pageCursor } from './pagination.mjs'
+import { verifyDocumentRead } from './workflow.mjs'
 import { createHash } from 'node:crypto'
 /** @typedef {import('./contracts.d.mts').Actor} Actor */
 /** @typedef {import('./operation-contracts.d.mts').OperationAdapter} Adapter */
@@ -40,8 +43,8 @@ export class Operations {
   spaceAdapter(actor, api, space) {
     return this.w.transfers.adapter(actor, api, space)
   }
-  /** @param {Actor} actor @param {string} id @returns {Operation} */
-  status(actor, id) {
+  /** @param {Actor} actor @param {string} id @returns {Omit<Operation,'items'>} */
+  header(actor, id) {
     const row = this.db
       .prepare('select id,kind,state,created,updated from bulk_operations where id=? and scope=?')
       .get(id, this.w.scope(actor))
@@ -54,27 +57,118 @@ export class Operations {
       kind: /** @type {Operation['kind']} */ (row.kind),
       state: String(row.state),
       created: String(row.created),
-      updated: String(row.updated),
-      items: this.db
-        .prepare(
-          'select position,input,state,result from bulk_items where operation=? order by position'
-        )
-        .all(id)
-        .map((i) => ({
-          position: Number(i.position),
-          state: String(i.state),
-          input: JSON.parse(String(i.input)),
-          result: i.result ? JSON.parse(String(i.result)) : null
-        }))
+      updated: String(row.updated)
     }
   }
-  /** @param {Actor} actor */
-  list(actor) {
-    return this.db
+  /** @param {Actor} actor @param {string} id @param {{limit?:number,cursor?:unknown}} [options] */
+  status(actor, id, options = {}) {
+    const header = this.header(actor, id)
+    const { limit, after } = pageOptions(options, 'number')
+    if (after && after.id !== id)
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid page cursor')
+    const rows = this.db
       .prepare(
-        'select id,kind,state,created,updated from bulk_operations where scope=? order by created desc'
+        `select position,state,
+      json_extract(input,'$.path') path, json_extract(input,'$.id') job,
+      case when result is not null then json_object(
+       'id',json_extract(result,'$.id'),'state',json_extract(result,'$.state'),
+       'error',json_extract(result,'$.error'),'stage',json_extract(result,'$.stage'),
+       'phase',json_extract(result,'$.phase'),'pdfResourceId',json_extract(result,'$.pdfResourceId'),
+       'manualReview',json_type(result,'$.bundle.manualReview'),'proposal',json_type(result,'$.bundle.proposal')
+      ) end summary from bulk_items where operation=? and position>? order by position limit ?`
       )
-      .all(this.w.scope(actor))
+      .all(id, after?.time ?? -1, limit + 1)
+    const items = rows.slice(0, limit).map((row) => ({
+      position: Number(row.position),
+      state: String(row.state),
+      input: {
+        ...(row.path ? { path: String(row.path) } : {}),
+        ...(row.job ? { id: String(row.job) } : {})
+      },
+      result: row.summary
+        ? Object.fromEntries(
+            Object.entries(JSON.parse(String(row.summary))).filter(([, value]) => value !== null)
+          )
+        : null
+    }))
+    const counts = this.db
+      .prepare('select state,count(*) n from bulk_items where operation=? group by state')
+      .all(id)
+    return {
+      ...header,
+      items,
+      counts: Object.fromEntries(counts.map((row) => [row.state, Number(row.n)])),
+      nextCursor: rows.length > limit ? pageCursor(items[limit - 1].position, id) : null
+    }
+  }
+  /** @param {Actor} actor @param {Adapter} api @param {string} id @param {unknown} position */
+  async result(actor, api, id, position) {
+    const operation = this.header(actor, id)
+    if (typeof position !== 'number' || !Number.isSafeInteger(position) || position < 0)
+      throw new WorkflowError('VALIDATION_INVALID', 'Invalid item position')
+    const row = this.db
+      .prepare('select input,result from bulk_items where operation=? and position=?')
+      .get(id, position)
+    if (!row) throw new WorkflowError('RESOURCE_NOT_FOUND', 'Operation item not found')
+    const input = JSON.parse(String(row.input)),
+      result = row.result ? JSON.parse(String(row.result)) : null
+    const job =
+      operation.kind === 'prepare'
+        ? result?.id
+        : ['automatic', 'file'].includes(operation.kind)
+          ? input.id
+          : null
+    if (job) await this.w.requireReadableJob(actor, api, job)
+    else await this.requireReadableInput(actor, api, input)
+    if (result?.storedProposal && job) {
+      const proposal = this.db
+        .prepare('select result from proposals where id=? and scope=?')
+        .get(job, this.w.scope(actor))
+      if (!proposal?.result)
+        throw new WorkflowError('RESOURCE_NOT_FOUND', 'Preparation details are unavailable')
+      delete result.storedProposal
+      result.bundle = JSON.parse(String(proposal.result))
+    }
+    return { result }
+  }
+  /** @param {Actor} actor @param {Adapter} api @param {Item['input']} input */
+  async requireReadableInput(actor, api, input) {
+    const physical = input.documentSpace
+      ? await this.spaceAdapter(actor, api, input.documentSpace)
+      : api
+    const file = input.path && (await physical.stat(input.path))
+    if (
+      !file ||
+      file.folder ||
+      !input.resourceId ||
+      file.resourceId !== input.resourceId ||
+      (input.etag && file.etag !== input.etag)
+    )
+      throw new WorkflowError('ACCESS_DENIED', 'Cannot verify document read access')
+    await verifyDocumentRead(physical, file.path, file.etag)
+  }
+  /** @param {Actor} actor @param {{limit?:number,cursor?:unknown}} [options] */
+  list(actor, options = {}) {
+    const { limit, after } = pageOptions(options)
+    const rows = this.db
+      .prepare(
+        `select id,kind,state,created,updated from bulk_operations where scope=?
+      and (? is null or (created,id)<(?,?)) order by created desc,id desc limit ?`
+      )
+      .all(
+        this.w.scope(actor),
+        after?.time ?? null,
+        after?.time ?? null,
+        after?.id ?? null,
+        limit + 1
+      )
+    return {
+      operations: rows.slice(0, limit),
+      nextCursor:
+        rows.length > limit
+          ? pageCursor(String(rows[limit - 1].created), String(rows[limit - 1].id))
+          : null
+    }
   }
   /** @param {Actor} actor @param {Adapter} api @param {import('./operation-contracts.d.mts').OperationRequest} request */
   start(actor, api, { id, kind, items }) {
@@ -104,14 +198,14 @@ export class Operations {
       return this.status(actor, id)
     }
     const now = new Date().toISOString()
+    const inputs = items.map((input) => JSON.stringify(input))
     withTransaction(this.db, () => {
+      checkOperationCapacity(this.db, actor, scope, inputs)
       this.db
         .prepare("insert into bulk_operations values(?,?,?,?,'queued',?,?)")
         .run(id, scope, kind, request, now, now)
-      items.forEach((input, index) =>
-        this.db
-          .prepare("insert into bulk_items values(?,?,?,'queued',NULL)")
-          .run(id, index, JSON.stringify(input))
+      inputs.forEach((input, index) =>
+        this.db.prepare("insert into bulk_items values(?,?,?,'queued',NULL)").run(id, index, input)
       )
       this.w.event(actor, null, 'bulk_queued', { id, kind, count: items.length })
     })
@@ -120,7 +214,7 @@ export class Operations {
   }
   /** @param {Actor} actor @param {Adapter} api @param {string} id */
   launch(actor, api, id) {
-    this.status(actor, id)
+    this.header(actor, id)
     if (this.stopped || this.active.has(id)) return
     clearTimeout(this.retries.get(id))
     this.retries.delete(id)
@@ -144,7 +238,19 @@ export class Operations {
     const totals = { waiting: 0, running: 0, retryable: 0, cancellable: 0 }
     for (const row of this.db
       .prepare(
-        "select o.kind,o.state operation,i.state,count(*) n from bulk_operations o join bulk_items i on i.operation=o.id where o.scope=? and o.kind in ('prepare','convert') and (i.state<>'held' or ? is null or exists(select 1 from json_each(?) f where json_extract(f.value,'$.path')=json_extract(i.input,'$.path') and coalesce(json_extract(i.input,'$.documentSpace'),?)=? and (json_extract(i.input,'$.resourceId') is null or json_extract(i.input,'$.resourceId')=json_extract(f.value,'$.resourceId')) and (json_extract(i.input,'$.etag') is null or json_extract(i.input,'$.etag')=json_extract(f.value,'$.etag')))) group by o.kind,o.state,i.state"
+        `select o.kind, o.state operation, i.state, count(*) n
+         from bulk_operations o join bulk_items i on i.operation=o.id
+         where o.scope=? and o.kind in ('prepare','convert')
+           and (i.state<>'held' or ? is null or exists (
+             select 1 from json_each(?) f
+             where json_extract(f.value,'$.path')=json_extract(i.input,'$.path')
+               and coalesce(json_extract(i.input,'$.documentSpace'),?)=?
+               and (json_extract(i.input,'$.resourceId') is null
+                 or json_extract(i.input,'$.resourceId')=json_extract(f.value,'$.resourceId'))
+               and (json_extract(i.input,'$.etag') is null
+                 or json_extract(i.input,'$.etag')=json_extract(f.value,'$.etag'))
+           ))
+         group by o.kind,o.state,i.state`
       )
       .all(
         this.w.scope(actor),
@@ -236,7 +342,7 @@ export class Operations {
   }
   /** @param {Actor} actor @param {Adapter} api @param {string} id */
   retryHeld(actor, api, id) {
-    const operation = this.status(actor, id)
+    const operation = this.header(actor, id)
     if (
       operation.kind !== 'prepare' ||
       !['completed', 'held', 'paused'].includes(operation.state) ||
@@ -265,16 +371,29 @@ export class Operations {
       waiting = false
     try {
       release = this.w.lock('bulk:' + id)
-      const operation = this.status(actor, id)
+      const operation = this.header(actor, id)
       this.db
         .prepare("update bulk_operations set state='running',updated=? where id=?")
         .run(new Date().toISOString(), id)
-      for (const item of operation.items) {
+      const next = this.db.prepare(
+        "select position,input,state from bulk_items where operation=? and position>? and state in ('queued','running') order by position limit 1"
+      )
+      let position = -1
+      while (true) {
         if (
           this.stopped ||
           (['prepare', 'convert'].includes(operation.kind) && this.w.intake.paused(actor))
         )
           break
+        const row = next.get(id, position)
+        if (!row) break
+        position = Number(row.position)
+        const item = {
+          position,
+          input: JSON.parse(String(row.input)),
+          state: String(row.state),
+          result: null
+        }
         if (!this.claimItem(id, item)) continue
         const outcome = await this.runQueued(actor, api, operation, item)
         waiting = outcome === 'busy'
@@ -314,7 +433,7 @@ export class Operations {
     this.item(id, item.position, 'running', null)
     return true
   }
-  /** @param {Actor} actor @param {Adapter} api @param {Operation} operation @param {Item} item
+  /** @param {Actor} actor @param {Adapter} api @param {Pick<Operation,'id'|'kind'>} operation @param {Item} item
    * @returns {Promise<'busy'|'session'|'next'>} */
   async runQueued(actor, api, operation, item) {
     const id = operation.id
@@ -361,7 +480,7 @@ export class Operations {
     this.item(id, position, 'queued', { error: 'Sign in again before resuming queued documents' })
     return 'session'
   }
-  /** @param {Actor} actor @param {Adapter} api @param {Adapter} physical @param {Operation} operation @param {Item} item */
+  /** @param {Actor} actor @param {Adapter} api @param {Adapter} physical @param {Pick<Operation,'id'|'kind'>} operation @param {Item} item */
   async executeItem(actor, api, physical, operation, item) {
     const input = item.input
     switch (operation.kind) {
@@ -453,9 +572,39 @@ export class Operations {
   }
   /** @param {string} id @param {number} position @param {string} state @param {import('./operation-contracts.d.mts').OperationResult | null} result */
   item(id, position, state, result) {
+    let encoded = result ? JSON.stringify(result) : null
+    if (encoded && Buffer.byteLength(encoded) > maxResultBytes) {
+      const data = JSON.parse(encoded)
+      // Preparation evidence already belongs to its scoped proposal journal.
+      const stored =
+        typeof data.id === 'string' &&
+        data.bundle &&
+        this.db
+          .prepare(
+            "select 1 from proposals p join bulk_operations o on o.scope=p.scope where o.id=? and o.kind='prepare' and p.id=? and p.result is not null"
+          )
+          .get(id, data.id)
+      encoded = JSON.stringify(
+        stored
+          ? {
+              id: data.id,
+              cached: !!data.cached,
+              storedProposal: true,
+              bundle: {
+                ...(data.bundle.proposal ? { proposal: {} } : {}),
+                ...(data.bundle.manualReview ? { manualReview: {} } : {})
+              }
+            }
+          : {
+              state,
+              detail:
+                'The recorded result exceeds the batch detail limit. Open the document for details.'
+            }
+      )
+    }
     this.db
       .prepare('update bulk_items set state=?,result=? where operation=? and position=?')
-      .run(state, result ? JSON.stringify(result) : null, id, position)
+      .run(state, encoded, id, position)
   }
   async stop() {
     this.stopped = true

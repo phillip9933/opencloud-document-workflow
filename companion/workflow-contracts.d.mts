@@ -13,6 +13,7 @@ export interface PageOptions {
   cursor?: unknown
 }
 export interface JobOptions extends PageOptions {
+  summary?: boolean
   id?: string | null
   activeOnly?: boolean
 }

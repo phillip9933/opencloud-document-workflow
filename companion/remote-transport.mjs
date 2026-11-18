@@ -43,21 +43,22 @@ export function assertRemoteURL(context, method, url) {
     throw new WorkflowError('OPERATION_HELD', 'URL outside configured endpoints')
 }
 /** @param {RemoteContext} context @param {string} method @param {string} url
- * @param {{body?:NonNullable<Parameters<typeof fetch>[1]>['body'],headers?:Record<string,string>,timeout?:number,duplex?:'half',statuses?:number[]}} [options]
+ * @param {{body?:NonNullable<Parameters<typeof fetch>[1]>['body'],headers?:Record<string,string>,timeout?:number,duplex?:'half',statuses?:number[],signal?:AbortSignal}} [options]
  */
 export async function remoteResponse(
   context,
   method,
   url,
-  { body, headers = {}, timeout = 60000, duplex, statuses } = {}
+  { body, headers = {}, timeout = 60000, duplex, statuses, signal } = {}
 ) {
   assertRemoteURL(context, method, url)
+  const deadline = AbortSignal.timeout(timeout)
   const response = await context.fetcher(url, {
     method,
     body,
     ...(duplex ? { duplex } : {}),
     redirect: 'error',
-    signal: AbortSignal.timeout(timeout),
+    signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
     headers: { ...headers, Authorization: context.auth }
   })
   if (statuses ? !statuses.includes(response.status) : !response.ok) {
@@ -68,6 +69,10 @@ export async function remoteResponse(
 }
 /** @param {Response} response @param {number} [max] */
 export async function responseBytes(response, max = 25 * 1024 * 1024) {
+  if (!Number.isFinite(max) || max < 0 || Number(response.headers.get('content-length')) > max) {
+    await response.body?.cancel()
+    throw new WorkflowError('VALIDATION_INVALID', 'Remote response exceeds limit')
+  }
   const parts = []
   let size = 0
   for await (const chunk of response.body ?? []) {

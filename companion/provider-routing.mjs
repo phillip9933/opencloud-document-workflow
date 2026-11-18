@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { WorkflowError } from '../src/domain/errors.ts'
+import { isIP } from 'node:net'
 import { createHash } from 'node:crypto'
 import { validateAIConfig } from '../src/domain/ai.ts'
-/** @param {string} value */
-export function localEndpoint(value) {
+/** @param {string} value @param {string} [allowedHostname] */
+export function localEndpoint(value, allowedHostname = process.env.WORKFLOW_OLLAMA_HOSTNAME) {
   const u = new URL(value)
   const h = u.hostname
-  const privateHost =
-    h === 'localhost' ||
-    h === '[::1]' ||
-    /^127\./.test(h) ||
-    /^10\./.test(h) ||
-    /^192\.168\./.test(h) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(h)
+  const address = isIP(h)
+  const privateIPv4 =
+    address === 4 && /^(?:127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(h)
+  const namedHost =
+    address === 0 &&
+    /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/i.test(h) &&
+    h === allowedHostname?.toLowerCase()
+  const privateHost = h === 'localhost' || h === '[::1]' || privateIPv4 || namedHost
   if (
     !privateHost ||
     !['http:', 'https:'].includes(u.protocol) ||

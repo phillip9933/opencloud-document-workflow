@@ -20,7 +20,8 @@ const events = new Set([
   'app_token_failed',
   'bulk_item_held',
   'bulk_failed',
-  'automation_held'
+  'automation_held',
+  'text_retention_failed'
 ])
 const codes = new Set([
   ...workflowErrorCodes,
@@ -84,15 +85,16 @@ const types = new Set(['Error', 'TypeError', 'RangeError', 'SyntaxError', 'Abort
 
 /** @param {(line: string) => unknown} [write] @returns {import('./contracts.d.mts').Logger} */
 export function createLogger(write = (line) => process.stderr.write(line)) {
-  return (event, error) => {
+  return (event, error, context) => {
     // Allowlisted metadata only: messages, stack text, URLs, request bodies and
     // arbitrary error properties may contain document content or credentials.
-    /** @type {{time:string,level:string,event:string,errorType?:string,code?:string,status?:number,reason?:string,locations?:string[]}} */
+    /** @type {{time:string,level:string,event:string,errorType?:string,code?:string,status?:number,reason?:string,locations?:string[],requestId?:string}} */
     const record = {
       time: new Date().toISOString(),
       level: error ? 'error' : 'info',
       event: events.has(event) ? event : 'http_handler_failed'
     }
+    if (context && /^[a-f0-9-]{36}$/.test(context.requestId)) record.requestId = context.requestId
     if (error) {
       const detail = typeof error === 'object' ? /** @type {Record<string,unknown>} */ (error) : {}
       record.level = errorLevel(detail)

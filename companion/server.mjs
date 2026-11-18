@@ -10,6 +10,8 @@ import { SessionSupervisor } from './session.mjs'
 import { BackupManager } from './backups.mjs'
 import { createWorkflowAPI } from './draft-api.mjs'
 import { listenAddress } from './listen.mjs'
+import { retentionDays } from './text-retention.mjs'
+import { createPDFWorkerClient } from './pdf-worker-client.mjs'
 import { healthResponse } from './health.mjs'
 const version = JSON.parse(await readFile(resolve('package.json'), 'utf8')).version
 const port = Number(process.env.WORKFLOW_PORT || 5175)
@@ -31,6 +33,12 @@ let appTokens
 const api = createWorkflowAPI({
   database,
   mode,
+  allowedAccounts: process.env.WORKFLOW_ALLOWED_ACCOUNTS?.split(',')
+    .map((id) => id.trim())
+    .filter(Boolean),
+  textRetentionDays: retentionDays(process.env.WORKFLOW_TEXT_RETENTION_DAYS),
+  parsePDF:
+    mode === 'live' ? createPDFWorkerClient(process.env.WORKFLOW_CONVERSION_URL) : undefined,
   origin: process.env.WORKFLOW_OPENCLOUD_ORIGIN ?? '',
   space: process.env.WORKFLOW_SPACE_ID || undefined,
   ollama: process.env.WORKFLOW_OLLAMA_URL,

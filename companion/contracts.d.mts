@@ -21,7 +21,7 @@ export interface ConfigurationOwner {
   scope(actor: Actor): string
   event(actor: Actor, job: string | null, kind: string, detail?: Record<string, unknown>): void
 }
-export type Logger = (event: string, error?: unknown) => void
+export type Logger = (event: string, error?: unknown, context?: { requestId: string }) => void
 
 export interface FileEntry {
   path: string
@@ -36,6 +36,8 @@ export interface FileReader {
   list(path: string): Promise<FileEntry[]>
 }
 export interface FilingAdapter {
+  digest?(path: string, etag: string, limit: number): Promise<{ bytes: number; sha256: string }>
+  openDownload?(path: string, etag: string, signal: AbortSignal): Promise<Response>
   get(path: string, etag?: string, limit?: number): Promise<Buffer>
   stat(path: string): Promise<FileEntry | null>
   mkdir(path: string): Promise<unknown>
@@ -90,6 +92,7 @@ export interface LocationOwner extends ConfigurationOwner {
 }
 
 export interface DocumentReader extends FileReader {
+  digest?: FilingAdapter['digest']
   space?: string
   get(path: string, etag?: string, limit?: number): Promise<Buffer>
 }
@@ -101,6 +104,7 @@ export interface DocumentReadOptions {
   configuration: { policy: import('../src/domain/review.ts').Policy; ocrLanguages?: string[] }
   limits?: ProcessingLimits
   progress(stage: 'ocr'): void
+  parse?: typeof import('./pdf-worker.mjs').parsePDFText
   onOCR(source: import('../src/domain/review.ts').Source): void
 }
 

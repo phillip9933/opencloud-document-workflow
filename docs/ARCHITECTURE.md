@@ -25,7 +25,7 @@ The production graph rejects missing or conflicting services and prevents later 
 
 ## Reading and preparation
 
-Poppler extracts PDF text; Tesseract handles scanned pages independently of AI. Conversion of images/Office files is opt-in and runs in an isolated converter without credentials, persistent storage or an internet route. Original-format files remain browseable and manually fileable.
+Poppler extracts PDF text; Tesseract handles scanned pages independently of AI. In live installations these tools run in the isolated document worker alongside opt-in image and Office conversion. The worker has a read-only OCR model mount and temporary scratch space. It has no credentials, document or journal volumes, published ports or internet route. Original-format files remain browseable and manually fileable.
 
 The selected local Ollama or hosted endpoint receives bounded complete source text. Hosted processing requires configuration and consent; there is no implicit fallback or page truncation. Every proposed fact must meet the schema and evidence checks. Missing/ambiguous evidence creates a manual-review hold rather than a guessed value. Typed error codes govern fallback and correction decisions; display translations cannot grant processing or mutation authority.
 
@@ -59,7 +59,9 @@ The native store ZIP installs frontend assets only. The coordinated kit installs
 
 `createWorkflowAPI` is the production API factory. `createDraftAPI` remains a compatibility alias. `WORKFLOW_DB` selects the journal; `WORKFLOW_DRAFT_DB` and the old default path remain supported to avoid silently moving an existing installation. Historical build/archive names are retained for installer compatibility.
 
-OpenCloud App Tokens are stored separately from the journal and excluded from journal backups. Backups may contain workflow records for every user served by the companion; their storage requires appropriate access restrictions.
+OpenCloud App Tokens are stored separately from the journal and excluded from journal backups. SQLite snapshots contain workflow records for every user served by the companion, including retained page text and evidence excerpts. Snapshots are not encrypted by Document Workflow. Restrict access to their destination; older snapshots are unchanged by live retention.
+
+By default the live companion removes full page text and raw diagnostics 90 days after completed processing, and on a bounded hourly cleanup after a confirmed, identity-matched Trash move. `--text-retention-days` adjusts the age for completed processing. Pending reviews and uncertain writes retain their evidence. Completed records keep the document identity, approval, history, metadata and evidence excerpts; removed text stops contributing to search and similarity. A missing path alone is not proof of deletion, so external moves do not trigger a purge.
 
 Backup staging uses its own private SQLite ownership sidecar on local storage. Its transaction is released after an unclean stop; legacy hostname/PID lock files no longer govern ownership. Under that lock, cleanup removes only generated temporary snapshots not referenced by a pending upload. Corrupt upload intents stop cleanup, and uncertain uploads retain their stage for read-only reconciliation. Saved snapshots are never automatically pruned: configured capacity is a hold limit, not a rolling retention policy.
 

@@ -1,0 +1,10 @@
+# Patched transitive dependencies used by the OpenCloud build tooling.
+overrides:
+  'axios@>=1.0.0 <1.20.0': 1.20.0
+  'ws@>=8.0.0 <8.21.0': 8.21.0
+  '@module-federation/dts-plugin>adm-zip': 0.6.1
+  'glob@>=9.0.0 <=14.0.1': 14.0.6
+  'minimatch@>=7.0.0 <11.0.1': 11.0.9
+# Upstream PR 194, commit 7be3276fb8bd215a8c73fa066bcaf696c244ad88.
+patchedDependencies:
+  picomatch@4.0.7: patches/picomatch@4.0.7.patch

@@ -2,8 +2,9 @@
 import { WorkflowError } from '../src/domain/errors.ts'
 import { validateSpace } from '../src/domain/review.ts'
 import { defaultFilingRules, validateFilingRules } from '../src/domain/filing.ts'
+export const maxDocumentMiB = 100
 export const defaultLimits = () => ({
-  maxMiB: 100,
+  maxMiB: maxDocumentMiB,
   maxPages: 1000,
   maxCharacters: 1000000,
   documentsPerCycle: 20,
@@ -12,7 +13,7 @@ export const defaultLimits = () => ({
 /** @param {unknown} value @returns {import('./contracts.d.mts').ProcessingLimits} */
 export function validateLimits(value) {
   const bounds = {
-    maxMiB: [1, 1024],
+    maxMiB: [1, maxDocumentMiB],
     maxPages: [1, 10000],
     maxCharacters: [1000, 8000000],
     documentsPerCycle: [1, 1000],
@@ -35,6 +36,15 @@ export function validateLimits(value) {
   }
   return structuredClone(/** @type {import('./contracts.d.mts').ProcessingLimits} */ (value))
 }
+/** Read older installations without allowing a saved limit to bypass the new ceiling.
+ * @param {string} json
+ */
+function storedLimits(json) {
+  const limits = { ...defaultLimits(), ...JSON.parse(json) }
+  if (Number.isInteger(limits.maxMiB) && limits.maxMiB > maxDocumentMiB && limits.maxMiB <= 1024)
+    limits.maxMiB = maxDocumentMiB
+  return validateLimits(limits)
+}
 export class Configuration {
   /** @param {import('./contracts.d.mts').ConfigurationOwner} workflow */
   constructor(workflow) {
@@ -49,7 +59,7 @@ export class Configuration {
     return row
       ? {
           rules: validateFilingRules(JSON.parse(String(row.rules))),
-          limits: validateLimits({ ...defaultLimits(), ...JSON.parse(String(row.limits)) })
+          limits: storedLimits(String(row.limits))
         }
       : { rules: defaultFilingRules(), limits: defaultLimits() }
   }

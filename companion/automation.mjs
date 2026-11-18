@@ -68,6 +68,7 @@ export class Automation {
         .get(id, this.w.scope(actor))
     )
     if (
+      this.w.decision(actor, id)?.state === 'rejected' ||
       !saved ||
       !['pending', 'running'].includes(saved.state) ||
       saved.authorization !== JSON.stringify(record) ||

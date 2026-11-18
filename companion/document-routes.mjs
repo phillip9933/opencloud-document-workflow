@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { createDocumentPreview } from './document-preview.mjs'
 import { WorkflowError } from '../src/domain/errors.ts'
 import {
   requestText,
@@ -118,11 +119,13 @@ export function createDocumentRoutes({
       return true
     },
     async jobs({ actor, body, res }) {
-      send(res, 200, workflow.jobPage(actor, body))
+      send(res, 200, workflow.jobPage(actor, { ...body, summary: true }))
       return true
     },
     async job({ actor, api, body, res }) {
-      const job = workflow.jobView(actor, requestText(body.id))
+      const id = requestText(body.id)
+      await workflow.requireReadableJob(actor, api, id)
+      const job = workflow.jobView(actor, id)
       /** @type {Array<{id:string,path:string}>} */
       let potentialDuplicates = [],
         duplicateCheck = 'complete'
@@ -214,23 +217,6 @@ export function createDocumentRoutes({
       send(res, 200, { files, ...(flat ? { summary: inboxSummary(files) } : {}) })
       return true
     },
-    async preview({ actor, documentAPI, body, res }) {
-      const current = await documentAPI.stat(requestText(body.path))
-      if (!current || current.folder)
-        throw new WorkflowError('OPERATION_HELD', 'Document not found')
-      const bytes = await documentAPI.get(
-        requestText(body.path),
-        current.etag,
-        configurationStore.settings(actor).limits.maxMiB * 1024 * 1024
-      )
-      res.writeHead(200, {
-        'Content-Type': 'application/pdf',
-        'Cache-Control': 'no-store',
-        'Content-Disposition': 'inline; filename="document.pdf"',
-        'X-Content-Type-Options': 'nosniff'
-      })
-      res.end(bytes)
-      return true
-    }
+    preview: createDocumentPreview(configurationStore)
   }
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // SPDX-License-Identifier: AGPL-3.0-only
+import RecordedDetails from '../components/RecordedDetails.vue'
 import FiledDocuments from '../components/FiledDocuments.vue'
 import OperationHistory from '../components/OperationHistory.vue'
 import IngestionHistory from '../components/IngestionHistory.vue'
@@ -11,7 +12,15 @@ const batchesOpen = ref(false)
 const store = useWorkspace(),
   route = useRoute(),
   { t, formatDate } = useLocale(),
-  events = ref<{ seq: number; job: string; kind: string; detail: unknown; created: string }[]>([]),
+  events = ref<
+    {
+      seq: number
+      job: string
+      kind: string
+      detail: Record<string, unknown> | null
+      created: string
+    }[]
+  >([]),
   error = ref(''),
   nextCursor = ref<string | null>(null),
   queueTotal = ref<number | null>(null)
@@ -85,7 +94,12 @@ watch(
       <article v-for="event in events" :key="event.seq">
         <time>{{ formatDate(event.created) }}</time
         ><strong>{{ t(event.kind.replaceAll('_', ' ')) }}</strong>
-        <details>
+        <RecordedDetails
+          v-if="event.job"
+          label="Details"
+          :load="async () => (await store.request('activity-detail', { seq: event.seq })).detail"
+        />
+        <details v-else-if="event.detail && Object.keys(event.detail).length">
           <summary>{{ t('Details') }}</summary>
           <pre>{{ JSON.stringify(event.detail, null, 2) }}</pre>
         </details>

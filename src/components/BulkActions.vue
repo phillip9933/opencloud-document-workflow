@@ -222,7 +222,8 @@ async function inspectFiling() {
       policy = JSON.parse(JSON.stringify(store.policy.value))
     for (const doc of props.documents) {
       let job = store.jobs.value.find((job) => job.source.resourceId === doc.resourceId)
-      if (!job && doc.reviewJob) job = (await store.request('job', { id: doc.reviewJob })).job
+      const id = doc.reviewJob ?? job?.id
+      if (id) job = (await store.request('job', { id })).job
       if (generation !== selectionGeneration || !alive) return
       if (!job?.bundle || job.decision)
         throw new WorkflowError('OPERATION_HELD', 'Open the document before continuing')

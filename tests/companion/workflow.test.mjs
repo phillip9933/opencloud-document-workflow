@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { retireExtractedText } from '../../companion/text-retention.mjs'
 import { ProposalJournal } from '../../companion/journal.mjs'
 import { Workflow } from './helpers/workflow.mjs'
 import { DemoAdapter } from '../../companion/demo.mjs'
@@ -101,6 +102,8 @@ test('approved filing preserves bytes, resource identity and existing tags; repe
     assert.ok(Date.parse(verified.verification.checkedAt))
     assert.equal(moves, 1)
     assert.equal(tags, 1)
+    assert.equal(retireExtractedText(s.j.db, 90, Date.now() + 91 * 86400000), 1)
+    assert.equal(s.w.jobPage(s.actor, { id: s.result.id }).jobs[0].bundle, null)
     s.j.close()
     s.j = new ProposalJournal(s.path)
     s.w = new Workflow(s.j)
@@ -974,4 +977,29 @@ test('an incomplete resumed filing plan is held before creating folders or movin
   } finally {
     s.close()
   }
+})
+
+test('a rejection recorded during source verification survives automatic approval', async (t) => {
+  const s = await setup()
+  t.after(() => s.close())
+  const id = s.result.id,
+    policy = defaultPolicy(),
+    digest = await reviewDigest(s.result.review, policy)
+  const check = s.w.check.bind(s.w)
+  t.mock.method(s.w, 'check', async (...args) => {
+    s.w.reject(s.actor, id)
+    return check(...args)
+  })
+  const options = {
+    automaticAuthorization: { kind: 'automatic', authorizedAt: new Date().toISOString() }
+  }
+  await assert.rejects(
+    s.w.approve(s.actor, s.api, id, policy, digest, undefined, options),
+    /Another decision/
+  )
+  await assert.rejects(
+    s.w.approve(s.actor, s.api, id, policy, digest, undefined, options),
+    /already recorded/
+  )
+  assert.equal(s.w.decision(s.actor, id).state, 'rejected')
 })

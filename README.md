@@ -2,7 +2,7 @@
 
 Document Workflow brings lightweight document management directly into OpenCloud, inspired by apps like Paperless-ngx and Papra. Organize your documents with searchable text, tags and custom fields, with optional AI assistance to suggest filenames, folders, and document details. Review suggestions before filing or automate the process from your chosen inbox without leaving OpenCloud.
 
-**0.20.3 Beta.** Tested with OpenCloud 9 and Web SDK 8.2.1. It is an independent community app, not an official OpenCloud product.
+**1.0.0 candidate.** Targets OpenCloud 9 and Web SDK 8.2.1. It is an independent community app, not an official OpenCloud product.
 
 ## What it does
 
@@ -35,7 +35,7 @@ All screenshots use fictional documents. Select an image to view it at full size
 
 Download the matching **installation kit** from [Releases](https://github.com/phillip9933/opencloud-document-workflow/releases). Extract it, verify `SHA256SUMS`, and run `./install.sh install` as an administrator on the Docker host. See [Quick install](docs/QUICK_INSTALL.md) for prerequisites, options and rollback.
 
-The kit includes the Web app and the companion image build context, with Node, SQLite, Poppler, Tesseract and initial English/Japanese OCR data inside the container. A separate isolated conversion service supplies LibreOffice, MuPDF and image-to-PDF conversion; the installer manages it automatically. It has no OpenCloud credentials, storage mounts, public ports or internet route. Docker/Compose, Bash and `sha256sum` must already be available. Building the image downloads packages from the official Node/Debian sources. AI models are optional and configured separately.
+The kit includes the Web app and the companion image build context, with Node, SQLite, Poppler, Tesseract and initial English/Japanese OCR data inside the container. The installer manages a separate document worker for PDF extraction, OCR, and optional conversion. It has no OpenCloud credentials, writable data volumes, public ports or internet route. Docker/Compose, Bash and `sha256sum` must already be available. Building the image downloads packages from the official Node/Debian sources. AI models are optional and configured separately.
 
 **The OpenCloud store ZIP installs the frontend only.** Processing requires the companion service. Traefik routing can be configured by the installer; Caddy and other proxies use the external-proxy option and an administrator-configured same-origin route. See [Installation boundaries](docs/INSTALLATION.md).
 

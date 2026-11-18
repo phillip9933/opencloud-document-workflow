@@ -97,10 +97,19 @@ function text(value: unknown, max = 150): string {
     fail('Invalid text field', 'INVALID_TEXT')
   return value
 }
+export function isSpaceId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 400 &&
+    value !== '.' &&
+    value !== '..' &&
+    !/[/\\?#%\x00-\x20\x7f]/.test(value)
+  )
+}
 export function validateSpace(value: unknown): string {
-  const id = text(value, 400)
-  if (/[/\\?#%\x00-\x20]/.test(id)) fail('Invalid Space')
-  return id
+  if (!isSpaceId(value)) fail('Invalid Space')
+  return value
 }
 export function safePath(value: unknown): string {
   const path = text(value, 400)
@@ -269,19 +278,8 @@ export function filename(p: Proposal, profile = defaultLanguageProfile): string 
   return safePath(`${iso} ${filenameFact(p.issuer.value)} ${filenameFact(p.kind.value)}.pdf`)
 }
 export type DocumentInput = Omit<Bundle, 'proposal'>
-export function validateDocumentInput(value: unknown, originalFile = false): DocumentInput {
-  const b = object(value, [
-    'schemaVersion',
-    'source',
-    'pages',
-    ...(value && typeof value === 'object' && 'rules' in value ? ['rules'] : []),
-    ...(value && typeof value === 'object' && 'destinationSpace' in value
-      ? ['destinationSpace']
-      : []),
-    ...(value && typeof value === 'object' && 'tagDiscovery' in value ? ['tagDiscovery'] : [])
-  ])
-  if (b.schemaVersion !== 1) fail('Unsupported review schema')
-  const s = object(b.source, ['server', 'account', 'space', 'resourceId', 'path', 'etag', 'sha256'])
+function validateSource(value: unknown): Source {
+  const s = object(value, ['server', 'account', 'space', 'resourceId', 'path', 'etag', 'sha256'])
   const server = text(s.server, 300)
   const url = new URL(server)
   if (
@@ -295,13 +293,28 @@ export function validateDocumentInput(value: unknown, originalFile = false): Doc
   const source: Source = {
     server,
     account: text(s.account),
-    space: text(s.space),
+    space: validateSpace(s.space),
     resourceId: text(s.resourceId, 400),
     path: safePath(s.path),
     etag: text(s.etag, 300),
     sha256: text(s.sha256)
   }
   if (!/^[a-f0-9]{64}$/.test(source.sha256)) fail('Expected SHA256')
+  return source
+}
+export function validateDocumentInput(value: unknown, originalFile = false): DocumentInput {
+  const b = object(value, [
+    'schemaVersion',
+    'source',
+    'pages',
+    ...(value && typeof value === 'object' && 'rules' in value ? ['rules'] : []),
+    ...(value && typeof value === 'object' && 'destinationSpace' in value
+      ? ['destinationSpace']
+      : []),
+    ...(value && typeof value === 'object' && 'tagDiscovery' in value ? ['tagDiscovery'] : [])
+  ])
+  if (b.schemaVersion !== 1) fail('Unsupported review schema')
+  const source = validateSource(b.source)
   if (
     !Array.isArray(b.pages) ||
     (!originalFile && !b.pages.length) ||
@@ -319,6 +332,109 @@ export function validateDocumentInput(value: unknown, originalFile = false): Doc
     ...(rules ? { rules } : {}),
     ...('destinationSpace' in b ? { destinationSpace: validateSpace(b.destinationSpace) } : {}),
     ...('tagDiscovery' in b ? { tagDiscovery: validateTagDiscovery(b.tagDiscovery) } : {})
+  }
+}
+function validateFolderClaim(
+  folder: Claim,
+  rules: FilingRules | undefined,
+  profile: LanguageProfile
+) {
+  if (
+    rules
+      ? !rules.folders.some((r) => r.value === folder.value)
+      : folder.value !== 'Other' &&
+        !['Utilities/Electricity', 'Utilities/Water', 'Finance', 'Correspondence'].includes(
+          folder.value
+        )
+  )
+    fail('Unknown folder category', 'FOLDER_UNKNOWN')
+  if (
+    folder.value !== 'Other' &&
+    !(rules
+      ? ruleSupported(
+          folder.value,
+          folder.evidence.map((e) => e.quote),
+          rules.folders,
+          rules
+        )
+      : supported(folder, profile))
+  )
+    fail('Folder lacks supporting evidence', 'FOLDER_UNSUPPORTED')
+}
+function validateModelProposal(
+  input: DocumentInput,
+  value: unknown,
+  profile: LanguageProfile
+): Review {
+  const { pages, rules } = input
+  const p = object(value, ['issuer', 'date', 'kind', 'folder', 'tags'])
+  if (
+    !Array.isArray(p.tags) ||
+    p.tags.length > (input.tagDiscovery ? 50 : (rules?.tags.length ?? 5))
+  )
+    fail('Invalid tag proposals', 'TAGS_INVALID')
+  const proposal: Proposal = {
+    issuer: claim(p.issuer, pages, true),
+    date: dateClaim(p.date, pages, profile),
+    kind: claim(p.kind, pages, true),
+    folder: claim(p.folder, pages, false),
+    tags: p.tags.map((t) => {
+      const tag = claim(t, pages, false)
+      return input.tagDiscovery
+        ? { ...tag, value: canonicalTag(tag.value, input.tagDiscovery) }
+        : tag
+    })
+  }
+  validateFolderClaim(proposal.folder, rules, profile)
+  const folderMatches = rules ? explicitFolderMatches(pages, rules) : []
+  if (proposal.folder.value === 'Other' && folderMatches.length === 1)
+    proposal.folder = folderMatches[0]!
+  if (rules) printedDateISO(proposal.date.value, profile)
+  else filename(proposal, profile)
+  const tagSupported = (t: Claim) =>
+    input.tagDiscovery
+      ? discoveredTagAllowed(t.value, input.tagDiscovery)
+      : rules
+        ? ruleSupported(
+            t.value,
+            t.evidence.map((e) => e.quote),
+            rules.tags,
+            rules
+          )
+        : supported(t, profile)
+  const excluded = proposal.tags.filter((t) => !tagSupported(t))
+  const rawProposal = structuredClone(proposal)
+  proposal.tags = proposal.tags.filter(tagSupported)
+  return {
+    state: 'needs_review',
+    bundle: { ...input, proposal: rawProposal },
+    proposal,
+    excluded,
+    ...(folderMatches.length === 1 ? { ruleMatch: folderMatches[0]!.value } : {}),
+    ...(folderMatches.length > 1 ? { ruleAmbiguous: true } : {})
+  }
+}
+function validateManualReview(input: DocumentInput, value: unknown, proposal: unknown): Review {
+  const { source, pages } = input
+  const manual = object(value, ['reason'])
+  if (
+    !['evidence', 'date', 'capacity', 'text', 'original', 'rules'].includes(
+      String(manual.reason)
+    ) ||
+    proposal !== null ||
+    (!['text', 'original'].includes(String(manual.reason)) && pages.some((p) => !p.trim())) ||
+    (manual.reason === 'original' && (pages.length !== 0 || /\.pdf$/i.test(source.path)))
+  )
+    fail('Invalid manual review')
+  return {
+    state: 'needs_details',
+    bundle: {
+      ...input,
+      proposal: null,
+      manualReview: { reason: manual.reason as ManualReviewReason }
+    },
+    proposal: null,
+    excluded: []
   }
 }
 export function validateBundle(value: unknown, profile = defaultLanguageProfile): Review {
@@ -349,29 +465,10 @@ export function validateBundle(value: unknown, profile = defaultLanguageProfile)
       },
       originalFile
     ),
-    { source, pages, rules } = input
+    { pages, rules } = input
   if (rules) profile = filingProfile(rules)
   if ('manualReview' in b) {
-    const manual = object(b.manualReview, ['reason'])
-    if (
-      !['evidence', 'date', 'capacity', 'text', 'original', 'rules'].includes(
-        String(manual.reason)
-      ) ||
-      b.proposal !== null ||
-      (!['text', 'original'].includes(String(manual.reason)) && pages.some((p) => !p.trim())) ||
-      (manual.reason === 'original' && (pages.length !== 0 || /\.pdf$/i.test(source.path)))
-    )
-      fail('Invalid manual review')
-    return {
-      state: 'needs_details',
-      bundle: {
-        ...input,
-        proposal: null,
-        manualReview: { reason: manual.reason as ManualReviewReason }
-      },
-      proposal: null,
-      excluded: []
-    }
+    return validateManualReview(input, b.manualReview, b.proposal)
   }
   // Partial image-only documents also require OCR; no approval or model step.
   if (pages.some((p) => !p.trim())) {
@@ -383,72 +480,7 @@ export function validateBundle(value: unknown, profile = defaultLanguageProfile)
       excluded: []
     }
   }
-  const p = object(b.proposal, ['issuer', 'date', 'kind', 'folder', 'tags'])
-  if (
-    !Array.isArray(p.tags) ||
-    p.tags.length > (input.tagDiscovery ? 50 : (rules?.tags.length ?? 5))
-  )
-    fail('Invalid tag proposals', 'TAGS_INVALID')
-  const proposal: Proposal = {
-    issuer: claim(p.issuer, pages, true),
-    date: dateClaim(p.date, pages, profile),
-    kind: claim(p.kind, pages, true),
-    folder: claim(p.folder, pages, false),
-    tags: p.tags.map((t) => {
-      const tag = claim(t, pages, false)
-      return input.tagDiscovery
-        ? { ...tag, value: canonicalTag(tag.value, input.tagDiscovery) }
-        : tag
-    })
-  }
-  if (
-    rules
-      ? !rules.folders.some((r) => r.value === proposal.folder.value)
-      : proposal.folder.value !== 'Other' &&
-        !['Utilities/Electricity', 'Utilities/Water', 'Finance', 'Correspondence'].includes(
-          proposal.folder.value
-        )
-  )
-    fail('Unknown folder category', 'FOLDER_UNKNOWN')
-  if (
-    proposal.folder.value !== 'Other' &&
-    !(rules
-      ? ruleSupported(
-          proposal.folder.value,
-          proposal.folder.evidence.map((e) => e.quote),
-          rules.folders,
-          rules
-        )
-      : supported(proposal.folder, profile))
-  )
-    fail('Folder lacks supporting evidence', 'FOLDER_UNSUPPORTED')
-  const folderMatches = rules ? explicitFolderMatches(pages, rules) : []
-  if (proposal.folder.value === 'Other' && folderMatches.length === 1)
-    proposal.folder = folderMatches[0]!
-  if (rules) printedDateISO(proposal.date.value, profile)
-  else filename(proposal, profile)
-  const tagSupported = (t: Claim) =>
-    input.tagDiscovery
-      ? discoveredTagAllowed(t.value, input.tagDiscovery)
-      : rules
-        ? ruleSupported(
-            t.value,
-            t.evidence.map((e) => e.quote),
-            rules.tags,
-            rules
-          )
-        : supported(t, profile)
-  const excluded = proposal.tags.filter((t) => !tagSupported(t))
-  const rawProposal = structuredClone(proposal)
-  proposal.tags = proposal.tags.filter(tagSupported)
-  return {
-    state: 'needs_review',
-    bundle: { ...input, proposal: rawProposal },
-    proposal,
-    excluded,
-    ...(folderMatches.length === 1 ? { ruleMatch: folderMatches[0]!.value } : {}),
-    ...(folderMatches.length > 1 ? { ruleAmbiguous: true } : {})
-  }
+  return validateModelProposal(input, b.proposal, profile)
 }
 // Deterministic source passages help a model choose a complete printed date;
 // they are untrusted document data, and normal proposal validation still applies.
@@ -517,32 +549,7 @@ export function inspectProposal(value: DocumentInput, raw: unknown): ProposalIns
             ? claim(proposal[field], pages, false)
             : claim(proposal[field], pages, true)
       if (field === 'date') printedDateISO(checked.value, profile)
-      if (field === 'folder') {
-        if (
-          rules
-            ? !rules.folders.some((rule) => rule.value === checked.value)
-            : ![
-                'Other',
-                'Utilities/Electricity',
-                'Utilities/Water',
-                'Finance',
-                'Correspondence'
-              ].includes(checked.value)
-        )
-          fail('Unknown folder category', 'FOLDER_UNKNOWN')
-        if (
-          checked.value !== 'Other' &&
-          !(rules
-            ? ruleSupported(
-                checked.value,
-                checked.evidence.map((e) => e.quote),
-                rules.folders,
-                rules
-              )
-            : supported(checked, profile))
-        )
-          fail('Folder lacks supporting evidence', 'FOLDER_UNSUPPORTED')
-      }
+      if (field === 'folder') validateFolderClaim(checked, rules, profile)
       result.verified[field] = checked
     } catch (error) {
       result.issues.push({ field, code: code(error) })
@@ -618,6 +625,20 @@ export function validateManualActions(value: unknown, originalPath?: string): Ma
   if (addTags.some((t) => t !== t.normalize('NFC'))) fail('Tags must use normalized Unicode')
   return { target, addTags }
 }
+function checkedManualActions(review: Review, policy: Policy, manualActions: ManualActions) {
+  const manual = validateManualActions(
+    manualActions,
+    review.bundle.manualReview?.reason === 'original' ? review.bundle.source.path : undefined
+  )
+  if (policy.tags === 'off' && manual.addTags.length) fail('Enable tags before adding manual tags')
+  const original = review.bundle.source.path.split('/'),
+    target = manual.target.split('/')
+  if (policy.rename === 'off' && original.at(-1) !== target.at(-1))
+    fail('Enable filenames before changing the name')
+  if (policy.move === 'off' && original.slice(0, -1).join('/') !== target.slice(0, -1).join('/'))
+    fail('Enable folders before changing the folder')
+  return manual
+}
 export function actions(review: Review, policy: Policy, manualActions?: ManualActions) {
   validatePolicy(policy)
   if (!review.proposal && !review.bundle.manualReview) return null
@@ -628,21 +649,8 @@ export function actions(review: Review, policy: Policy, manualActions?: ManualAc
     review.bundle.destinationSpace !== review.bundle.source.space
       ? { targetSpace: review.bundle.destinationSpace }
       : {}
-  if (manualActions) {
-    const manual = validateManualActions(
-      manualActions,
-      review.bundle.manualReview?.reason === 'original' ? review.bundle.source.path : undefined
-    )
-    if (policy.tags === 'off' && manual.addTags.length)
-      fail('Enable tags before adding manual tags')
-    const original = review.bundle.source.path.split('/'),
-      target = manual.target.split('/')
-    if (policy.rename === 'off' && original.at(-1) !== target.at(-1))
-      fail('Enable filenames before changing the name')
-    if (policy.move === 'off' && original.slice(0, -1).join('/') !== target.slice(0, -1).join('/'))
-      fail('Enable folders before changing the folder')
-    return { ...manual, ...destination }
-  }
+  if (manualActions)
+    return { ...checkedManualActions(review, policy, manualActions), ...destination }
   if (!review.proposal) return null
   const old = review.bundle.source.path.split('/')
   const oldName = old.pop()!

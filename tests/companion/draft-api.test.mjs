@@ -1029,7 +1029,12 @@ test('native-file review and recoverable Trash are authenticated explicit operat
       ),
       false
     )
-    assert.equal((await call(api, 'job', { id: review.data.id })).data.job.decision, null)
+    const trashedJob = await call(api, 'job', { id: review.data.id })
+    assert.notEqual(trashedJob.status, 200)
+    assert.equal(trashedJob.data.job, undefined)
+    const summary = (await call(api, 'jobs')).data.jobs.find((row) => row.id === review.data.id)
+    assert.equal(summary.decision, null)
+    assert.equal(summary.bundle, null)
   } finally {
     api.close()
     rmSync(dir, { recursive: true })
@@ -1474,5 +1479,80 @@ test('typed route boundaries reject malformed batch and preference inputs before
   } finally {
     api.close()
     rmSync(dir, { recursive: true })
+  }
+})
+
+test('review lists omit evidence and a filed job follows its readable identity after a rename', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-readable-'))
+  const database = join(dir, 'db')
+  const api = createDraftAPI({ database, mode: 'demo', allowOrigin: 'http://127.0.0.1:5175' })
+  const db = new DatabaseSync(database)
+  try {
+    await call(api, 'status')
+    const file = { path: 'Inbox/sample.dwg', resourceId: 'fixture-native', etag: 'v1' }
+    db.prepare('insert into demo_files values(?,?,?,?,?,?)').run(
+      file.path,
+      file.resourceId,
+      file.etag,
+      '[]',
+      0,
+      Buffer.from('SAMPLE')
+    )
+    const prepared = await call(api, 'prepare-original', { ...file })
+    assert.equal(prepared.status, 200)
+    const id = prepared.data.id
+    for (const name of ['jobs', 'status']) {
+      const list = await call(api, name, { summariesOnly: false })
+      assert.equal(list.data.jobs.find((job) => job.id === id).bundle, null)
+    }
+    const actor = (await call(api, 'status')).data.actor
+    db.prepare('insert into decisions(job,actor,record,state,updated) values(?,?,?,?,?)').run(
+      id,
+      actor.account,
+      '{}',
+      'done',
+      new Date().toISOString()
+    )
+    db.prepare('update demo_files set path=? where resourceId=?').run(
+      'Filed/renamed.pdf',
+      file.resourceId
+    )
+    assert.equal((await call(api, 'job', { id })).status, 200)
+    const { DemoAdapter } = await import('../../companion/demo.mjs')
+    const record = 'native-intake'
+    db.prepare(
+      'insert into intake_queue(id,scope,resource,path,etag,state,first_seen,job) values(?,?,?,?,?,?,?,?)'
+    ).run(
+      record,
+      JSON.stringify([actor.server, actor.account, actor.space]),
+      file.resourceId,
+      file.path,
+      file.etag,
+      'prepared',
+      1,
+      id
+    )
+    const event = (await call(api, 'activity')).data.events.find((row) => row.job === id)
+    assert.equal(event.detail, null)
+    assert.equal((await call(api, 'activity-detail', { seq: event.seq })).status, 200)
+    assert.equal((await call(api, 'intake-history', { id: record })).status, 200)
+    const deniedRead = t.mock.method(DemoAdapter.prototype, 'get', async () => {
+      throw Error('Read denied')
+    })
+    assert.notEqual((await call(api, 'job', { id })).status, 200)
+    assert.notEqual((await call(api, 'activity-detail', { seq: event.seq })).status, 200)
+    assert.notEqual((await call(api, 'intake-history', { id: record })).status, 200)
+    deniedRead.mock.restore()
+    db.prepare('update demo_files set path=? where resourceId=?').run(
+      'Restricted/hidden.pdf',
+      file.resourceId
+    )
+    const denied = await call(api, 'job', { id })
+    assert.notEqual(denied.status, 200)
+    assert.equal(denied.data.job, undefined)
+  } finally {
+    db.close()
+    api.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })

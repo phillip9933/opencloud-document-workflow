@@ -221,7 +221,12 @@ export class ProposalJournal {
       )
     const job = this.get(id)
     if (!job) throw new WorkflowError('INTERNAL_ERROR', 'Proposal journal row is missing')
-    if (job.result) return { id, cached: true, review: validateBundle(JSON.parse(job.result)) }
+    if (job.result) {
+      const saved = JSON.parse(job.result)
+      if (!Array.isArray(saved.pages))
+        throw new WorkflowError('OPERATION_HELD', 'Extracted text expired; prepare a fresh review')
+      return { id, cached: true, review: validateBundle(saved) }
+    }
     if (job.state !== 'pending') {
       if (!retry)
         throw new WorkflowError(
@@ -258,7 +263,7 @@ export class ProposalJournal {
       const validated = validatePreparedReview(checked, review.bundle)
       this.db
         .prepare(
-          'UPDATE proposals SET state=?,result=?,error=NULL,owner=NULL,updated=? WHERE id=? AND owner=?'
+          'UPDATE proposals SET state=?,result=?,raw=NULL,error=NULL,owner=NULL,updated=? WHERE id=? AND owner=?'
         )
         .run(validated.state, JSON.stringify(validated.bundle), new Date().toISOString(), id, owner)
       return { id, cached: false, review: validated }
@@ -275,7 +280,7 @@ export class ProposalJournal {
       }
       this.db
         .prepare(
-          "UPDATE proposals SET state='failed',error=?,owner=NULL,updated=? WHERE id=? AND owner=?"
+          "UPDATE proposals SET state='failed',error=?,raw=NULL,owner=NULL,updated=? WHERE id=? AND owner=?"
         )
         .run(
           'Proposal generation or evidence validation failed',

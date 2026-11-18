@@ -11,7 +11,9 @@ export function useVerifiedPreview() {
     changed = ref(false)
   let generation = 0,
     alive = true
+  let controller: AbortController | undefined
   function reset() {
+    controller?.abort()
     generation++
     data.value = null
     busy.value = false
@@ -20,16 +22,17 @@ export function useVerifiedPreview() {
   }
   async function load(
     expectedHash: string,
-    resolve: (current: () => boolean) => Promise<Blob | null>,
+    resolve: (current: () => boolean, signal: AbortSignal) => Promise<Blob | null>,
     messages: { changed: string; failed: string }
   ) {
     if (!alive) return
     reset()
     const version = generation,
       current = () => alive && version === generation
+    controller = new AbortController()
     busy.value = true
     try {
-      const blob = await resolve(current)
+      const blob = await resolve(current, controller.signal)
       if (!current() || !blob) return
       const hash = await pdfHash(blob)
       if (!current()) return
@@ -45,6 +48,7 @@ export function useVerifiedPreview() {
     }
   }
   onBeforeUnmount(() => {
+    controller?.abort()
     alive = false
     generation++
   })

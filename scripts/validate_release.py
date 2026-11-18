@@ -6,6 +6,8 @@ from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 version=json.loads((root/'package.json').read_text())['version']
 out=root/'artifacts/releases'/version
+from release_files import check_directory
+release_entries=check_directory(out,version,complete=True,acceptance=True)
 with zipfile.ZipFile(out/f'document-workflow-{version}.zip') as archive:
     names=archive.namelist();assert 'manifest.json' in names
     assert all(not Path(name).is_absolute() and '..' not in Path(name).parts for name in names)
@@ -24,6 +26,9 @@ with tarfile.open(out/f'document-workflow-{version}-install.tar.gz') as archive:
         digest,name=line.split('  ',1);assert hashlib.sha256(data[name]).hexdigest()==digest,name
     forbidden={'.env','.sqlite3','.pem','.key'}
     assert not any(Path(name).name=='.env' or Path(name).suffix in forbidden or 'companion/state/' in name or '/credentials/' in name or '/backups/' in name for name in data)
-for line in (out/'SHA256SUMS').read_text().splitlines():
+lines=(out/'SHA256SUMS').read_text().splitlines()
+entries=[line.split('  ',1)[1] for line in lines]
+assert len(entries)==len(set(entries)) and set(entries)==release_entries-{'SHA256SUMS','BUILD-RECEIPT.json'}
+for line in lines:
     digest,name=line.split('  ',1);assert hashlib.sha256((out/name).read_bytes()).hexdigest()==digest,name
 print(f'{version}: store manifest/entrypoint, identical frontend bytes, internal kit hashes and public checksums verified. Nothing published.')

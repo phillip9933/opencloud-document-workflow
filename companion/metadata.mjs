@@ -74,15 +74,14 @@ export class Metadata {
   async inspect(actor, api, path) {
     const f = await api.stat(path)
     if (!f || f.folder) throw new WorkflowError('OPERATION_HELD', 'Document not found')
-    const bytes = await api.get(
-      path,
-      f.etag,
-      (this.w.configuration.settings(actor).limits.maxMiB ?? 100) * 1024 * 1024
-    )
+    const max = (this.w.configuration.settings(actor).limits.maxMiB ?? 100) * 1024 * 1024
+    const sha256 = api.digest
+      ? (await api.digest(path, f.etag, max)).sha256
+      : hash(await api.get(path, f.etag, max))
     const after = await api.stat(path)
     if (after?.etag !== f.etag || after?.resourceId !== f.resourceId)
       throw new WorkflowError('SOURCE_CHANGED', 'Document changed')
-    return { ...f, ...(api.space ? { space: api.space } : {}), sha256: hash(bytes) }
+    return { ...f, ...(api.space ? { space: api.space } : {}), sha256 }
   }
   /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').DocumentReader} api @param {string} path */
   async get(actor, api, path) {

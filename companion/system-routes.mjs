@@ -41,7 +41,7 @@ export function createSystemRoutes({
       return true
     },
     async status({ actor, body, res }) {
-      const options = { activeOnly: body.activeOnly === true }
+      const options = { activeOnly: body.activeOnly === true, summary: true }
       const page = workflow.jobPage(actor, options)
       send(res, 200, {
         actor,
@@ -51,6 +51,7 @@ export function createSystemRoutes({
         atomicPreferencePause: true,
         preferences: workflow.preference(actor),
         jobs: page.jobs,
+        jobSummaries: true,
         jobsHasMore: page.hasMore,
         jobsCursor: page.nextCursor,
         ocrLanguages: languages(actor)

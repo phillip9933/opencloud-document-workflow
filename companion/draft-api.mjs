@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { randomUUID } from 'node:crypto'
 import { createSystemRoutes } from './system-routes.mjs'
 import { createOperationRoutes } from './operation-routes.mjs'
 import { createDocumentRoutes } from './document-routes.mjs'
@@ -7,9 +8,11 @@ import { requestText, sourceInput } from './api-input.mjs'
 import { createQueueRoutes } from './queue-routes.mjs'
 import { bindWorkflowServices } from './services.mjs'
 import { describeFiles } from './file-listing.mjs'
+import { isSpaceId } from '../src/domain/review.ts'
 import { WorkflowError } from '../src/domain/errors.ts'
 import { readRequestBody } from './http-body.mjs'
 import { apiError } from './api-errors.mjs'
+import { retireExtractedText } from './text-retention.mjs'
 import { logEvent } from './logging.mjs'
 import { ProposalJournal } from './journal.mjs'
 import { Workflow } from './workflow.mjs'
@@ -51,6 +54,9 @@ export function createWorkflowAPI({
   backupConfigure,
   observeSession = () => {},
   ocrDirectory,
+  parsePDF,
+  textRetentionDays = 90,
+  allowedAccounts,
   ocrPackOptions = {},
   adapterFactory = (options) => new OpenCloudAdapter(options)
 }) {
@@ -58,8 +64,14 @@ export function createWorkflowAPI({
     throw new WorkflowError('OPERATION_HELD', 'Invalid runtime mode')
   if (mode === 'live' && !origin)
     throw new WorkflowError('OPERATION_HELD', 'Live mode requires an explicit OpenCloud origin')
+  const allowed = allowedAccounts ? new Set(allowedAccounts) : null
+  /** @param {string} account */
+  const requireAllowed = (account) => {
+    if (mode === 'live' && allowed && !allowed.has(account))
+      throw new WorkflowError('ACCESS_DENIED', 'This account is not enabled for Document Workflow')
+  }
   const journal = new ProposalJournal(database),
-    workflow = new Workflow(journal),
+    workflow = new Workflow(journal, parsePDF),
     metadata = new Metadata(workflow),
     documents = new DocumentLibrary(workflow),
     configurationStore = new Configuration(workflow)
@@ -162,6 +174,7 @@ export function createWorkflowAPI({
     const actor = api.accountIdentity ? await api.accountIdentity() : await api.identity()
     if (mode === 'live' && (actor.server !== origin || (account && actor.account !== account)))
       throw new WorkflowError('ACCESS_DENIED', 'Background identity mismatch')
+    requireAllowed(actor.account)
     const group = []
     try {
       const verified = await api.identity()
@@ -169,7 +182,8 @@ export function createWorkflowAPI({
         throw new WorkflowError('OPERATION_HELD', 'Space identity changed')
       intake.attach(verified, api, { background: true })
       group.push(api)
-    } catch {
+    } catch (error) {
+      logger('session_failed', error)
       workflow.event(actor, null, 'background_space_held', {
         reason: 'Space access could not be verified'
       })
@@ -184,7 +198,8 @@ export function createWorkflowAPI({
           throw new WorkflowError('OPERATION_HELD', 'Space identity changed')
         intake.attach(verified, scoped, { background: true })
         group.push(scoped)
-      } catch {
+      } catch (error) {
+        logger('session_failed', error)
         workflow.event({ server, account: owner, space: target }, null, 'background_space_held', {
           reason: 'Space access could not be verified'
         })
@@ -299,13 +314,7 @@ export function createWorkflowAPI({
   /** @param {import('node:http').IncomingMessage} req @param {string} operation */
   async function authenticate(req, operation) {
     const selectedSpace = req.headers['x-workflow-space']
-    if (
-      selectedSpace !== undefined &&
-      (typeof selectedSpace !== 'string' ||
-        !selectedSpace ||
-        selectedSpace.length > 400 ||
-        /[/\\?#%\x00-\x20]/.test(selectedSpace))
-    )
+    if (selectedSpace !== undefined && !isSpaceId(selectedSpace))
       throw new WorkflowError('REQUEST_INVALID', 'Invalid selected Space')
     /** @type {import('./api-contracts.d.mts').ServiceAdapter|null} */
     let api = demo ? (selectedSpace ? demo.forSpace(selectedSpace) : demo) : null
@@ -342,13 +351,58 @@ export function createWorkflowAPI({
 
     return { api, bootstrapAccount }
   }
+  /** @param {import('./contracts.d.mts').Actor} actor
+   * @param {import('./api-contracts.d.mts').ServiceAdapter} api
+   * @param {Record<string,unknown>} body @param {string} operation */
+  async function scopedDocumentAdapter(actor, api, body, operation) {
+    if (body.documentSpace !== undefined) {
+      if (
+        ![
+          'files',
+          'metadata',
+          'metadata-save',
+          'metadata-reconcile',
+          'metadata-tag-remove',
+          'preview',
+          'prepare',
+          'document-processing',
+          'document-trash',
+          'prepare-original'
+        ].includes(operation)
+      )
+        throw new WorkflowError('OPERATION_HELD', 'Unexpected document Space')
+      return transfers.adapter(actor, api, requestText(body.documentSpace))
+    }
+    return api
+  }
+  /** @param {import('./api-contracts.d.mts').ServiceAdapter} api
+   * @param {import('node:http').IncomingMessage} req @param {import('node:http').ServerResponse} res */
+  async function sendSpaces(api, req, res) {
+    if (allowed && mode === 'live')
+      requireAllowed((await (api.accountIdentity?.() ?? api.identity())).account)
+    const spaces = await api.spaces()
+    await readRequestBody(req)
+    send(res, 200, { spaces })
+    return true
+  }
+  /** @type {ReturnType<typeof setInterval>|undefined} */
+  let retentionTimer
+  const cleanRetiredText = () => {
+    try {
+      retireExtractedText(journal.db, textRetentionDays)
+    } catch (error) {
+      logger('text_retention_failed', error)
+    }
+  }
   const service = {
     close: () => {
+      clearInterval(retentionTimer)
       clearInterval(intake.timer)
       intake.stopped = true
       journal.close()
     },
     async stop() {
+      clearInterval(retentionTimer)
       await packs.stop()
       await operations.stop()
       await intake.stop()
@@ -356,6 +410,12 @@ export function createWorkflowAPI({
     },
     async start() {
       if (demo) await attach(demo)
+      if (mode === 'live') {
+        journal.db.exec('PRAGMA secure_delete=ON')
+        // Give installation health checks and rollback time before touching historical text.
+        retentionTimer = setInterval(cleanRetiredText, 60 * 60_000)
+        retentionTimer.unref()
+      }
       intake.start()
     },
     attach,
@@ -377,15 +437,12 @@ export function createWorkflowAPI({
         send(res, 403, { error: 'Same-origin POST required' })
         return true
       }
+      const requestId = randomUUID()
+      res.setHeader?.('X-Workflow-Request-Id', requestId)
       try {
         const operation = req.url.slice('/_workflow/api/'.length)
         const { api, bootstrapAccount } = await authenticate(req, operation)
-        if (operation === 'spaces') {
-          const spaces = await api.spaces()
-          await readRequestBody(req)
-          send(res, 200, { spaces })
-          return true
-        }
+        if (operation === 'spaces') return await sendSpaces(api, req, res)
         if (api instanceof DemoAdapter) api.seed()
         const actor = await api.identity()
         if (
@@ -393,6 +450,7 @@ export function createWorkflowAPI({
           (mode === 'live' && actor.server !== origin)
         )
           throw new WorkflowError('ACCESS_DENIED', 'Workspace identity changed')
+        requireAllowed(actor.account)
         const body = await readRequestBody(req)
         if (operation === 'status' && mode === 'live')
           journal.db
@@ -402,32 +460,13 @@ export function createWorkflowAPI({
             .run(actor.server, actor.account, actor.space)
         intake.attach(actor, api)
         observeSession(actor, api)
-        /** @type {import('./contracts.d.mts').MutationAdapter} */
-        let documentAPI = api
-        if (body.documentSpace !== undefined) {
-          if (
-            ![
-              'files',
-              'metadata',
-              'metadata-save',
-              'metadata-reconcile',
-              'metadata-tag-remove',
-              'preview',
-              'prepare',
-              'document-processing',
-              'document-trash',
-              'prepare-original'
-            ].includes(operation)
-          )
-            throw new WorkflowError('OPERATION_HELD', 'Unexpected document Space')
-          documentAPI = await transfers.adapter(actor, api, requestText(body.documentSpace))
-        }
+        const documentAPI = await scopedDocumentAdapter(actor, api, body, operation)
         if (Object.hasOwn(routes, operation))
           return await routes[operation]({ actor, api, documentAPI, body, res, operation })
         send(res, 404, { error: 'Unknown operation' })
         return true
       } catch (e) {
-        logger('request_failed', e)
+        logger('request_failed', e, { requestId })
         if (res.headersSent || res.writableEnded || res.destroyed) {
           if (!res.writableEnded) res.destroy()
           return true

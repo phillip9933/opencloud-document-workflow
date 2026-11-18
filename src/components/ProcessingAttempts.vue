@@ -17,6 +17,7 @@ async function load() {
   if (busy.value) return
   const n = ++generation,
     pin = JSON.stringify(store.connection.value)
+  data.value = null
   busy.value = true
   error.value = ''
   try {
@@ -33,6 +34,11 @@ async function load() {
 function toggle(event: Event) {
   opened.value = (event.target as HTMLDetailsElement).open
   if (opened.value) void load()
+  else {
+    generation++
+    busy.value = false
+    data.value = null
+  }
 }
 watch(
   () => props.id,

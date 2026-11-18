@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { WorkflowError } from '../src/domain/errors.ts'
-// Runs only on the installer's internal network, with no credentials or mounts.
+// Runs only on the installer’s internal network. Its only mount is read-only OCR data.
+import { servePDFText } from './pdf-worker.mjs'
 import { createServer } from 'node:http'
 import { mkdtemp, writeFile, readFile, rm, mkdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -129,7 +130,8 @@ export function conversionServer() {
       return
     }
     const extension = req.url?.match(/^\/convert\/([a-z0-9]+)$/)?.[1]
-    if (req.method !== 'POST' || !extension || !extensions.includes(extension)) {
+    const extract = req.url === '/extract'
+    if (req.method !== 'POST' || (!extract && (!extension || !extensions.includes(extension)))) {
       res.writeHead(404).end()
       return
     }
@@ -139,6 +141,11 @@ export function conversionServer() {
     }
     active = true
     try {
+      if (extract) {
+        await servePDFText(req, res)
+        return
+      }
+      if (!extension) return
       const chunks = []
       let size = 0
       for await (const chunk of req) {

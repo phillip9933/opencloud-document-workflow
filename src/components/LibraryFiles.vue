@@ -74,6 +74,36 @@ const rows = computed(() =>
     : filtered.value.map((entry) => ({ entry, depth: 0, expanded: false }))
 )
 const shown = computed(() => rows.value.slice(0, shownCount.value))
+async function collectEntries(valid: () => boolean) {
+  const initial = await store.request('library-files'),
+    next: LibraryEntry[] = [...(initial.files ?? [])],
+    pending: string[] = next.filter((file) => file.folder).map((file) => file.path),
+    seen = new Set<string>()
+  if (!valid()) return null
+  while (pending.length) {
+    const batch = pending.splice(0, 4).filter((path) => !seen.has(path))
+    batch.forEach((path) => seen.add(path))
+    const results = await Promise.allSettled(
+      batch.map((path) => store.request('library-files', { path }))
+    )
+    if (!valid()) return null
+    for (const result of results) {
+      if (result.status === 'rejected') throw result.reason
+      const value = result.value
+      if (value.root !== initial.root || value.space !== initial.space)
+        throw new WorkflowError(
+          'SOURCE_CHANGED',
+          'The filing destination changed. Refresh documents.'
+        )
+      for (const entry of value.files ?? []) {
+        next.push(entry)
+        if (entry.folder && !seen.has(entry.path)) pending.push(entry.path)
+      }
+    }
+  }
+  if (!valid()) return null
+  return { initial, next }
+}
 async function load() {
   if (locked.value) return
   const version = ++generation
@@ -81,35 +111,10 @@ async function load() {
   error.value = ''
   try {
     if (!store.connection.value) await store.connect()
-    const pin = scope(),
-      initial = await store.request('library-files'),
-      next: LibraryEntry[] = [...(initial.files ?? [])],
-      pending: string[] = next.filter((file) => file.folder).map((file) => file.path),
-      seen = new Set<string>()
-    const valid = () => alive && version === generation && scope() === pin
-    if (!valid()) return
-    while (pending.length) {
-      const batch = pending.splice(0, 4).filter((path) => !seen.has(path))
-      batch.forEach((path) => seen.add(path))
-      const results = await Promise.allSettled(
-        batch.map((path) => store.request('library-files', { path }))
-      )
-      if (!valid()) return
-      for (const result of results) {
-        if (result.status === 'rejected') throw result.reason
-        const value = result.value
-        if (value.root !== initial.root || value.space !== initial.space)
-          throw new WorkflowError(
-            'SOURCE_CHANGED',
-            'The filing destination changed. Refresh documents.'
-          )
-        for (const entry of value.files ?? []) {
-          next.push(entry)
-          if (entry.folder && !seen.has(entry.path)) pending.push(entry.path)
-        }
-      }
-    }
-    if (!valid()) return
+    const pin = scope()
+    const collected = await collectEntries(() => alive && version === generation && scope() === pin)
+    if (!collected || !alive || version !== generation || scope() !== pin) return
+    const { initial, next } = collected
     const openedResource = entries.value.find((entry) => entry.path === opened.value)?.resourceId
     entries.value = [...new Map(next.map((entry) => [entry.path, entry])).values()]
     if (openedResource)

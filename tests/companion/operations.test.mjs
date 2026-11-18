@@ -598,3 +598,67 @@ test('a pending automatic result is not recorded as completed by its batch', asy
     rmSync(dir, { recursive: true })
   }
 })
+
+test('batch history pages redact cached evidence, check document reads for detail and run beyond page one', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-page-')),
+    journal = new ProposalJournal(join(dir, 'journal')),
+    w = new Workflow(journal)
+  const id = randomUUID(),
+    api = { identity: async () => actor }
+  const ops = new Operations(w, {
+    prepare: async (_a, _api, path) => ({
+      id: path,
+      bundle: { pages: ['private fixture'], manualReview: { reason: 'date' } }
+    })
+  })
+  t.after(async () => {
+    await ops.stop()
+    journal.close()
+    rmSync(dir, { recursive: true })
+  })
+  const items = Array.from({ length: 104 }, (_, n) => ({ path: 'Inbox/' + n + '.pdf' }))
+  ops.start(actor, api, { id, kind: 'prepare', items })
+  await ops.active.get(id)
+  const first = ops.status(actor, id),
+    second = ops.status(actor, id, { cursor: first.nextCursor })
+  assert.equal(first.items.length, 100)
+  assert.equal(first.counts.done, 104)
+  assert.deepEqual(
+    second.items.map((i) => i.position),
+    [100, 101, 102, 103]
+  )
+  assert.equal(second.nextCursor, null)
+  assert.ok(!JSON.stringify(first).includes('private fixture'))
+  let allowed = false
+  t.mock.method(w, 'requireReadableJob', async (_a, _api, job) => {
+    assert.equal(job, items[102].path)
+    if (!allowed) throw Error('Read denied')
+  })
+  await assert.rejects(ops.result(actor, api, id, 102), /Read denied/)
+  allowed = true
+  assert.deepEqual((await ops.result(actor, api, id, 102)).result.bundle.pages, ['private fixture'])
+})
+
+test('batch admission reserves capacity before inserting rows and still accepts idempotent reads', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-quota-'))
+  const j = new ProposalJournal(join(dir, 'journal')),
+    w = new Workflow(j),
+    ops = new Operations(w, { prepare: async () => ({}) })
+  t.after(() => {
+    j.close()
+    rmSync(dir, { recursive: true })
+  })
+  ops.stopped = true
+  const api = { identity: async () => actor }
+  const request = () => ({ id: randomUUID(), kind: 'prepare', items: [{ path: 'Inbox/test.pdf' }] })
+  const first = request()
+  ops.start(actor, api, first)
+  for (let i = 1; i < 8; i++) ops.start(actor, api, request())
+  assert.throws(() => ops.start(actor, api, request()), /capacity/)
+  assert.equal(ops.start(actor, api, first).id, first.id)
+  assert.equal(j.db.prepare('select count(*) n from bulk_items').get().n, 8)
+  const page = ops.list(actor, { limit: 4 })
+  const next = ops.list(actor, { limit: 4, cursor: page.nextCursor })
+  assert.equal(new Set([...page.operations, ...next.operations].map((r) => r.id)).size, 8)
+  assert.equal(next.nextCursor, null)
+})
