@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { renderRemotePDF } from '../../companion/conversion-client.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -693,4 +694,41 @@ test('large preparation results reference the scoped journal and load only after
   await assert.rejects(ops.result(actor, api, id, 0), /Read denied/)
   t.mock.method(w, 'requireReadableJob', async () => {})
   assert.deepEqual((await ops.result(actor, api, id, 0)).result.bundle, bundle)
+})
+
+test('conversion waits for a busy PDF worker and resumes without retrying uncertain writes', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-convert-wait-'))
+  const journal = new ProposalJournal(join(dir, 'db')),
+    w = new Workflow(journal)
+  t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 503 }))
+  const calls = []
+  const operations = new Operations(w, {
+    convert: async (_actor, _api, input) => {
+      calls.push(input.path)
+      if (calls.length === 1)
+        await renderRemotePDF('http://converter:5180', Buffer.from('scan'), 'png')
+      return input.path === 'a.png' ? { state: 'done' } : { state: 'held', uncertain: true }
+    }
+  })
+  const api = { identity: async () => actor },
+    id = randomUUID()
+  try {
+    operations.start(actor, api, {
+      id,
+      kind: 'convert',
+      items: [{ path: 'a.png' }, { path: 'b.png' }]
+    })
+    await operations.active.get(id)
+    assert.deepEqual(operations.status(actor, id).counts, { queued: 2 })
+    assert.ok(operations.retries.has(id))
+    operations.launch(actor, api, id)
+    await operations.active.get(id)
+    assert.deepEqual(calls, ['a.png', 'a.png', 'b.png'])
+    assert.deepEqual(operations.status(actor, id).counts, { done: 1, held: 1 })
+    assert.equal(operations.retries.has(id), false)
+  } finally {
+    await operations.stop()
+    journal.close()
+    rmSync(dir, { recursive: true })
+  }
 })

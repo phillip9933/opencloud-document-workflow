@@ -734,5 +734,12 @@
   "OpenCloud returned HTTP {status}.": "OpenCloud hat HTTP {status} zurückgegeben.",
   "Companion request failed": "Die Anfrage an den Begleitdienst ist fehlgeschlagen",
   "Companion is not connected. Start the companion server or configure its same-origin route.": "Der Begleitdienst ist nicht verbunden. Starten Sie ihn oder konfigurieren Sie seine Route unter demselben Ursprung.",
-  "An internal error occurred. Check Activity before retrying.": "Ein interner Fehler ist aufgetreten. Prüfe die Aktivitäten, bevor du es erneut versuchst."
+  "An internal error occurred. Check Activity before retrying.": "Ein interner Fehler ist aufgetreten. Prüfe die Aktivitäten, bevor du es erneut versuchst.",
+  "A selected OCR language is unavailable.": "Eine ausgewählte OCR-Sprache ist nicht verfügbar.",
+  "Install or select an available language under OCR languages in Processing settings, then retry.": "Installieren oder wählen Sie in den Verarbeitungseinstellungen unter „OCR-Sprachen“ eine verfügbare Sprache und versuchen Sie es erneut.",
+  "A required PDF or OCR tool is unavailable.": "Ein benötigtes PDF- oder OCR-Werkzeug ist nicht verfügbar.",
+  "Ask your administrator to check the document worker installation.": "Bitten Sie die Administration, die Installation des Dokumentverarbeitungsdienstes zu prüfen.",
+  "The document exceeds the PDF processing limits.": "Das Dokument überschreitet die Grenzwerte für die PDF-Verarbeitung.",
+  "Split the PDF into smaller documents and retry.": "Teilen Sie die PDF-Datei in kleinere Dokumente auf und versuchen Sie es erneut.",
+  "More than 64 pages require OCR.": "Mehr als 64 Seiten erfordern OCR."
 }

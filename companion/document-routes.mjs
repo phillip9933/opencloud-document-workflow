@@ -11,9 +11,9 @@ import {
 import { safePath } from '../src/domain/review.ts'
 import { tagNameKey } from '../src/domain/tag-names.ts'
 import { definitionUsage } from './metadata-usage.mjs'
-import { inboxFiles, inboxSummary } from './inbox.mjs'
+import { inboxSummary } from './inbox.mjs'
 import { processingIssue, preparationState } from './processing-issues.mjs'
-/** @param {Pick<import('./api-contracts.d.mts').RouteServices,'workflow'|'metadata'|'documents'|'intake'|'conversions'|'operations'|'similarities'|'documentTrash'|'configurationStore'|'send'|'describeFilesForActor'|'prepare'>} services
+/** @param {Pick<import('./api-contracts.d.mts').RouteServices,'workflow'|'metadata'|'documents'|'intake'|'conversions'|'operations'|'similarities'|'documentTrash'|'configurationStore'|'send'|'describeFilesForActor'|'readCurrentInbox'>} services
  * @returns {Record<string,import('./api-contracts.d.mts').FullAPIRoute>} */
 export function createDocumentRoutes({
   workflow,
@@ -25,7 +25,8 @@ export function createDocumentRoutes({
   documentTrash,
   configurationStore,
   send,
-  describeFilesForActor
+  describeFilesForActor,
+  readCurrentInbox
 }) {
   return {
     async 'tag-options'({ actor, api, res }) {
@@ -210,10 +211,12 @@ export function createDocumentRoutes({
         (body.documentSpace !== undefined || body.path !== intake.configuration(actor).folder)
       )
         throw new WorkflowError('OPERATION_HELD', 'Choose the configured inbox')
-      const listing = flat
-        ? await inboxFiles(api, intake.configuration(actor))
-        : await documentAPI.list(body.path === undefined ? 'Inbox' : requestText(body.path))
-      const files = describeFilesForActor(actor, listing)
+      const files = flat
+        ? await readCurrentInbox(actor, api)
+        : describeFilesForActor(
+            actor,
+            await documentAPI.list(body.path === undefined ? 'Inbox' : requestText(body.path))
+          )
       send(res, 200, { files, ...(flat ? { summary: inboxSummary(files) } : {}) })
       return true
     },

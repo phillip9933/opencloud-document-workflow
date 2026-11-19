@@ -215,9 +215,9 @@ export function createWorkflowAPI({
   const describeFilesForActor = (actor, listing) => describeFiles({ workflow }, actor, listing)
   /** @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MutationAdapter} api */
   async function readCurrentInbox(actor, api) {
-    const configuration = intake.configuration(actor),
-      listing = await inboxFiles(api, configuration)
-    if (JSON.stringify(configuration) !== JSON.stringify(intake.configuration(actor)))
+    const options = intake.listingOptions(actor),
+      listing = await inboxFiles(api, options)
+    if (JSON.stringify(options) !== JSON.stringify(intake.listingOptions(actor)))
       throw new WorkflowError('OPERATION_HELD', 'The inbox settings changed. Refresh Activity.')
     return describeFilesForActor(actor, listing)
   }
@@ -243,6 +243,7 @@ export function createWorkflowAPI({
     send,
     languages,
     describeFilesForActor,
+    readCurrentInbox,
     prepare,
     backgroundConnect,
     backgroundDisconnect,

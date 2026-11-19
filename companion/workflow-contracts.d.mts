@@ -24,6 +24,7 @@ export interface PrepareOptions {
   cloudKey?: string
   expectedResourceId?: string
   expectedEtag?: string
+  expectedSha256?: string
   onProgress?: (stage: ProcessingStage) => void
 }
 export interface AutomaticAuthorization {
@@ -102,7 +103,11 @@ export interface IntakeOptions {
     actor: Actor,
     api: MutationAdapter,
     path: string,
-    options: { retry: boolean; cloudConsent: boolean; onProgress(stage: ProcessingStage): void }
+    options: PrepareOptions & {
+      retry: boolean
+      cloudConsent: boolean
+      onProgress(stage: ProcessingStage): void
+    }
   ): Promise<{ id: string }>
   processPrepared?: (
     actor: Actor,

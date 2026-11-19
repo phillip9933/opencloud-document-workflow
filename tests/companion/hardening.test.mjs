@@ -5,6 +5,7 @@ import { request } from 'node:http'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { preparationIssue } from '../../companion/processing-issues.mjs'
 import { test } from 'node:test'
 import { createWorkflowAPI } from '../../companion/draft-api.mjs'
 import { ProposalJournal } from '../../companion/journal.mjs'
@@ -222,4 +223,32 @@ test('OCR caps total elapsed work and holds the entire selection before rasteriz
   assert.throws(() => ocrTimeout(performance.now() - 1, 30000), /time limit/)
   assert.ok(ocrTimeout(performance.now() + 500, 30000) <= 500)
   await assert.rejects(ocrPages(Buffer.alloc(0), Array(65).fill(''), ['eng']), /64 pages/)
+})
+
+test('isolated worker gives actionable OCR language and unreadable PDF diagnoses', async () => {
+  const worker = conversionServer()
+  worker.listen(0, '127.0.0.1')
+  await once(worker, 'listening')
+  try {
+    const parse = createPDFWorkerClient('http://converter:5180', (_url, options, handler) =>
+      request('http://127.0.0.1:' + worker.address().port + '/extract', options, handler)
+    )
+    for (const [bytes, expected] of [
+      [readFileSync(new URL('../fixtures/scanned-english.pdf', import.meta.url)), /OCR languages/],
+      [Buffer.from('Synthetic non-PDF'), /PDF and Processing capacity/]
+    ]) {
+      await assert.rejects(
+        parse(bytes, { limits: defaultLimits(), ocr: true, languages: ['uninstalled'] }, () => {}),
+        (error) => {
+          const issue = preparationIssue(error)
+          assert.match(issue.nextStep, expected)
+          assert.equal(issue.settings, '/document-workflow/settings/processing')
+          return true
+        }
+      )
+    }
+  } finally {
+    worker.close()
+    await once(worker, 'close')
+  }
 })

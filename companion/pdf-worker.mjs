@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { PDFProcessingError } from './pdf-errors.mjs'
 import { extractPDFText } from './extract.mjs'
 import { ocrCandidatePages, ocrPages } from './ocr.mjs'
 import { validateLimits } from './configuration.mjs'
@@ -42,7 +43,7 @@ async function pdfBytes(req, max) {
   let size = 0
   for await (const part of req) {
     size += part.length
-    if (size > max) throw new WorkflowError('VALIDATION_INVALID', 'PDF exceeds worker limit')
+    if (size > max) throw new PDFProcessingError('pdf_capacity', 'PDF exceeds worker limit')
     parts.push(part)
   }
   return Buffer.concat(parts)
@@ -60,6 +61,11 @@ export async function servePDFText(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(parsed))
   } catch (error) {
     const code = errorCode(error)
-    res.writeHead(422, { 'Content-Type': 'application/json' }).end(JSON.stringify({ code }))
+    res.writeHead(422, { 'Content-Type': 'application/json' }).end(
+      JSON.stringify({
+        code,
+        ...(error instanceof PDFProcessingError ? { pdfReason: error.pdfReason } : {})
+      })
+    )
   }
 }

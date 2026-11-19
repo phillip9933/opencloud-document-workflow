@@ -12,6 +12,7 @@ import { WorkflowError, errorCode } from '../src/domain/errors.ts'
 import { responseRecord } from './provider-response.mjs'
 import { logEvent } from './logging.mjs'
 import { createHash, randomUUID } from 'node:crypto'
+import { inboxListingOptions } from './inbox.mjs'
 import { intakeStatus } from './intake-status.mjs'
 import { safePath } from '../src/domain/review.ts'
 import { preparationIssue } from './processing-issues.mjs'
@@ -322,18 +323,22 @@ export class Intake {
       )
     return this.manage(actor, 'retry', [id])
   }
+  /** @param {Actor} actor @param {IntakeConfiguration} [config] */
+  listingOptions(actor, config = this.configuration(actor)) {
+    return inboxListingOptions(
+      config,
+      actor.space,
+      this.w.configuration.destinationSpace(actor),
+      this.w.configuration.settings(actor).rules.root
+    )
+  }
   /** @param {Actor} actor @param {Adapter} api @param {IntakeConfiguration} config */
   async scan(actor, api, config) {
-    const destination = this.w.configuration.settings(actor).rules.root ?? 'Filed',
+    const { excluded } = this.listingOptions(actor, config),
       paths = [config.folder],
       visited = new Set(),
       scan = randomUUID(),
       scope = this.w.scope(actor)
-    if (
-      this.w.configuration.destinationSpace(actor) === actor.space &&
-      (config.folder === destination || config.folder.startsWith(destination + '/'))
-    )
-      throw new WorkflowError('OPERATION_HELD', 'The inbox is inside the filing destination')
     while (paths.length) {
       if (this.stopped || this.paused(actor) || !this.configuration(actor).enabled)
         throw new WorkflowError('OPERATION_HELD', 'Ingestion paused')
@@ -349,12 +354,7 @@ export class Intake {
         if (!f.path.startsWith(path + '/') || f.path.slice(path.length + 1).includes('/'))
           throw new WorkflowError('OPERATION_HELD', 'Intake listing outside requested folder')
         if (f.folder) {
-          if (
-            config.recursive &&
-            (this.w.configuration.destinationSpace(actor) !== actor.space ||
-              (f.path !== destination && !f.path.startsWith(destination + '/')))
-          )
-            paths.push(f.path)
+          if (config.recursive && f.path !== excluded) paths.push(f.path)
         } else if (/\.pdf$/i.test(f.path)) {
           if (!f.resourceId || !f.etag)
             throw new WorkflowError('OPERATION_HELD', 'Intake file identity missing')
@@ -367,6 +367,11 @@ export class Intake {
         }
       }
     }
+    if (excluded !== this.listingOptions(actor).excluded)
+      throw new WorkflowError(
+        'SOURCE_CHANGED',
+        'The filing destination changed. Refresh documents.'
+      )
     return scan
   }
 
@@ -507,17 +512,26 @@ export class Intake {
         )
     )
   }
+  /** @param {Actor} actor @param {Adapter} api @param {QueueRow} item */
+  async readQueueHash(actor, api, item) {
+    const limit = this.w.configuration.settings(actor).limits.maxMiB * 1024 * 1024
+    const bytes = await api.get(item.path, item.etag, limit)
+    const current = await api.stat(item.path)
+    if (
+      !current ||
+      current.folder ||
+      current.resourceId !== item.resource ||
+      current.etag !== item.etag
+    )
+      throw new WorkflowError('SOURCE_CHANGED', 'Source changed during reading')
+    return sha(bytes)
+  }
   /** @param {Actor} actor @param {Session} currentSession @param {IntakeConfiguration} c @param {QueueRow} item */
   async prepareItem(actor, currentSession, c, item) {
     const scope = this.w.scope(actor),
       itemAPI = currentSession.api
     try {
-      const bytes = await itemAPI.get(
-          item.path,
-          item.etag,
-          (this.w.configuration.settings(actor).limits.maxMiB ?? 100) * 1024 * 1024
-        ),
-        contentHash = sha(bytes)
+      const contentHash = await this.readQueueHash(actor, itemAPI, item)
       if (
         this.db.prepare('select state from intake_queue where id=?').get(item.id)?.state ===
         'cancelled'
@@ -563,6 +577,9 @@ export class Intake {
         (await this.prepare?.(actor, itemAPI, item.path, {
           retry: true,
           cloudConsent: c.cloudConsent,
+          expectedResourceId: item.resource,
+          expectedEtag: item.etag,
+          expectedSha256: contentHash,
           onProgress: (stage) => {
             if (!['reading', 'ocr', 'analysing', 'tagging'].includes(stage))
               throw new WorkflowError('INTERNAL_ERROR', 'Unknown processing stage')

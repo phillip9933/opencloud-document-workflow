@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { PDFProcessingError } from './pdf-errors.mjs'
 import { WorkflowError } from '../src/domain/errors.ts'
 import { defaultLimits, validateLimits } from './configuration.mjs'
 import { spawn } from 'node:child_process'
@@ -9,7 +10,8 @@ export const OCR_BUDGET_MS = 240000
 /** @param {number} deadline @param {number} limit */
 export function ocrTimeout(deadline, limit) {
   const remaining = deadline - performance.now()
-  if (remaining < 1) throw new WorkflowError('OPERATION_HELD', 'OCR document time limit reached')
+  if (remaining < 1)
+    throw new PDFProcessingError('worker_timeout', 'OCR document time limit reached')
   return Math.min(limit, Math.floor(remaining))
 }
 /** @param {string} command @param {string[]} args @param {{limit?:number,timeout?:number}} [options] @returns {Promise<string>} */
@@ -39,27 +41,27 @@ export function runOCRTool(command, args, { limit = 240000, timeout = 30000 } = 
       clearTimeout(timer)
       if (error) reject(error)
       else if (result !== undefined) resolve(result)
-      else reject(new WorkflowError('UPSTREAM_FAILURE', 'OCR returned no result'))
+      else reject(new PDFProcessingError('ocr_failed', 'OCR returned no result'))
     }
     const timer = setTimeout(() => {
       stop()
-      finish(new WorkflowError('UPSTREAM_FAILURE', 'OCR command timed out'))
+      finish(new PDFProcessingError('worker_timeout', 'OCR command timed out'))
     }, timeout)
     child.on('error', () =>
-      finish(new WorkflowError('DEPENDENCY_UNAVAILABLE', `OCR requires ${command}`))
+      finish(new PDFProcessingError('worker_tool', `OCR requires ${command}`))
     )
     child.stderr.resume()
     child.stdout.on('data', (c) => {
       total += c.length
       if (total > limit) {
         stop()
-        finish(new WorkflowError('VALIDATION_INVALID', 'OCR output exceeds limit'))
+        finish(new PDFProcessingError('pdf_capacity', 'OCR output exceeds limit'))
       } else chunks.push(c)
     })
     child.on('close', (code) =>
       code === 0
         ? finish(null, Buffer.concat(chunks).toString('utf8'))
-        : finish(new WorkflowError('UPSTREAM_FAILURE', 'OCR command failed'))
+        : finish(new PDFProcessingError('ocr_failed', 'OCR command failed'))
     )
   })
 }
@@ -143,16 +145,16 @@ export async function ocrPages(
     languages.length > 10 ||
     languages.some((v) => typeof v !== 'string' || !/^[A-Za-z0-9_/-]+$/.test(v) || v.includes('..'))
   )
-    throw new WorkflowError('VALIDATION_INVALID', 'Choose OCR languages')
+    throw new PDFProcessingError('ocr_language', 'Choose OCR languages')
   if (indices.length > 64)
-    throw new WorkflowError(
-      'OPERATION_HELD',
+    throw new PDFProcessingError(
+      'ocr_page_limit',
       'More than 64 pages require OCR; split the document or review it manually'
     )
   const deadline = performance.now() + OCR_BUDGET_MS
   const installed = await ocrLanguages(ocrTimeout(deadline, 30000))
   if (languages.some((l) => !installed.includes(l)))
-    throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'Selected OCR language data is not installed')
+    throw new PDFProcessingError('ocr_language', 'Selected OCR language data is not installed')
   const dir = await mkdtemp(join(tmpdir(), 'workflow-ocr-'))
   try {
     await writeFile(join(dir, 'input.pdf'), bytes, { mode: 0o600 })
@@ -180,7 +182,7 @@ export async function ocrPages(
         { timeout: ocrTimeout(deadline, 30000) }
       )
       if ((await stat(prefix + '.png')).size > 16 * 1024 * 1024)
-        throw new WorkflowError('VALIDATION_INVALID', 'OCR raster exceeds limit')
+        throw new PDFProcessingError('pdf_capacity', 'OCR raster exceeds limit')
       let recognized = await runOCRTool(
         'tesseract',
         [prefix + '.png', 'stdout', '-l', languages.join('+'), '--psm', '3'],
@@ -206,7 +208,7 @@ export async function ocrPages(
       result[i] = pages[i].trim() ? pages[i] + '\n' + recognized : recognized
       await rm(prefix + '.png')
       if (result.reduce((n, p) => n + p.length, 0) > limits.maxCharacters)
-        throw new WorkflowError('VALIDATION_INVALID', 'OCR text exceeds limit')
+        throw new PDFProcessingError('pdf_capacity', 'OCR text exceeds limit')
     }
     return result
   } finally {

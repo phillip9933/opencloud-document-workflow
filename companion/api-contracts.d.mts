@@ -98,6 +98,7 @@ export interface RouteServices {
   cloudKey?: string
   send: QueueRouteServices['send']
   languages: QueueRouteServices['languages']
+  readCurrentInbox: QueueRouteServices['readCurrentInbox']
   describeFilesForActor(
     actor: Actor,
     listing: import('./contracts.d.mts').FileEntry[]

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { defaultPolicy } from '../../src/domain/review.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -566,6 +567,125 @@ test('intake picks up a renewed adapter between items and stops the cohort when 
     assert.equal(s.intake.running, false)
     assert.equal(s.intake.activeScope, null)
     assert.equal(s.j.db.prepare('select count(*) n from workflow_locks').get().n, 0)
+  } finally {
+    s.close()
+  }
+})
+
+test('intake never links a changed document revision to the discovered hash', async () => {
+  const s = await setup()
+  try {
+    const path = 'Inbox/english.pdf'
+    s.w.parsePDF = async () => ({ pages: ['Synthetic revision'], ocrAttempted: false })
+    const configuration = {
+      rulesOnly: true,
+      policy: { ...defaultPolicy(), aiInput: 'off', aiOutput: 'off' }
+    }
+    let replaced = false
+    s.intake.prepare = async (actor, api, file, options) => {
+      if (file === path && !replaced) {
+        replaced = true
+        const bytes = await api.get(path, '"v1"')
+        await api.replacePDF(path, Buffer.concat([bytes, Buffer.from(' revised')]), '"v1"')
+      }
+      return s.w.prepare(actor, api, file, configuration, options)
+    }
+    await s.intake.tick({ force: true })
+    s.advance()
+    await s.intake.tick({ force: true })
+    const original = s.j.db
+      .prepare('select state,job from intake_queue where path=? and etag=?')
+      .get(path, '"v1"')
+    assert.equal(original.job, null)
+    assert.notEqual(original.state, 'prepared')
+    assert.equal(
+      s.j.db.prepare('select job from intake_content where resource=?').get('demo-english').job,
+      null
+    )
+    await s.intake.tick({ force: true })
+    s.advance()
+    await s.intake.tick({ force: true })
+    const revised = s.j.db
+      .prepare(
+        "select q.state, ic.sha, json_extract(p.input,'$.source.sha256') hash from intake_queue q join proposals p on p.id=q.job join intake_content ic on ic.job=q.job where q.path=? and q.etag=?"
+      )
+      .get(path, '"replaced"')
+    assert.equal(revised.state, 'prepared')
+    assert.equal(revised.sha, revised.hash)
+  } finally {
+    s.close()
+  }
+})
+
+test('duplicate ownership is not assigned to a replacement with a reused ETag', async () => {
+  const s = await setup()
+  try {
+    const path = 'Inbox/english.pdf'
+    const get = s.api.get.bind(s.api)
+    let replaced = false
+    s.api.get = async (requested, ...args) => {
+      if (requested === path && !replaced) {
+        replaced = true
+        s.j.db
+          .prepare('update demo_files set resourceId=? where path=?')
+          .run('replacement-resource', path)
+      }
+      return get(requested, ...args)
+    }
+    await s.intake.tick({ force: true })
+    s.advance()
+    await s.intake.tick({ force: true })
+    assert.equal(
+      s.j.db.prepare('select job from intake_content where resource=?').get('demo-english'),
+      undefined
+    )
+    await s.intake.tick({ force: true })
+    s.advance()
+    await s.intake.tick({ force: true })
+    assert.equal(
+      s.j.db.prepare('select state from intake_queue where resource=?').get('replacement-resource')
+        .state,
+      'prepared'
+    )
+  } finally {
+    s.close()
+  }
+})
+
+test('preparation checks the discovered bytes before extraction even when identity and ETag match', async () => {
+  const s = await setup()
+  try {
+    const path = 'Inbox/english.pdf'
+    const get = s.api.get.bind(s.api)
+    let reads = 0
+    let extractions = 0
+    s.api.get = async (requested, ...args) => {
+      const bytes = await get(requested, ...args)
+      if (requested === path && ++reads === 2)
+        return Buffer.concat([bytes, Buffer.from(' changed')])
+      return bytes
+    }
+    s.w.parsePDF = async () => {
+      extractions++
+      return { pages: ['Synthetic revision'], ocrAttempted: false }
+    }
+    const configuration = {
+      rulesOnly: true,
+      policy: { ...defaultPolicy(), aiInput: 'off', aiOutput: 'off' }
+    }
+    const prepare = s.intake.prepare
+    s.intake.prepare = (actor, api, file, options) =>
+      file === path
+        ? s.w.prepare(actor, api, file, configuration, options)
+        : prepare(actor, api, file, options)
+    await s.intake.tick({ force: true })
+    s.advance()
+    await s.intake.tick({ force: true })
+    const row = s.j.db.prepare('select state,job from intake_queue where path=?').get(path)
+    assert.equal(reads, 2)
+    assert.equal(extractions, 0)
+    assert.notEqual(row.state, 'prepared')
+    assert.equal(row.job, null)
   } finally {
     s.close()
   }

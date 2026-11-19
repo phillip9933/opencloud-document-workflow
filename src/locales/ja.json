@@ -734,5 +734,12 @@
   "OpenCloud returned HTTP {status}.": "OpenCloudがHTTP {status}を返しました。",
   "Companion request failed": "コンパニオンへのリクエストに失敗しました",
   "Companion is not connected. Start the companion server or configure its same-origin route.": "コンパニオンに接続されていません。サーバーを起動するか、同一オリジンのルートを設定してください。",
-  "An internal error occurred. Check Activity before retrying.": "内部エラーが発生しました。再試行する前にアクティビティを確認してください。"
+  "An internal error occurred. Check Activity before retrying.": "内部エラーが発生しました。再試行する前にアクティビティを確認してください。",
+  "A selected OCR language is unavailable.": "選択したOCR言語を利用できません。",
+  "Install or select an available language under OCR languages in Processing settings, then retry.": "処理設定の「OCR言語」で言語をインストールするか、利用可能な言語を選択して、再試行してください。",
+  "A required PDF or OCR tool is unavailable.": "PDFまたはOCRの処理に必要なツールを利用できません。",
+  "Ask your administrator to check the document worker installation.": "管理者に文書処理サービスのインストール状況を確認するよう依頼してください。",
+  "The document exceeds the PDF processing limits.": "文書がPDF処理の上限を超えています。",
+  "Split the PDF into smaller documents and retry.": "PDFを小さな文書に分割して、再試行してください。",
+  "More than 64 pages require OCR.": "OCRが必要なページが64ページを超えています。"
 }

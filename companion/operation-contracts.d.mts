@@ -37,6 +37,7 @@ export interface OperationResult {
   uncertain?: boolean
   id?: string
   detail?: string | null
+  pdfReason?: import('./pdf-errors.mjs').PDFReason
   error?: string
   stage?: string
   startedAt?: string

@@ -1,9 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { WorkflowError } from '../src/domain/errors.ts'
 import { safePath } from '../src/domain/review.ts'
+/**
+ * @param {{folder:string,recursive:boolean}} config @param {string} space
+ * @param {string} destinationSpace @param {string} destination
+ */
+export function inboxListingOptions(config, space, destinationSpace, destination) {
+  const { folder } = config
+  const excluded = space === destinationSpace ? destination : undefined
+  if (excluded && (folder === excluded || folder.startsWith(excluded + '/')))
+    throw new WorkflowError('OPERATION_HELD', 'The inbox is inside the filing destination')
+  return { ...config, excluded }
+}
+
 // Lists only the configured inbox. Folder-picker browsing uses the original API.
-/** @param {import('./contracts.d.mts').FileReader} api @param {{folder:string,recursive:boolean}} options */
-export async function inboxFiles(api, { folder, recursive }) {
+/** @param {import('./contracts.d.mts').FileReader} api @param {{folder:string,recursive:boolean,excluded?:string}} options */
+export async function inboxFiles(api, { folder, recursive, excluded }) {
   const pending = [folder],
     seen = new Set(),
     files = /** @type {import('./contracts.d.mts').FileEntry[]} */ ([])
@@ -18,7 +30,7 @@ export async function inboxFiles(api, { folder, recursive }) {
       if (!file.path.startsWith(path + '/') || file.path.slice(path.length + 1).includes('/'))
         throw new WorkflowError('OPERATION_HELD', 'Inbox listing outside requested folder')
       if (file.folder) {
-        if (recursive) pending.push(file.path)
+        if (recursive && file.path !== excluded) pending.push(file.path)
       } else files.push(file)
     }
   }

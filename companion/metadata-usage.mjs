@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { WorkflowError } from '../src/domain/errors.ts'
 import { metadataUsage } from '../src/domain/metadata-usage.ts'
-import { inboxFiles } from './inbox.mjs'
+import { inboxFiles, inboxListingOptions } from './inbox.mjs'
 /** @param {import('./workflow.mjs').Workflow} workflow @param {import('./documents.mjs').DocumentLibrary} documents
  * @param {import('./contracts.d.mts').Actor} actor @param {import('./contracts.d.mts').MutationAdapter} api */
 export async function definitionUsage(workflow, documents, actor, api) {
@@ -39,8 +39,13 @@ export async function definitionUsage(workflow, documents, actor, api) {
     }
   }
   if (configured) {
-    const configuration = JSON.parse(String(configured))
-    for (const file of await inboxFiles(api, { ...configuration, recursive: true }))
+    const options = inboxListingOptions(
+      { ...JSON.parse(String(configured)), recursive: true },
+      actor.space,
+      initial.space,
+      initial.root
+    )
+    for (const file of await inboxFiles(api, options))
       entries.push({
         ...file,
         folder: !!file.folder,

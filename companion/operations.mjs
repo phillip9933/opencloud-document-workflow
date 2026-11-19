@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { WorkflowError, errorCode } from '../src/domain/errors.ts'
+import { PDFProcessingError } from './pdf-errors.mjs'
+import { ConversionWorkerBusy } from './conversion-client.mjs'
 import { checkOperationCapacity, maxResultBytes } from './operation-capacity.mjs'
 import { logEvent } from './logging.mjs'
 import { withTransaction } from './transactions.mjs'
@@ -450,7 +452,10 @@ export class Operations {
       const result = await this.executeItem(actor, api, physical, operation, item)
       return this.recordResult(id, item.position, operation.kind, result)
     } catch (error) {
-      if (errorCode(error) === 'WORKFLOW_BUSY' && operation.kind === 'prepare') {
+      if (
+        (operation.kind === 'prepare' && errorCode(error) === 'WORKFLOW_BUSY') ||
+        (operation.kind === 'convert' && error instanceof ConversionWorkerBusy)
+      ) {
         this.item(id, item.position, 'queued', null)
         return 'busy'
       }
@@ -563,6 +568,7 @@ export class Operations {
     const message = error instanceof Error ? error.message : ''
     this.item(id, position, 'held', {
       ...(stage ? { stage } : {}),
+      ...(error instanceof PDFProcessingError ? { pdfReason: error.pdfReason } : {}),
       finishedAt: new Date().toISOString(),
       error:
         message && message.length < 220 && !/[\r\n]/.test(message)

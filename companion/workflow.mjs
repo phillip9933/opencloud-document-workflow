@@ -301,6 +301,7 @@ export class Workflow {
       cloudKey,
       expectedResourceId,
       expectedEtag,
+      expectedSha256,
       onProgress = () => {}
     } = {}
   ) {
@@ -344,7 +345,8 @@ export class Workflow {
         path,
         before,
         configuration,
-        progress
+        progress,
+        expectedSha256
       )
       if (newReview) {
         this.assertReprocessable(actor, source)
@@ -387,8 +389,8 @@ export class Workflow {
   /** @param {Actor} actor @param {Adapter} api @param {string} path
    * @param {import('./contracts.d.mts').FileEntry} before
    * @param {import('./proposal-contracts.d.mts').ProposalConfiguration} configuration
-   * @param {(stage:import('./workflow-contracts.d.mts').ProcessingStage)=>void} progress */
-  async readPreparedInput(actor, api, path, before, configuration, progress) {
+   * @param {(stage:import('./workflow-contracts.d.mts').ProcessingStage)=>void} progress @param {string} [expectedSha256] */
+  async readPreparedInput(actor, api, path, before, configuration, progress, expectedSha256) {
     const settings = this.configuration.settings(actor)
     const { source, input, ocrAttempted } = await readDocument({
       actor,
@@ -398,6 +400,7 @@ export class Workflow {
       configuration,
       limits: settings.limits,
       parse: this.parsePDF,
+      expectedSha256,
       progress,
       onOCR: (source) =>
         this.event(actor, null, 'ocr_extracted', {

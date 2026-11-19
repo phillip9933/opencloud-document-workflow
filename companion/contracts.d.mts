@@ -101,6 +101,7 @@ export interface DocumentReadOptions {
   api: DocumentReader
   path: string
   before: FileEntry
+  expectedSha256?: string
   configuration: { policy: import('../src/domain/review.ts').Policy; ocrLanguages?: string[] }
   limits?: ProcessingLimits
   progress(stage: 'ocr'): void

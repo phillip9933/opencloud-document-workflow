@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { responseBytes } from './remote-transport.mjs'
 import { WorkflowError } from '../src/domain/errors.ts'
+// The worker declined this render before accepting any document work.
+export class ConversionWorkerBusy extends WorkflowError {
+  constructor() {
+    super('WORKFLOW_BUSY', 'The document worker is busy')
+  }
+}
 /** @param {string|undefined} endpoint */
 export function workerOrigin(endpoint) {
   if (!endpoint)
@@ -29,7 +35,7 @@ export async function renderRemotePDF(endpoint, bytes, extension) {
   })
   if (response.status === 503) {
     await response.body?.cancel()
-    throw new WorkflowError('WORKFLOW_BUSY', 'The document worker is busy')
+    throw new ConversionWorkerBusy()
   }
   if (!response.ok) {
     const message = (await responseBytes(response, 1024)).toString('utf8')

@@ -13,6 +13,7 @@ export async function readDocument({
   api,
   path,
   before,
+  expectedSha256,
   configuration,
   limits: configuredLimits,
   progress,
@@ -33,6 +34,8 @@ export async function readDocument({
     etag: before.etag,
     sha256: createHash('sha256').update(bytes).digest('hex')
   }
+  if (expectedSha256 !== undefined && source.sha256 !== expectedSha256)
+    throw new WorkflowError('SOURCE_CHANGED', 'Source changed during reading')
   const { pages, ocrAttempted } = await parse(
     bytes,
     {

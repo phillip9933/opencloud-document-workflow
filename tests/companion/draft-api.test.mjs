@@ -1556,3 +1556,57 @@ test('review lists omit evidence and a filed job follows its readable identity a
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('flat Inbox and Activity exclude the nested filing tree only in the destination Space', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-nested-filing-'))
+  const database = join(dir, 'db'),
+    api = createDraftAPI({ database, mode: 'demo', allowOrigin: 'http://127.0.0.1:5175' })
+  const db = new DatabaseSync(database)
+  try {
+    const settings = (await call(api, 'filing-settings')).data,
+      root = 'Inbox/Filed'
+    db.prepare('insert into demo_files values(?,?,?,?,?,?)').run(
+      root,
+      'folder-filed',
+      'v1',
+      '[]',
+      1,
+      null
+    )
+    db.prepare('insert into demo_files values(?,?,?,?,?,?)').run(
+      root + '/saved.pdf',
+      'saved',
+      'v1',
+      '[]',
+      0,
+      Buffer.from('saved')
+    )
+    for (const [space, total] of [
+      ['local-draft', 3],
+      ['local-archive', 4]
+    ]) {
+      assert.equal(
+        (
+          await call(api, 'filing-settings-save', {
+            ...settings,
+            rules: { ...settings.rules, root },
+            destinationSpace: space
+          })
+        ).status,
+        200
+      )
+      const flat = await call(api, 'files', { path: 'Inbox', flattenInbox: true })
+      assert.equal(flat.data.summary.total, total)
+      assert.equal(
+        flat.data.files.some((file) => file.resourceId === 'saved'),
+        space === 'local-archive'
+      )
+      const current = await call(api, 'intake', { currentInbox: true })
+      assert.equal(current.data.summary.total, total)
+    }
+  } finally {
+    db.close()
+    api.close()
+    rmSync(dir, { recursive: true })
+  }
+})

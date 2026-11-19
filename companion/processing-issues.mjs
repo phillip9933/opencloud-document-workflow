@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { isPDFReason, pdfIssue } from './pdf-errors.mjs'
 import { responseRecord } from './provider-response.mjs'
 import { selectBulkPreparation } from './bulk-preparation.mjs'
 import { manualReviewReason } from '../src/domain/errors.ts'
@@ -7,6 +8,7 @@ import { manualReviewReason } from '../src/domain/errors.ts'
 export function preparationIssue(error) {
   const reason = manualReviewReason(error)
   const raw = responseRecord(error)
+  if (isPDFReason(raw.pdfReason)) return pdfIssue(raw.pdfReason)
   const text = typeof raw.message === 'string' ? raw.message : ''
   /** @param {string} message @param {string} nextStep */
   const result = (message, nextStep) => ({
@@ -191,8 +193,8 @@ export function processingIssue(workflow, actor, source) {
   if (batch && ['queued', 'running'].includes(batch.state)) return null
   if (batch?.state === 'held')
     return {
-      ...preparationIssue({ message: batch.result.error }),
-      settings: '/document-workflow/activity',
+      ...preparationIssue({ message: batch.result.error, pdfReason: batch.result.pdfReason }),
+      ...(isPDFReason(batch.result.pdfReason) ? {} : { settings: '/document-workflow/activity' }),
       retryable: false
     }
   return queueIssue(workflow, row, automatic, decision, result)
@@ -242,7 +244,13 @@ export function preparationState(workflow, actor, source) {
       paused: batch.operationState === 'paused',
       processingIssue:
         batch.state === 'held'
-          ? { ...preparationIssue({ message: batch.result.error }), retryable: false }
+          ? {
+              ...preparationIssue({
+                message: batch.result.error,
+                pdfReason: batch.result.pdfReason
+              }),
+              retryable: false
+            }
           : null
     }
   const rowIntake = workflow.db

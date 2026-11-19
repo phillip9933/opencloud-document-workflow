@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { isPDFReason, PDFProcessingError } from './pdf-errors.mjs'
 import { OCR_BUDGET_MS } from './ocr.mjs'
 import { request } from 'node:http'
 import { workerOrigin } from './conversion-client.mjs'
@@ -42,6 +43,7 @@ async function parseReply(response, limits) {
   }
   if (response.statusCode !== 200) {
     const reply = await readReply(response, 1024)
+    if (isPDFReason(reply?.pdfReason)) throw new PDFProcessingError(reply.pdfReason)
     if (reply?.code === 'DEPENDENCY_UNAVAILABLE')
       throw new WorkflowError('DEPENDENCY_UNAVAILABLE', 'PDF worker tools or OCR data are missing')
     throw new WorkflowError('OPERATION_HELD', 'PDF extraction or OCR did not complete')

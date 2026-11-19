@@ -202,12 +202,20 @@ function refreshAfterChange(updated?: {
     void load()
   }
 }
-watch(locked, (value) => {
-  if (!value && refreshPending) {
-    refreshPending = false
-    void load()
-  }
-})
+watch(
+  locked,
+  (value) => {
+    if (value && loading.value) {
+      generation++
+      loading.value = false
+      refreshPending = true
+    } else if (!value && refreshPending) {
+      refreshPending = false
+      void load()
+    }
+  },
+  { flush: 'sync' }
+)
 watch(
   () => JSON.stringify(filter.value),
   () => {

@@ -295,3 +295,41 @@ it('updates a confirmed document in place without re-indexing folders and refres
     s.w.unmount()
   }
 })
+
+it('defers an in-flight folder refresh when the open editor becomes dirty', async () => {
+  const s = await setup()
+  try {
+    await button(s.w, 'registration.pdf').trigger('click')
+    await flushPromises()
+    const editor = s.w.findComponent(Details).vm
+    let finish!: () => void
+    const pending = new Promise<void>((done) => {
+      finish = done
+    })
+    s.request.mockImplementation(async (_op, body: any) => {
+      await pending
+      const path = body?.path ?? 'Docs'
+      return {
+        root: 'Docs',
+        space: 'library',
+        path,
+        files: entries
+          .filter((e) => e.path.split('/').slice(0, -1).join('/') === path)
+          .map((e) => ({ ...e, etag: 'v2' }))
+      }
+    })
+    const before = s.request.mock.calls.length
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+    expect(s.request.mock.calls.length).toBeGreaterThan(before)
+    await button(s.w, 'Draft').trigger('click')
+    finish()
+    await flushPromises()
+    expect(s.w.findComponent(Details).vm === editor).toBe(true)
+    await button(s.w, 'Saved').trigger('click')
+    await flushPromises()
+    expect(s.w.findComponent(Details).vm === editor).toBe(false)
+  } finally {
+    s.w.unmount()
+  }
+})
