@@ -54,7 +54,7 @@
   "packageManager": "pnpm@11.25.0",
   "dependencies": {
     "fast-xml-parser": "5.12.1",
-    "pdfjs-dist": "6.4.299"
+    "pdfjs-dist": "6.5.438"
   },
   "releaseChannel": "stable",
   "engines": {
