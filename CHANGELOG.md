@@ -1,6 +1,14 @@
 # Changelog
 
-## 1.0.0 candidate
+## 1.0.1
+
+- Verify intake file identity, version and content before preparing a review or recording a duplicate.
+- Preserve unsaved library edits during a background refresh.
+- Exclude a nested filing destination consistently from Inbox and Activity counts.
+- Retry conversion when the worker is busy and has not accepted the request.
+- Show specific PDF and OCR errors with recovery steps.
+
+## 1.0.0
 
 - Run PDF extraction and OCR in the isolated document worker.
 - Stream previews, cap file sizes and limit simultaneous downloads.

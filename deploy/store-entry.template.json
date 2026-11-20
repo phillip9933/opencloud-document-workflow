@@ -6,11 +6,11 @@
   "license": "AGPL-3.0-only",
   "versions": [
     {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "releaseDate": "RELEASE_DATE",
       "minOpenCloud": "9.0.0",
-      "url": "RELEASE_BASE_URL/document-workflow-1.0.0.zip",
-      "filename": "document-workflow-1.0.0.zip"
+      "url": "RELEASE_BASE_URL/document-workflow-1.0.1.zip",
+      "filename": "document-workflow-1.0.1.zip"
     }
   ],
   "authors": [
@@ -42,7 +42,7 @@
     },
     {
       "label": "Coordinated installation kit",
-      "url": "RELEASE_BASE_URL/document-workflow-1.0.0-install.tar.gz"
+      "url": "RELEASE_BASE_URL/document-workflow-1.0.1-install.tar.gz"
     },
     {
       "label": "Checksums",

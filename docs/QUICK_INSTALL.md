@@ -56,5 +56,5 @@ Only use plain HTTP on a network you trust: extracted text goes to the selected
 AI server. HTTPS protects that traffic in transit.
 
 For attested releases, verify the downloaded kit before extracting it:
-`gh attestation verify document-workflow-1.0.0-install.tar.gz --repo phillip9933/opencloud-document-workflow --signer-workflow phillip9933/opencloud-document-workflow/.github/workflows/checks.yml`.
+`gh attestation verify document-workflow-1.0.1-install.tar.gz --repo phillip9933/opencloud-document-workflow --signer-workflow phillip9933/opencloud-document-workflow/.github/workflows/checks.yml`.
 Then use the kit’s checksums to verify the extracted files.

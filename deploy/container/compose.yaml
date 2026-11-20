@@ -2,7 +2,7 @@
 # Manual deployment example. Install the matching web ZIP through OpenCloud’s apps directory.
 services:
   document-workflow:
-    image: document-workflow-companion:1.0.0
+    image: document-workflow-companion:1.0.1
     build:
       context: ../..
       dockerfile: deploy/container/Dockerfile
@@ -40,7 +40,7 @@ services:
       traefik.http.routers.document-workflow.priority: "200"
       traefik.http.services.document-workflow.loadbalancer.server.port: "5175"
   converter:
-    image: document-workflow-companion:1.0.0
+    image: document-workflow-companion:1.0.1
     command: [companion/conversion-server.mjs]
     restart: unless-stopped
     read_only: true
