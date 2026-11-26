@@ -2,9 +2,13 @@
 
 Document Workflow brings lightweight document management directly into OpenCloud, inspired by apps like Paperless-ngx and Papra. Organize your documents with searchable text, tags and custom fields, with optional AI assistance to suggest filenames, folders, and document details. Review suggestions before filing or automate the process from your chosen inbox without leaving OpenCloud.
 
-**1.0.1 candidate.** Targets OpenCloud 9 and Web SDK 8.2.1. It is an independent community app, not an official OpenCloud product.
+<a href="https://github.com/phillip9933/opencloud-document-workflow/releases/tag/v1.0.1"><img src="docs/badges/github-releases.svg" alt="Download Document Workflow 1.0.1 from GitHub Releases" height="40"></a>
 
-## What it does
+**Support:** [Buy me a coffee](https://buymeacoffee.com/phillip9933) · [GitHub Sponsors](https://github.com/sponsors/phillip9933)
+
+**1.0.1.** Targets OpenCloud 9 and Web SDK 8.2.1. It is an independent community app, not an official OpenCloud product.
+
+## Features
 
 - Watch folder to manually or automatically check for incoming documents.
 - Extracts PDF text and reads scanned pages locally using Tesseract OCR with optional convert to PDF for unsupported filetypes. (can still tag and add fields manually to unsupported file types)
@@ -47,8 +51,8 @@ See [Source builds](docs/LOCAL_BUILD.md), [Architecture](docs/ARCHITECTURE.md), 
 
 New application code is **AGPL-3.0-only**. The upstream OpenCloud skeleton and dependencies retain their licenses; see [Third-party notices](THIRD_PARTY_NOTICES.md), `LICENSES/` and the [dependency inventory](docs/dependencies.cdx.json).
 
+See [validation](submission/VALIDATION.md) and [contribution guidance](CONTRIBUTING.md).
+
 ## AI usage
 
-I use AI tools to help with development, including analysis, code, tests and documentation. I care about security, privacy and protecting people's data, and I try to reflect that in how I build these projects.
-
-Validation records distinguish checks actually run from checks still required. See [validation](submission/VALIDATION.md) and [contribution guidance](CONTRIBUTING.md).
+I use AI tools for analysis, implementation, tests, and documentation. I decide what ships and take responsibility for maintaining it. Project-specific testing and known limitations are documented separately.
