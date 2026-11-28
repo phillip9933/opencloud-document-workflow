@@ -5,8 +5,13 @@ FROM ${NODE_IMAGE}
 LABEL org.opencontainers.image.title="OpenCloud Document Workflow companion" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 RUN apt-get update && apt-get install --no-install-recommends -y \
-      apt libapt-pkg6.0 python3-uno python3-img2pdf libreoffice-writer libreoffice-calc libreoffice-impress libreoffice-draw mupdf-tools poppler-utils poppler-data fonts-noto-core fonts-noto-cjk tesseract-ocr tesseract-ocr-eng tesseract-ocr-jpn \
+      apt libapt-pkg6.0 libpam-modules libpam-modules-bin libpam-runtime libpam0g libzstd1 \
+      python3-uno python3-img2pdf libreoffice-writer libreoffice-calc libreoffice-impress libreoffice-draw mupdf-tools poppler-utils poppler-data fonts-noto-core fonts-noto-cjk tesseract-ocr tesseract-ocr-eng tesseract-ocr-jpn \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge 2.6.2 \
+    && for pkg in libpam-modules libpam-modules-bin libpam-runtime libpam0g; do \
+         dpkg --compare-versions "$(dpkg-query -W -f='${Version}' "$pkg")" ge '1.5.2-6+deb12u3' || exit 1; \
+       done \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libzstd1)" ge '1.5.4+dfsg2-5+deb12u1' \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /var/lib/apt/lists/* \
     && install -d -m 0700 -o 65534 -g 65534 /state /credentials /backups \
     && install -d -m 0755 -o 65534 -g 65534 /workflow-tessdata \
