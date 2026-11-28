@@ -2,7 +2,7 @@
 
 Document Workflow brings lightweight document management directly into OpenCloud, inspired by apps like Paperless-ngx and Papra. Organize your documents with searchable text, tags and custom fields, with optional AI assistance to suggest filenames, folders, and document details. Review suggestions before filing or automate the process from your chosen inbox without leaving OpenCloud.
 
-<a href="https://github.com/phillip9933/opencloud-document-workflow/releases/tag/v1.0.1"><img src="docs/badges/github-releases.svg" alt="Download Document Workflow 1.0.1 from GitHub Releases" height="40"></a>
+<a href="https://github.com/phillip9933/opencloud-document-workflow/releases/tag/v1.0.1"><img src="docs/badges/github-releases.svg" alt="Download Document Workflow 1.0.1 for OpenCloud 9 on Docker Compose" height="40"></a>
 
 **Support:** [Buy me a coffee](https://buymeacoffee.com/phillip9933) · [GitHub Sponsors](https://github.com/sponsors/phillip9933)
 
@@ -10,13 +10,12 @@ Document Workflow brings lightweight document management directly into OpenCloud
 
 ## Features
 
-- Watch folder to manually or automatically check for incoming documents.
-- Extracts PDF text and reads scanned pages locally using Tesseract OCR with optional convert to PDF for unsupported filetypes. (can still tag and add fields manually to unsupported file types)
-- Uses OPTIONAL AI with local Ollama or compatible cloud AI endpoint for suggestions and automations. With AI off the OCR and field/tag matching rules can still work.
-- Files documents using configurable categories, naming patterns, custom fields and tag rules. Optional AI tag review reuses related existing tags and can propose new tags.
-- Preserves original PDF bytes and OpenCloud permissions. Duplicate detection with exact byte matches and similarity matches.
-- Provides optional unattended processing with OpenCloud App Tokens
-- Customizable backups stored in OpenCloud.
+- Check an inbox folder on demand or on a schedule. An optional OpenCloud App Token lets processing continue after you sign out.
+- Extract text from PDFs and read scanned pages with local OCR. You can file other formats as originals or choose to convert supported images and Office files to PDF.
+- Match fields and tags with rules. For additional suggestions, choose local Ollama or a compatible hosted AI provider. OCR and rule matching also work with AI off.
+- Review the proposed filename, folder, fields and tags beside the PDF, or configure automatic filing. AI tag review can reuse existing tags and suggest new ones.
+- Identify exact duplicates by file content and flag similar scans for review. Filing preserves the original PDF bytes.
+- Schedule backups of workflow records to a folder in OpenCloud.
 - Includes English, Japanese, Spanish, French and German UI, plus light, dark and system appearance. OCR languages and interpretation rules can be extended separately.
 
 ## Screenshots
@@ -37,7 +36,7 @@ All screenshots use fictional documents. Select an image to view it at full size
 
 ## Install
 
-Download the matching **installation kit** from [Releases](https://github.com/phillip9933/opencloud-document-workflow/releases). Extract it, verify `SHA256SUMS`, and run `./install.sh install` as an administrator on the Docker host. See [Quick install](docs/QUICK_INSTALL.md) for prerequisites, options and rollback.
+Download the matching **installation kit** from [Releases](https://github.com/phillip9933/opencloud-document-workflow/releases). Verify the kit’s GitHub attestation before extracting it. Check the extracted files against `SHA256SUMS`, then run `./install.sh install` as an administrator on the Docker host. See [Quick install](docs/QUICK_INSTALL.md) for prerequisites, options and rollback.
 
 The kit includes the Web app and the companion image build context, with Node, SQLite, Poppler, Tesseract and initial English/Japanese OCR data inside the container. The installer manages a separate document worker for PDF extraction, OCR, and optional conversion. It has no OpenCloud credentials, writable data volumes, public ports or internet route. Docker/Compose, Bash and `sha256sum` must already be available. Building the image downloads packages from the official Node/Debian sources. AI models are optional and configured separately.
 
@@ -45,13 +44,19 @@ The kit includes the Web app and the companion image build context, with Node, S
 
 After installation, choose Inbox and destination folders in Settings, configure models and OCR, and start with **Review first**. Enable automatic processing only after checking proposals against representative documents.
 
+## Privacy and security
+
+OpenCloud controls access to files and tags. The companion stores workflow history, extracted text and custom fields. If you enable hosted AI, document content for the selected task goes to the provider you choose. Workflow backups can include text from multiple users. Choose a backup folder with restricted access. See [data handling](docs/ARCHITECTURE.md) and [how to report a vulnerability](SECURITY.md).
+
 ## Build and contribute
 
-See [Source builds](docs/LOCAL_BUILD.md), [Architecture](docs/ARCHITECTURE.md), [Contributing](CONTRIBUTING.md), [Security](SECURITY.md) and [Release/submission notes](docs/STORE_PACKAGING.md). Source tests require Poppler (`pdfinfo`, `pdftotext`, `pdftoppm`) and Tesseract with English/Japanese data on the development host; the end-user installation kit supplies these inside its container. Test fixtures are synthetic. Personal filing taxonomies and live credentials are not shipped as defaults.
+See [Source builds](docs/LOCAL_BUILD.md), [Architecture](docs/ARCHITECTURE.md), [Design](docs/design.md), [Contributing](CONTRIBUTING.md), [Security](SECURITY.md) and [Release/submission notes](docs/STORE_PACKAGING.md). Source tests require Poppler (`pdfinfo`, `pdftotext`, `pdftoppm`) and Tesseract with English/Japanese data on the development host; the end-user installation kit supplies these inside its container. Test fixtures are synthetic. Personal filing taxonomies and live credentials are not shipped as defaults.
 
-New application code is **AGPL-3.0-only**. The upstream OpenCloud skeleton and dependencies retain their licenses; see [Third-party notices](THIRD_PARTY_NOTICES.md), `LICENSES/` and the [dependency inventory](docs/dependencies.cdx.json).
+See the [1.0.1 acceptance record](docs/ACCEPTANCE_1.0.1.md) and [earlier submission validation](submission/VALIDATION.md).
 
-See [validation](submission/VALIDATION.md) and [contribution guidance](CONTRIBUTING.md).
+## License
+
+New application code uses the [AGPL-3.0-only license](LICENSE). The upstream OpenCloud skeleton and dependencies retain their licenses; see [Third-party notices](THIRD_PARTY_NOTICES.md), `LICENSES/` and the [dependency inventory](docs/dependencies.cdx.json).
 
 ## AI usage
 
