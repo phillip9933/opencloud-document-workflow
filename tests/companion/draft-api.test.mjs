@@ -5,6 +5,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DemoAdapter } from '../../companion/demo.mjs'
+import { RemoteError } from '../../companion/opencloud.mjs'
 import { createDraftAPI } from '../../companion/draft-api.mjs'
 import { defaultAIConfig } from '../../src/domain/ai.ts'
 import { defaultPolicy, validateBundle, reviewDigest } from '../../src/domain/review.ts'
@@ -1229,6 +1231,69 @@ test('document tag removal API is exact-source scoped, preserves metadata, and c
     rmSync(dir, { recursive: true })
   }
 })
+test('document tag writes follow Space access independently of instance administration', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-space-roles-'))
+  const storage = new DatabaseSync(':memory:')
+  const accounts = new Map([
+    ['viewer', { edit: false, admin: false }],
+    ['admin-viewer', { edit: false, admin: true }],
+    ['editor', { edit: true, admin: false }]
+  ])
+  const api = createDraftAPI({
+    database: join(dir, 'journal'),
+    mode: 'live',
+    origin: 'https://opencloud.example',
+    space: 'local-draft',
+    allowOrigin: 'http://127.0.0.1:5175',
+    ocrPackOptions: { installed: async () => ['eng'] },
+    adapterFactory: ({ token, space }) => {
+      const rights = accounts.get(token)
+      if (!rights) throw new RemoteError(401)
+      const remote = new DemoAdapter(storage, { space })
+      remote.account = token
+      remote.isAdministrator = async () => rights.admin
+      if (!rights.edit)
+        remote.removeTags = async () => {
+          throw new RemoteError(403)
+        }
+      return remote
+    }
+  })
+  try {
+    const path = 'Inbox/english.pdf'
+    for (const [account, rights] of accounts) {
+      const headers = { authorization: 'Bearer ' + account }
+      const read = () => call(api, 'metadata', { path }, headers)
+      const before = await read()
+      assert.equal(before.status, 200)
+      assert.deepEqual(before.data.source.tags, ['Keep existing'])
+      const packs = await call(api, 'ocr-packs', {}, headers)
+      assert.equal(packs.status, 200)
+      assert.equal(packs.data.canManage, rights.admin)
+      const result = await call(
+        api,
+        'metadata-tag-remove',
+        {
+          ...before.data.source,
+          version: before.data.record.version,
+          tag: 'Keep existing'
+        },
+        headers
+      )
+      assert.equal(result.status, rights.edit ? 200 : 403)
+      const after = await read()
+      assert.equal(after.status, 200)
+      assert.deepEqual(after.data.source.tags, rights.edit ? [] : ['Keep existing'])
+      assert.equal(after.data.record.version, rights.edit ? 1 : 0)
+      assert.deepEqual(after.data.pending, [])
+    }
+  } finally {
+    await api.stop()
+    storage.close()
+    rmSync(dir, { recursive: true })
+  }
+})
+
 test('AI-off preparation keeps local text, OCR and extraction rules without any model calls or automatic writes', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'workflow-rules-only-')),
     api = createDraftAPI({
