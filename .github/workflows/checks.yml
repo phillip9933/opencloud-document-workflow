@@ -34,7 +34,7 @@ jobs:
       - name: Install extraction tools for source tests
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y poppler-utils poppler-data tesseract-ocr tesseract-ocr-eng tesseract-ocr-jpn
       - run: mkdir -p coverage && pnpm run test:coverage
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: companion-coverage
           path: coverage/companion.lcov
@@ -102,7 +102,7 @@ jobs:
       - run: python3 scripts/validate_release.py
       - id: release-dir
         run: echo "path=artifacts/releases/$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: document-workflow-release
           path: ${{ steps.release-dir.outputs.path }}
@@ -129,7 +129,7 @@ jobs:
               assert {n: hashlib.sha256(archive.read(n)).hexdigest() for n in names} == release['files']
           PY
           docker image save document-workflow-ci:latest -o "$RUNNER_TEMP/runtime-release/runtime.tar"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: github.repository == 'phillip9933/opencloud-document-workflow' && github.event_name == 'release' && !github.event.release.prerelease
         with:
           name: tested-stable-runtime
